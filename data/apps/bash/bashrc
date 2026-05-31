@@ -43,7 +43,7 @@ export VIMINIT="set nocp | source ${CONFIG_HOME}/vim/vimrc"
 export VISUAL=bat
 
 # Set less cmd to preserve ansi coloring
-export LESS='-R'
+# export LESS='-R'
 
 # Set K9s NodeShell Active
 export K9S_FEATURE_GATE_NODE_SHELL=true
