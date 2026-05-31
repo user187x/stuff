@@ -40,6 +40,8 @@ alias fgrep='fgrep --color=always'
 alias egrep='egrep --color=always'
 alias tree='tree -C'
 
+alias untar='tar -xvf'
+
 # ==========================================
 # Dev-Tool Aliases
 # ==========================================

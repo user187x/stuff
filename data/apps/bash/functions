@@ -6,6 +6,26 @@ __FUNCTIONS_INITIALIZED__=1
 # UTILITY FUNCTIONS
 ############################################
 
+function tar-get {
+ 
+ if [[ "$#" != 1 ]]; then
+  echo "usage: tar-get <archive.tar>"
+  exit 1
+ fi
+
+ tar -xvf "$1" "$(tar -tf "$1" | fzf)"
+}
+
+function tar-put {
+
+ if [[ "$#" < 1 ]]; then
+  echo "usage: tar-put <archive.tar> <file>"
+  exit 1
+ fi
+
+ tar -rvf "$1" "$2"
+}
+
 # convenience function for installing pkgs
 function get {
 
