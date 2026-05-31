@@ -1,0 +1,25 @@
+k9s:
+  ui: nord
+  refreshRate: 2
+  maxRequestsPerSecond: 15
+  logger:
+    tail: 100
+    buffer: 5000
+    sinceSeconds: 600
+    fullScreen: false
+    textWrap: false
+    showTime: false
+  clusters:
+    minikube:
+      skin: nord
+      namespace:
+        active: all
+      view:
+        active: pods
+  thresholds:
+    cpu:
+      critical: 90
+      warn: 70
+    memory:
+      critical: 90
+      warn: 70

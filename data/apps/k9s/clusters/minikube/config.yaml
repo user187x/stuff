@@ -1,0 +1,9 @@
+k9s:
+  cluster: minikube
+  namespace:
+    active: all
+    favorites:
+    - all
+    - default
+  view:
+    active: pods

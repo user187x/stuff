@@ -1,0 +1,10 @@
+plugins:
+  minikube-dashboard:
+    shortCut: Shift-D
+    description: "Minikube Dashboard"
+    scopes:
+      - clusters
+    command: minikube
+    background: false
+    args:
+      - dashboard
