@@ -97,6 +97,15 @@ nnoremap __ :set number! relativenumber!<CR>
 " NerdTree Toggle
 nnoremap <C-n> :NERDTreeToggle<CR>
 
+" Delete a line with Leader + d without copying
+nnoremap <leader>d "_d
+vnoremap <leader>d "_d
+" Maps <Leader>da to delete all text without copying it >> spacebar + d + a
+nnoremap <Leader>da :%d _<CR>
+
+" Prevent 'x' from copying single characters
+nnoremap x "_x
+
 autocmd BufEnter *
   \ if tabpagenr('$') == 1 &&
   \  winnr('$') == 1 &&

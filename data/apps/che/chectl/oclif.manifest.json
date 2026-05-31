@@ -1,0 +1,1007 @@
+{
+  "version": "7.118.0",
+  "commands": {
+    "cacert:export": {
+      "id": "cacert:export",
+      "description": "Retrieves Eclipse Che self-signed certificate",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "destination": {
+          "name": "destination",
+          "type": "option",
+          "char": "d",
+          "description": "Destination where to store Eclipse Che self-signed CA certificate.\n                    If the destination is a file (might not exist), then the certificate will be saved there in PEM format.\n                    If the destination is a directory, then cheCA.crt file will be created there with Eclipse Che certificate in PEM format.\n                    If this option is omitted, then Eclipse Che certificate will be stored in a user's temporary directory as cheCA.crt.",
+          "multiple": false,
+          "default": ""
+        }
+      },
+      "args": {}
+    },
+    "dashboard:open": {
+      "id": "dashboard:open",
+      "description": "Open Eclipse Che dashboard",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "args": {}
+    },
+    "server:debug": {
+      "id": "server:debug",
+      "description": "Enable local debug of Eclipse Che server",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "debug-port": {
+          "name": "debug-port",
+          "type": "option",
+          "description": "Eclipse Che server debug port",
+          "multiple": false,
+          "default": 8000
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        }
+      },
+      "args": {}
+    },
+    "server:delete": {
+      "id": "server:delete",
+      "description": "delete any Eclipse Che related resource",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "delete-all": {
+          "name": "delete-all",
+          "type": "boolean",
+          "description": "Indicates to delete Eclipse Che and Dev Workspace related resources",
+          "allowNo": false
+        },
+        "delete-namespace": {
+          "name": "delete-namespace",
+          "type": "boolean",
+          "description": "Indicates that a Eclipse Che namespace will be deleted as well",
+          "allowNo": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "boolean",
+          "description": "Batch mode. Running a command without end user interaction.",
+          "required": false,
+          "allowNo": false
+        },
+        "yes": {
+          "name": "yes",
+          "type": "boolean",
+          "char": "y",
+          "description": "Automatic yes to prompts; assume \"yes\" as answer to all prompts and run non-interactively",
+          "required": false,
+          "allowNo": false,
+          "exclusive": [
+            "batch"
+          ]
+        }
+      },
+      "args": {}
+    },
+    "server:deploy": {
+      "id": "server:deploy",
+      "description": "Deploy Eclipse Che server",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "boolean",
+          "description": "Batch mode. Running a command without end user interaction.",
+          "required": false,
+          "allowNo": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "cheimage": {
+          "name": "cheimage",
+          "type": "option",
+          "char": "i",
+          "description": "Eclipse Che server container image",
+          "multiple": false
+        },
+        "templates": {
+          "name": "templates",
+          "type": "option",
+          "char": "t",
+          "description": "Path to the templates folder",
+          "multiple": false
+        },
+        "devfile-registry-url": {
+          "name": "devfile-registry-url",
+          "type": "option",
+          "description": "The URL of the external Devfile registry.",
+          "multiple": false
+        },
+        "plugin-registry-url": {
+          "name": "plugin-registry-url",
+          "type": "option",
+          "description": "The URL of the external plugin registry.",
+          "multiple": false
+        },
+        "k8spodwaittimeout": {
+          "name": "k8spodwaittimeout",
+          "type": "option",
+          "description": "Waiting time for Pod scheduled condition (in milliseconds)",
+          "multiple": false,
+          "default": "120000"
+        },
+        "k8spodreadytimeout": {
+          "name": "k8spodreadytimeout",
+          "type": "option",
+          "description": "Waiting time for Pod Ready condition (in milliseconds)",
+          "multiple": false,
+          "default": "120000"
+        },
+        "k8spoddownloadimagetimeout": {
+          "name": "k8spoddownloadimagetimeout",
+          "type": "option",
+          "description": "Waiting time for Pod downloading image (in milliseconds)",
+          "multiple": false,
+          "default": "1200000"
+        },
+        "k8spoderrorrechecktimeout": {
+          "name": "k8spoderrorrechecktimeout",
+          "type": "option",
+          "description": "Waiting time for Pod rechecking error (in milliseconds)",
+          "multiple": false,
+          "default": "60000"
+        },
+        "directory": {
+          "name": "directory",
+          "type": "option",
+          "char": "d",
+          "description": "Directory to store logs into",
+          "multiple": false
+        },
+        "platform": {
+          "name": "platform",
+          "type": "option",
+          "char": "p",
+          "description": "Type of Kubernetes platform.",
+          "multiple": false,
+          "options": [
+            "minikube",
+            "k8s",
+            "openshift",
+            "microk8s",
+            "docker-desktop",
+            "crc"
+          ]
+        },
+        "installer": {
+          "name": "installer",
+          "type": "option",
+          "char": "a",
+          "description": "Installer type. If not set, default is \"olm\" for OpenShift 4.x platform otherwise \"operator\".",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "operator",
+            "olm"
+          ]
+        },
+        "domain": {
+          "name": "domain",
+          "type": "option",
+          "char": "b",
+          "description": "Domain of the Kubernetes cluster (e.g. example.k8s-cluster.com or <local-ip>.nip.io)\n                    This flag makes sense only for Kubernetes family infrastructures and will be autodetected for Minikube and MicroK8s in most cases.\n                    However, for Kubernetes cluster it is required to specify.\n                    Please note, that just setting this flag will not likely work out of the box.\n                    According changes should be done in Kubernetes cluster configuration as well.\n                    In case of Openshift, domain adjustment should be done on the cluster configuration level.",
+          "multiple": false,
+          "default": ""
+        },
+        "debug": {
+          "name": "debug",
+          "type": "boolean",
+          "description": "'Enables the debug mode for Eclipse Che server. To debug Eclipse Che server from localhost use 'server:debug' command.'",
+          "allowNo": false
+        },
+        "che-operator-image": {
+          "name": "che-operator-image",
+          "type": "option",
+          "description": "Container image of the operator.",
+          "multiple": false
+        },
+        "che-operator-cr-yaml": {
+          "name": "che-operator-cr-yaml",
+          "type": "option",
+          "description": "Path to a yaml file that defines a CheCluster used by the operator.",
+          "multiple": false,
+          "default": ""
+        },
+        "che-operator-cr-patch-yaml": {
+          "name": "che-operator-cr-patch-yaml",
+          "type": "option",
+          "description": "Path to a yaml file that overrides the default values in CheCluster CR used by the operator. This parameter is used only when the installer is the 'operator' or the 'olm'.",
+          "multiple": false,
+          "default": ""
+        },
+        "workspace-pvc-storage-class-name": {
+          "name": "workspace-pvc-storage-class-name",
+          "type": "option",
+          "description": "persistent volume(s) storage class name to use to store Eclipse Che workspaces data",
+          "multiple": false,
+          "default": ""
+        },
+        "skip-version-check": {
+          "name": "skip-version-check",
+          "type": "boolean",
+          "description": "Skip minimal versions check.",
+          "allowNo": false
+        },
+        "skip-cert-manager": {
+          "name": "skip-cert-manager",
+          "type": "boolean",
+          "description": "Skip installing Cert Manager (Kubernetes cluster only).",
+          "allowNo": false
+        },
+        "skip-devworkspace-operator": {
+          "name": "skip-devworkspace-operator",
+          "type": "boolean",
+          "description": "Skip installing Dev Workspace Operator.",
+          "allowNo": false
+        },
+        "auto-update": {
+          "name": "auto-update",
+          "type": "boolean",
+          "description": "Auto update approval strategy for installation Eclipse Che.\n                    With this strategy will be provided auto-update Eclipse Che without any human interaction.\n                    By default this flag is enabled.",
+          "allowNo": true
+        },
+        "starting-csv": {
+          "name": "starting-csv",
+          "type": "option",
+          "description": "Starting cluster service version(CSV) for installation Eclipse Che.\n                    Flags uses to set up start installation version Che.\n                    For example: 'starting-csv' provided with value 'eclipse-che.v7.10.0' for stable channel.\n                    Then OLM will install Eclipse Che with version 7.10.0.\n                    Notice: this flag will be ignored with 'auto-update' flag. OLM with auto-update mode installs the latest known version.",
+          "multiple": false
+        },
+        "olm-channel": {
+          "name": "olm-channel",
+          "type": "option",
+          "description": "Olm channel to install Eclipse Che, f.e. stable.\n                    If options was not set, will be used default version for package manifest.",
+          "multiple": false
+        },
+        "package-manifest-name": {
+          "name": "package-manifest-name",
+          "type": "option",
+          "description": "Package manifest name to subscribe to Eclipse Che OLM package manifest.",
+          "multiple": false
+        },
+        "catalog-source-yaml": {
+          "name": "catalog-source-yaml",
+          "type": "option",
+          "description": "Path to a yaml file that describes custom catalog source for installation Eclipse Che operator.\n                    Catalog source will be applied to the namespace with Eclipse Che operator.\n                    Also you need define 'olm-channel' name and 'package-manifest-name'.",
+          "multiple": false,
+          "dependsOn": [
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-name",
+            "catalog-source-namespace",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-name": {
+          "name": "catalog-source-name",
+          "type": "option",
+          "description": "Name of the OLM catalog source or index bundle (IIB) from which to install Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "catalog-source-namespace",
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-namespace": {
+          "name": "catalog-source-namespace",
+          "type": "option",
+          "description": "Namespace for OLM catalog source to install Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "catalog-source-name",
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-image": {
+          "name": "catalog-source-image",
+          "type": "option",
+          "description": "OLM catalog source image or index bundle (IIB) from which to install the Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-namespace",
+            "catalog-source-name"
+          ]
+        },
+        "cluster-monitoring": {
+          "name": "cluster-monitoring",
+          "type": "boolean",
+          "description": "Enable cluster monitoring to scrape Eclipse Che metrics in Prometheus.\n                    This parameter is used only when the platform is 'openshift'.",
+          "allowNo": false
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        }
+      },
+      "args": {}
+    },
+    "server:logs": {
+      "id": "server:logs",
+      "description": "Collect Eclipse Che logs",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "directory": {
+          "name": "directory",
+          "type": "option",
+          "char": "d",
+          "description": "Directory to store logs into",
+          "multiple": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        }
+      },
+      "args": {}
+    },
+    "server:start": {
+      "id": "server:start",
+      "description": "Start Eclipse Che server",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "boolean",
+          "description": "Batch mode. Running a command without end user interaction.",
+          "required": false,
+          "allowNo": false
+        },
+        "k8spodwaittimeout": {
+          "name": "k8spodwaittimeout",
+          "type": "option",
+          "description": "Waiting time for Pod scheduled condition (in milliseconds)",
+          "multiple": false,
+          "default": "120000"
+        },
+        "k8spodreadytimeout": {
+          "name": "k8spodreadytimeout",
+          "type": "option",
+          "description": "Waiting time for Pod Ready condition (in milliseconds)",
+          "multiple": false,
+          "default": "120000"
+        },
+        "k8spoddownloadimagetimeout": {
+          "name": "k8spoddownloadimagetimeout",
+          "type": "option",
+          "description": "Waiting time for Pod downloading image (in milliseconds)",
+          "multiple": false,
+          "default": "1200000"
+        },
+        "k8spoderrorrechecktimeout": {
+          "name": "k8spoderrorrechecktimeout",
+          "type": "option",
+          "description": "Waiting time for Pod rechecking error (in milliseconds)",
+          "multiple": false,
+          "default": "60000"
+        },
+        "directory": {
+          "name": "directory",
+          "type": "option",
+          "char": "d",
+          "description": "Directory to store logs into",
+          "multiple": false
+        }
+      },
+      "args": {}
+    },
+    "server:status": {
+      "id": "server:status",
+      "description": "Status Eclipse Che server",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "args": {}
+    },
+    "server:stop": {
+      "id": "server:stop",
+      "description": "stop Eclipse Che server",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        }
+      },
+      "args": {}
+    },
+    "server:update": {
+      "id": "server:update",
+      "description": "Update Eclipse Che server.",
+      "strict": true,
+      "pluginName": "chectl",
+      "pluginAlias": "chectl",
+      "pluginType": "core",
+      "aliases": [],
+      "hiddenAliases": [],
+      "examples": [
+        "# Update Eclipse Che:\nchectl server:update",
+        "\n# Update Eclipse Che in 'eclipse-che' namespace:\nchectl server:update -n eclipse-che",
+        "\n# Update Eclipse Che and update its configuration in the custom resource:\nchectl server:update --che-operator-cr-patch-yaml patch.yaml",
+        "\n# Update Eclipse Che from the provided channel:\nchectl server:update --olm-channel next",
+        "\n# Update Eclipse Che from the provided CatalogSource and channel:\nchectl server:update --olm-channel fast --catalog-source-name MyCatalogName --catalog-source-namespace MyCatalogNamespace",
+        "\n# Create CatalogSource based on provided image and update Eclipse Che from it:\nchectl server:update --olm-channel latest --catalog-source-image MyCatalogImage",
+        "\n# Create a CatalogSource defined in yaml file and update Eclipse Che from it:\nchectl server:update --olm-channel stable --catalog-source-yaml PATH_TO_CATALOG_SOURCE_YAML"
+      ],
+      "flags": {
+        "help": {
+          "name": "help",
+          "type": "boolean",
+          "char": "h",
+          "description": "Show CLI help.",
+          "allowNo": false
+        },
+        "chenamespace": {
+          "name": "chenamespace",
+          "type": "option",
+          "char": "n",
+          "description": "Eclipse Che Kubernetes namespace.",
+          "multiple": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "boolean",
+          "description": "Batch mode. Running a command without end user interaction.",
+          "required": false,
+          "allowNo": false
+        },
+        "yes": {
+          "name": "yes",
+          "type": "boolean",
+          "char": "y",
+          "description": "Automatic yes to prompts; assume \"yes\" as answer to all prompts and run non-interactively",
+          "required": false,
+          "allowNo": false,
+          "exclusive": [
+            "batch"
+          ]
+        },
+        "templates": {
+          "name": "templates",
+          "type": "option",
+          "char": "t",
+          "description": "Path to the templates folder",
+          "multiple": false
+        },
+        "che-operator-image": {
+          "name": "che-operator-image",
+          "type": "option",
+          "description": "Container image of the operator.",
+          "multiple": false
+        },
+        "che-operator-cr-patch-yaml": {
+          "name": "che-operator-cr-patch-yaml",
+          "type": "option",
+          "description": "Path to a yaml file that overrides the default values in CheCluster CR used by the operator. This parameter is used only when the installer is the 'operator' or the 'olm'.",
+          "multiple": false,
+          "default": ""
+        },
+        "skip-devworkspace-operator": {
+          "name": "skip-devworkspace-operator",
+          "type": "boolean",
+          "description": "Skip installing Dev Workspace Operator.",
+          "allowNo": false
+        },
+        "skip-kubernetes-health-check": {
+          "name": "skip-kubernetes-health-check",
+          "type": "boolean",
+          "description": "Skip Kubernetes health check",
+          "allowNo": false
+        },
+        "skip-version-check": {
+          "name": "skip-version-check",
+          "type": "boolean",
+          "description": "Skip minimal versions check.",
+          "allowNo": false
+        },
+        "telemetry": {
+          "name": "telemetry",
+          "type": "option",
+          "description": "Enable or disable telemetry. This flag skips a prompt and enable/disable telemetry",
+          "multiple": false,
+          "options": [
+            "on",
+            "off"
+          ]
+        },
+        "listr-renderer": {
+          "name": "listr-renderer",
+          "type": "option",
+          "description": "Listr renderer",
+          "hidden": true,
+          "multiple": false,
+          "options": [
+            "default",
+            "silent",
+            "verbose"
+          ],
+          "default": "default"
+        },
+        "olm-channel": {
+          "name": "olm-channel",
+          "type": "option",
+          "description": "Olm channel to install Eclipse Che, f.e. stable.\n                    If options was not set, will be used default version for package manifest.",
+          "multiple": false
+        },
+        "package-manifest-name": {
+          "name": "package-manifest-name",
+          "type": "option",
+          "description": "Package manifest name to subscribe to Eclipse Che OLM package manifest.",
+          "multiple": false
+        },
+        "catalog-source-namespace": {
+          "name": "catalog-source-namespace",
+          "type": "option",
+          "description": "Namespace for OLM catalog source to install Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "catalog-source-name",
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-name": {
+          "name": "catalog-source-name",
+          "type": "option",
+          "description": "Name of the OLM catalog source or index bundle (IIB) from which to install Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "catalog-source-namespace",
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-yaml": {
+          "name": "catalog-source-yaml",
+          "type": "option",
+          "description": "Path to a yaml file that describes custom catalog source for installation Eclipse Che operator.\n                    Catalog source will be applied to the namespace with Eclipse Che operator.\n                    Also you need define 'olm-channel' name and 'package-manifest-name'.",
+          "multiple": false,
+          "dependsOn": [
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-name",
+            "catalog-source-namespace",
+            "catalog-source-image"
+          ]
+        },
+        "catalog-source-image": {
+          "name": "catalog-source-image",
+          "type": "option",
+          "description": "OLM catalog source image or index bundle (IIB) from which to install the Eclipse Che operator.",
+          "multiple": false,
+          "dependsOn": [
+            "olm-channel"
+          ],
+          "exclusive": [
+            "catalog-source-yaml",
+            "catalog-source-namespace",
+            "catalog-source-name"
+          ]
+        },
+        "auto-update": {
+          "name": "auto-update",
+          "type": "boolean",
+          "description": "Auto update approval strategy for installation Eclipse Che.\n                    With this strategy will be provided auto-update Eclipse Che without any human interaction.\n                    By default this flag is enabled.",
+          "allowNo": true
+        },
+        "starting-csv": {
+          "name": "starting-csv",
+          "type": "option",
+          "description": "Starting cluster service version(CSV) for installation Eclipse Che.\n                    Flags uses to set up start installation version Che.\n                    For example: 'starting-csv' provided with value 'eclipse-che.v7.10.0' for stable channel.\n                    Then OLM will install Eclipse Che with version 7.10.0.\n                    Notice: this flag will be ignored with 'auto-update' flag. OLM with auto-update mode installs the latest known version.",
+          "multiple": false
+        }
+      },
+      "args": {}
+    }
+  }
+}

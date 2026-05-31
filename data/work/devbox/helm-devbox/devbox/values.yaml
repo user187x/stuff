@@ -1,0 +1,23 @@
+replicaCount: 1
+
+image:
+  repository: devbox # Set this to the exact name you used to tag your local build
+  pullPolicy: Never  # ⚠️ REQUIRED: Tells Minikube to use the local image instead of reaching out to the internet
+  tag: "latest"
+
+env:
+  user: "developer" # Matches the default user in your Dockerfile
+
+service:
+  type: ClusterIP # Change to NodePort or LoadBalancer if you want external access directly
+  novncPort: 8080
+  filebrowserPort: 8081
+
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: "" # Leave empty to use cluster default, or specify one (e.g., "standard")
+  accessMode: ReadWriteOnce
+
+securityContext:
+  privileged: true # ⚠️ REQUIRED for Docker-in-Docker to run dockerd

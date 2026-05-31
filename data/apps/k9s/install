@@ -13,6 +13,13 @@ CONTROLLED_RESOURCES=(
  "skins"
 )
 
+# Safe check whether its already on the PATH
+if ! command -v symlink-unlink-broken &> /dev/null; then
+ /home/xxx/devbox/data/utils/symlink-unlink-broken "${K9S_HOME}"
+else
+ symlink-unlink-broken "${K9S_HOME}"
+fi
+
 for RESOURCE in "${CONTROLLED_RESOURCES[@]}"; do
  ln -sf "$PWD/${RESOURCE}" "${K9S_HOME}/${RESOURCE}"
 done

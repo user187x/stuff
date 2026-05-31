@@ -1,0 +1,169 @@
+#
+# Copyright (c) 2019-2026 Red Hat, Inc.
+# This program and the accompanying materials are made
+# available under the terms of the Eclipse Public License 2.0
+# which is available at https://www.eclipse.org/legal/epl-2.0/
+#
+# SPDX-License-Identifier: EPL-2.0
+#
+# Contributors:
+#   Red Hat, Inc. - initial API and implementation
+#
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: che-operator
+    app.kubernetes.io/component: che-operator
+    app.kubernetes.io/instance: che
+    app.kubernetes.io/name: che
+    app.kubernetes.io/part-of: che.eclipse.org
+  name: che-operator
+  namespace: eclipse-che
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: che-operator
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: che-operator
+        app.kubernetes.io/component: che-operator
+        app.kubernetes.io/instance: che
+        app.kubernetes.io/name: che
+        app.kubernetes.io/part-of: che.eclipse.org
+    spec:
+      containers:
+      - args:
+        - --leader-elect
+        command:
+        - /manager
+        env:
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: OPERATOR_NAME
+          value: che-operator
+        - name: CHE_VERSION
+          value: 7.118.0
+        - name: RELATED_IMAGE_che_server
+          value: quay.io/eclipse/che-server:7.118.0
+        - name: RELATED_IMAGE_dashboard
+          value: quay.io/eclipse/che-dashboard:7.118.0
+        - name: RELATED_IMAGE_plugin_registry
+          value: quay.io/eclipse/che-plugin-registry:7.118.0
+        - name: RELATED_IMAGE_che_tls_secrets_creation_job
+          value: quay.io/eclipse/che-tls-secret-creator:9f9d4a6
+        - name: RELATED_IMAGE_single_host_gateway
+          value: quay.io/eclipse/che--traefik:v3.6.15-8cb20d16e01a53d8d7f7696ac2f1af7d200d5c9984d226ce2299731d9eab6d6c
+        - name: RELATED_IMAGE_single_host_gateway_config_sidecar
+          value: quay.io/che-incubator/configbump:7.118.0
+        - name: RELATED_IMAGE_gateway_authentication_sidecar
+          value: quay.io/openshift/origin-oauth-proxy:4.9
+        - name: RELATED_IMAGE_gateway_authorization_sidecar
+          value: quay.io/openshift/origin-kube-rbac-proxy:4.9
+        - name: RELATED_IMAGE_gateway_authentication_sidecar_k8s
+          value: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+        - name: RELATED_IMAGE_gateway_authorization_sidecar_k8s
+          value: quay.io/brancz/kube-rbac-proxy:v0.13.1
+        - name: RELATED_IMAGE_gateway_header_sidecar
+          value: quay.io/che-incubator/header-rewrite-proxy:latest
+        - name: CHE_FLAVOR
+          value: che
+        - name: CONSOLE_LINK_NAME
+          value: che
+        - name: CONSOLE_LINK_DISPLAY_NAME
+          value: Eclipse Che
+        - name: CONSOLE_LINK_SECTION
+          value: Red Hat Applications
+        - name: CONSOLE_LINK_IMAGE
+          value: /dashboard/assets/branding/loader.svg
+        - name: MAX_CONCURRENT_RECONCILES
+          value: "1"
+        - name: CHE_DEFAULT_SPEC_COMPONENTS_DASHBOARD_HEADERMESSAGE_TEXT
+          value: ""
+        - name: CHE_DEFAULT_SPEC_DEVENVIRONMENTS_DEFAULTEDITOR
+          value: che-incubator/che-code/latest
+        - name: CHE_DEFAULT_SPEC_DEVENVIRONMENTS_DEFAULTCOMPONENTS
+          value: '[{"name": "universal-developer-image", "container": {"image": "quay.io/devfile/universal-developer-image:ubi9-latest"}}]'
+        - name: CHE_DEFAULT_SPEC_COMPONENTS_PLUGINREGISTRY_OPENVSXURL
+          value: https://open-vsx.org
+        - name: CHE_DEFAULT_SPEC_COMPONENTS_DEVFILEREGISTRY_EXTERNAL_DEVFILE_REGISTRIES
+          value: '[{"url": "https://registry.devfile.io"}]'
+        - name: CHE_DEFAULT_SPEC_DEVENVIRONMENTS_DISABLECONTAINERBUILDCAPABILITIES
+          value: "false"
+        - name: CHE_DEFAULT_SPEC_DEVENVIRONMENTS_CONTAINERSECURITYCONTEXT
+          value: '{"allowPrivilegeEscalation": true,"capabilities": {"add": ["SETGID",
+            "SETUID"]}}'
+        - name: CHE_OPERATOR_WORKSPACES_CONFIG_CONTROLLER_LABELS_TO_REMOVE_BEFORE_SYNC_REGEXP
+          value: argocd[.]argoproj[.]io/.+
+        - name: CHE_OPERATOR_WORKSPACES_CONFIG_CONTROLLER_ANNOTATIONS_TO_REMOVE_BEFORE_SYNC_REGEXP
+          value: ""
+        image: quay.io/eclipse/che-operator:7.118.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /healthz
+            port: 6789
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: che-operator
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        - containerPort: 60000
+          name: metrics
+        readinessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /readyz
+            port: 6789
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: false
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: webhook-tls-certs
+          readOnly: true
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1724
+        runAsUser: 1724
+      serviceAccountName: che-operator
+      terminationGracePeriodSeconds: 20
+      volumes:
+      - name: webhook-tls-certs
+        secret:
+          defaultMode: 420
+          secretName: che-operator-service-cert

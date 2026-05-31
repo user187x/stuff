@@ -1,0 +1,94 @@
+#!/bin/bash
+# ==============================================================================
+# Script:      symlink-unlink-broken
+# Description: Scans provided directories and safely removes broken symbolic links.
+# Version:     1.1.0
+# Date:        2026-05-31
+# ==============================================================================
+
+# ==============================================================================
+# 1. AUTO-INSTALLATION & UPDATE SECTION
+# ==============================================================================
+INSTALL_DIR="$HOME/.local/bin"
+
+SCRIPT_NAME=$(basename "$0")
+TARGET_PATH="$INSTALL_DIR/$SCRIPT_NAME"
+
+# Cross-platform function to calculate the SHA-256 hash of a file
+get_file_hash() {
+ local file="$1"
+ if command -v sha256sum &>/dev/null; then
+  sha256sum "$file" | awk '{print $1}'
+ elif command -v shasum &>/dev/null; then
+  shasum -a 256 "$file" | awk '{print $1}'
+ else
+  # Fallback if SHA-256 is missing
+  md5sum "$file" | awk '{print $1}'
+ fi
+}
+
+# Only proceed with installation/update logic if we aren't already
+# executing the officially installed version
+if [[ "$0" != "$TARGET_PATH" ]]; then
+ mkdir -p "$INSTALL_DIR"
+
+ if [[ -f "$TARGET_PATH" ]]; then
+  # Script is already installed. Compare hashes to see if an update is needed.
+  CURRENT_HASH=$(get_file_hash "$0")
+  INSTALLED_HASH=$(get_file_hash "$TARGET_PATH")
+
+  if [[ "$CURRENT_HASH" != "$INSTALLED_HASH" ]]; then
+   echo "Update detected. Upgrading '$SCRIPT_NAME' in $INSTALL_DIR..."
+   cp "$0" "$TARGET_PATH"
+   chmod +x "$TARGET_PATH"
+   echo "Upgrade complete. Running the new version..."
+   echo "----------------------------------------"
+  fi
+ else
+  # Script is not installed at all. Perform initial installation.
+  echo "First-time setup: Installing global command to $INSTALL_DIR..."
+  cp "$0" "$TARGET_PATH"
+  chmod +x "$TARGET_PATH"
+
+  if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+   echo "Notice: $INSTALL_DIR is not in your PATH."
+   echo "Add 'export PATH=\"\$HOME/.local/bin:\$PATH\"' to your ~/.bashrc or ~/.zshrc."
+  else
+   echo "Installed successfully! You can now use '$SCRIPT_NAME' from anywhere."
+  fi
+  echo "----------------------------------------"
+ fi
+fi
+
+# ==============================================================================
+# 2. SYMLINK CLEANUP LOGIC
+# ==============================================================================
+
+# Check if at least one argument is provided
+if [[ "$#" -eq 0 ]]; then
+ echo "Usage: $SCRIPT_NAME <directory1> [<directory2> ...]"
+ exit 1
+fi
+
+# Loop through every argument passed to the script
+for target_dir in "$@"; do
+
+ # Skip if the argument is empty
+ if [[ -z "$target_dir" ]]; then
+  continue
+ fi
+
+ # Check if the provided path is actually a directory
+ if [[ ! -d "$target_dir" ]]; then
+  echo "Error: Directory '$target_dir' does not exist. Skipping..."
+  continue
+ fi
+
+ echo "Scanning for broken symlinks in: $target_dir"
+
+ # Find and remove the broken links
+ find "$target_dir" -type l ! -exec test -e {} \; -exec rm -v {} \;
+
+ echo "Finished scanning $target_dir"
+ echo "----------------------------------------"
+done

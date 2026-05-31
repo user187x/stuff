@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "devbox.fullname" . }}
+  labels:
+    {{- include "devbox.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "devbox.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "devbox.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            privileged: {{ .Values.securityContext.privileged }} # Required for dockerd
+          env:
+            - name: USER
+              value: {{ .Values.env.user | quote }}
+          ports:
+            - name: novnc
+              containerPort: 8080
+              protocol: TCP
+            - name: filebrowser
+              containerPort: 8081
+              protocol: TCP
+          volumeMounts:
+            - name: workspace-storage
+              mountPath: /home/{{ .Values.env.user }}/storage
+      volumes:
+        - name: workspace-storage
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "devbox.fullname" . }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

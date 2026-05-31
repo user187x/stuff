@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------
+# Default Configuration
+# -----------------------------
+OUTPUT_FILE="$(pwd)/project_concat.txt"
+POSITIONAL_ARGS=()
+
+# -----------------------------
+# Parse Command Line Arguments
+# -----------------------------
+while [[ $# -gt 0 ]]; do
+ case $1 in
+  -o | --output)
+   if [[ -z "${2:-}" ]]; then
+    echo "Error: -o/--output requires a path." >&2
+    exit 1
+   fi
+
+   # Expand a leading ~ to $HOME safely
+   OUTPUT_TARGET="${2/#\~/$HOME}"
+
+   # If the provided path is an existing directory, append the default filename
+   if [[ -d "$OUTPUT_TARGET" ]]; then
+    OUTPUT_FILE="${OUTPUT_TARGET%/}/project_concat.txt"
+   else
+    OUTPUT_FILE="$OUTPUT_TARGET"
+   fi
+
+   shift 2
+   ;;
+  -*)
+   echo "Unknown option: $1" >&2
+   exit 1
+   ;;
+  *)
+   POSITIONAL_ARGS+=("$1")
+   shift
+   ;;
+ esac
+done
+
+# Restore positional arguments (the files/directories to scan)
+set -- "${POSITIONAL_ARGS[@]}"
+
+# Require at least one target argument
+if [[ "$#" -eq 0 ]]; then
+ echo "Usage: $0 [-o|--output <path>] <file_or_directory> [<file_or_directory> ...]" >&2
+ exit 1
+fi
+
+# -----------------------------
+# Output file setup
+# -----------------------------
+# Ensure the parent directory for the output file exists
+mkdir -p "$(dirname "$OUTPUT_FILE")"
+# Truncate / create the output file
+: >"$OUTPUT_FILE"
+
+# -----------------------------
+# Directories we want to skip (build artifacts, deps, VCS metadata)
+# -----------------------------
+PRUNE_EXPR=(
+ -name .git -o
+ -name node_modules -o
+ -name .venv -o
+ -name venv -o
+ -name __pycache__ -o
+ -name .next -o
+ -name .cache -o
+ -name dist -o
+ -name build -o
+ -name target -o
+ -name .idea -o
+ -name .vscode
+)
+
+# -----------------------------
+# Function to process and append a single file
+# -----------------------------
+process_file() {
+ local file="$1"
+
+ # Don't include our own output file if it happens to be inside the scanned paths
+ [[ "$file" -ef "$OUTPUT_FILE" ]] && return
+
+ # Skip binary files (images, executables, archives, etc.)
+ if ! file --mime-encoding -- "$file" 2>/dev/null | grep -qv 'binary$'; then
+  return
+ fi
+
+ {
+  echo ""
+  echo "========================================================"
+  echo "File: $file"
+  echo "========================================================"
+  cat -- "$file"
+ } >>"$OUTPUT_FILE"
+}
+
+echo "Scanning provided inputs..."
+
+# Array to keep track of valid directories for the tree output at the end
+VALID_DIRS=()
+
+# -----------------------------
+# Iterate over all targets passed to the script
+# -----------------------------
+for target in "$@"; do
+ # Expand a leading ~ to $HOME if passed directly
+ target="${target/#\~/$HOME}"
+ # Strip any trailing slash for clean path printing
+ target="${target%/}"
+
+ if [[ -f "$target" ]]; then
+  # It's a single file
+  process_file "$target"
+ elif [[ -d "$target" ]]; then
+  # It's a directory, add to our list and walk the tree
+  VALID_DIRS+=("$target")
+  while IFS= read -r -d '' file; do
+   process_file "$file"
+  done < <(find "$target" \( "${PRUNE_EXPR[@]}" \) -prune -o -type f -print0)
+ else
+  echo "Warning: '$target' is not a valid file or directory. Skipping." >&2
+ fi
+done
+
+# -----------------------------
+# Append directory tree at the END
+# -----------------------------
+{
+ echo ""
+ echo "========================================================"
+ echo "Project Directory Structure"
+ echo "========================================================"
+
+ # Only run tree/find mapping if at least one valid directory was passed
+ if [[ ${#VALID_DIRS[@]} -gt 0 ]]; then
+  if command -v tree >/dev/null 2>&1; then
+   # tree can accept multiple directories at once
+   tree -a \
+    -I '.git|node_modules|.venv|venv|__pycache__|.next|.cache|dist|build|target|.idea|.vscode' \
+    "${VALID_DIRS[@]}"
+  else
+   echo "(the 'tree' command is not installed; falling back to 'find')"
+   find "${VALID_DIRS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -o -print | sort
+  fi
+ else
+  echo "No directories provided. (Only single files were scanned)."
+ fi
+} >>"$OUTPUT_FILE"
+
+echo "Done. Combined output written to: $OUTPUT_FILE"
