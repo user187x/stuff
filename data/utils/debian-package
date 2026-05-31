@@ -1,0 +1,93 @@
+#!/bin/bash
+# build_tmux_deb.sh
+
+# --- Configuration ---
+PKG_NAME="tmux-custom-portable"
+PKG_VERSION="1.0.0"
+ARCH="amd64" # Change to arm64 if targeting Raspberry Pi / ARM Macs
+BUILD_DIR="${PKG_NAME}_${PKG_VERSION}_${ARCH}"
+
+echo "Building portable .deb package for tmux..."
+
+# 1. Ensure local files exist
+if [ ! -f "tmux" ]; then
+ echo "Error: 'tmux' binary not found in current directory."
+ exit 1
+fi
+
+if [ ! -d "tmux" ]; then
+ echo "Error: 'tmux/' directory not found in current directory."
+ exit 1
+fi
+
+# 2. Create the Debian package directory structure
+# We use /opt as a staging ground inside the package
+mkdir -p "${BUILD_DIR}/DEBIAN"
+mkdir -p "${BUILD_DIR}/opt/${PKG_NAME}/bin"
+mkdir -p "${BUILD_DIR}/opt/${PKG_NAME}/config"
+
+# 3. Copy your local files into the staging ground
+cp tmux "${BUILD_DIR}/opt/${PKG_NAME}/bin/"
+cp -r tmux/* "${BUILD_DIR}/opt/${PKG_NAME}/config/"
+
+# 4. Create the control file (Package Metadata)
+cat <<EOF >"${BUILD_DIR}/DEBIAN/control"
+Package: $PKG_NAME
+Version: $PKG_VERSION
+Architecture: $ARCH
+Maintainer: Custom Build <admin@localhost>
+Description: Portable tmux binary and user configurations.
+EOF
+
+# 5. Create the postinst (Post-Installation) Script
+# NOTE: We use 'EOF' in quotes to prevent variable expansion during build time.
+cat <<'EOF' >"${BUILD_DIR}/DEBIAN/postinst"
+#!/bin/bash
+
+# dpkg runs as root. We must find the actual user who invoked sudo.
+if [ -n "$SUDO_USER" ]; then
+    TARGET_USER="$SUDO_USER"
+    TARGET_HOME=$(eval echo "~$TARGET_USER")
+else
+    # Fallback if someone runs this logged in directly as root
+    TARGET_USER="root"
+    TARGET_HOME="/root"
+fi
+
+echo "Deploying tmux files to $TARGET_HOME..."
+
+# Define paths
+BIN_DEST="$TARGET_HOME/.local/bin"
+CONF_DEST="$TARGET_HOME/.config/tmux"
+PKG_STAGING="/opt/tmux-custom-portable"
+
+# Create destination directories
+mkdir -p "$BIN_DEST"
+mkdir -p "$CONF_DEST"
+
+# Copy files from staging to the user's home
+cp "$PKG_STAGING/bin/tmux" "$BIN_DEST/"
+cp -r "$PKG_STAGING/config/"* "$CONF_DEST/"
+
+# Ensure the binary is executable
+chmod +x "$BIN_DEST/tmux"
+
+# Fix ownership (since this script is running as root)
+chown -R "$TARGET_USER:$TARGET_USER" "$BIN_DEST/tmux"
+chown -R "$TARGET_USER:$TARGET_USER" "$CONF_DEST"
+
+# Initialize tmux by running the source command as the target user
+# Note: 'tmux source-file' usually requires a running tmux server. 
+# If one isn't running, this might safely fail or output "no server running".
+su - "$TARGET_USER" -c "$BIN_DEST/tmux source-file $CONF_DEST/tmux.conf" || true
+
+exit 0
+EOF
+
+# Make the postinst script executable
+chmod 755 "${BUILD_DIR}/DEBIAN/postinst"
+
+# 6. Build the .deb package
+dpkg-deb --build "${BUILD_DIR}"
+
+echo "Success! Package created: ${BUILD_DIR}.deb"

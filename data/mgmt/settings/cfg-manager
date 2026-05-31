@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# fail & bail
+set -e
+
+PROFILE_MNGR_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_PATH="${PROFILE_MNGR_HOME}/.backup/"
+
+FILE_NAME="gsettings"
+FILE_EXTN="dconf"
+FILE_PATH="${PROFILE_MNGR_HOME}/${FILE_NAME}"
+
+function select_restore_point {
+ local target_dir="${1:-$BACKUP_PATH}"
+
+ # 1. Check if fzf is installed (Fixed redirection syntax)
+ if ! command -v fzf &>/dev/null; then
+  echo "Error: 'fzf' is not installed. Installing it now..."
+  sudo apt install fzf -y >/dev/null 2>&1
+ fi
+
+ # 2. Ensure target directory exists
+ if [[ ! -d "$target_dir" ]]; then
+  echo "Error: Directory '$target_dir' does not exist." >&2
+  return 1
+ fi
+
+ # Determine the best preview command. Added quotes around {} for safety.
+ local preview_cmd="cat '{}'"
+ if command -v bat &>/dev/null; then
+  preview_cmd="bat --color=always --style=numbers --line-range=:500 '{}'"
+ fi
+
+ local selected_file
+
+ # 2. Run fzf with advanced bindings
+ selected_file=$(
+  cd "$target_dir" || exit 1
+
+  ls -t gsettings-*.dconf 2>/dev/null |
+   fzf --prompt="Select restore point: " \
+    --height=80% \
+    --layout=reverse \
+    --border \
+    --info=inline \
+    --preview="$preview_cmd" \
+    --preview-window="right:60%:wrap" \
+    --header="ENTER: Select | CTRL-O: Open in 'less' to search | CTRL-C: Abort" \
+    --bind="ctrl-o:execute(less {})"
+ )
+
+ # 3. Handle Output
+ if [[ -n "$selected_file" ]]; then
+  if [[ "$target_dir" == "." ]]; then
+   echo "$selected_file"
+  else
+   echo "${target_dir%/}/${selected_file}"
+  fi
+ else
+  echo "Selection cancelled." >&2
+  return 1
+ fi
+}
+
+function restore {
+ # Check if any .dconf files exist using find
+ if [[ -z $(find "$BACKUP_PATH" -maxdepth 1 -name "*.$FILE_EXTN" -print -quit) ]]; then
+  echo "Nothing to restore (no .$FILE_EXTN files found). Aborting..."
+  exit 1
+ fi
+
+ # Use the custom select_restore_point function instead of a raw find | fzf pipe
+ selected_file=$(select_restore_point "$BACKUP_PATH")
+
+ if [[ ! -f "$selected_file" ]]; then
+  echo "No file selected or file does not exist. Aborting..."
+  exit 1
+ fi
+
+ read -r -p "Confirm restoration of $(basename "$selected_file")? (y/n) : " confirm
+
+ if [[ "$confirm" == "y" ]]; then
+  dconf load / <"$selected_file"
+  echo "Restore complete."
+ else
+  echo "Aborting action...."
+  exit 0
+ fi
+}
+
+function backup {
+ if [[ ! -d "${BACKUP_PATH}" ]]; then
+  mkdir -p "${BACKUP_PATH}"
+ fi
+
+ FILE_NAME="${FILE_NAME}-$(date +%m-%d-%Y_%I%M%p).${FILE_EXTN}"
+ BACKUP="${BACKUP_PATH}${FILE_NAME}"
+
+ if dconf dump / >"${BACKUP}"; then
+  echo "Successfully backed up resource to $BACKUP"
+ else
+  echo "Failure creating backup $BACKUP"
+  exit 1
+ fi
+}
+
+function process-args {
+ PARSED=$(getopt -o r::b --long restore::,backup --name "$0" -- "$@")
+
+ if [[ $# -eq 0 ]]; then
+  echo "Usage: $0 <option>"
+  echo " options: -b|--backup, -r|--restore [file]"
+  exit 1
+ fi
+
+ eval set -- "$PARSED"
+
+ while true; do
+  case "$1" in
+   -r | --restore)
+    # Check if an argument was provided (getopt puts it in $2)
+    if [[ -n "$2" ]]; then
+     # If user provided a specific file, skip fzf and use it
+     selected_file="$2"
+     dconf load / <"$selected_file"
+     echo "Restored from $selected_file"
+    else
+     restore
+    fi
+    shift 2
+    ;;
+   -b | --backup)
+    backup
+    shift
+    ;;
+   --)
+    shift
+    break
+    ;;
+   *)
+    echo "Error parsing arguments"
+    exit 1
+    ;;
+  esac
+ done
+}
+
+process-args "$@"

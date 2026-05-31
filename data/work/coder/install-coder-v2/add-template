@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ─── Output helpers ──────────────────────────────────────────────────────────
+RED=$'\e[31m'
+GRN=$'\e[32m'
+YLW=$'\e[33m'
+BLU=$'\e[34m'
+CYN=$'\e[36m'
+BLD=$'\e[1m'
+DIM=$'\e[2m'
+RST=$'\e[0m'
+
+log() { printf "%s[*]%s %s\n" "$BLU" "$RST" "$*"; }
+ok() { printf "%s[✓]%s %s\n" "$GRN" "$RST" "$*"; }
+warn() { printf "%s[!]%s %s\n" "$YLW" "$RST" "$*"; }
+err() { printf "%s[x]%s %s\n" "$RED" "$RST" "$*" >&2; }
+
+# ─── Banner ──────────────────────────────────────────────────────────────────
+echo "${CYN}${BLD}"
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║          Coder Template Manager (Post-Install)           ║"
+echo "╚══════════════════════════════════════════════════════════╝${RST}"
+echo
+
+# ─── Pre-flight ──────────────────────────────────────────────────────────────
+
+# 1. Coder CLI must exist and be authenticated
+if ! command -v coder >/dev/null 2>&1; then
+ err "Coder CLI not found. Please ensure it is installed and in your PATH."
+ exit 1
+fi
+
+if ! coder whoami >/dev/null 2>&1; then
+ err "You are not logged into Coder. Run 'coder login <your-url>' first."
+ exit 1
+fi
+
+# 2. Tools needed for embedding binaries
+for cmd in base64 gzip sed grep file tr; do
+ if ! command -v "$cmd" >/dev/null 2>&1; then
+  err "Required tool '$cmd' not found in PATH."
+  exit 1
+ fi
+done
+
+# Portable file-size helper (Linux: stat -c%s, BSD/macOS: stat -f%z)
+file_size() {
+ if stat -c%s "$1" >/dev/null 2>&1; then
+  stat -c%s "$1"
+ else
+  stat -f%z "$1"
+ fi
+}
+
+# Human-readable byte count (avoids needing numfmt, which is GNU-only)
+human_size() {
+ local b=$1
+ if ((b >= 1073741824)); then
+  awk -v b="$b" 'BEGIN{printf "%.1f GiB", b/1073741824}'
+ elif ((b >= 1048576)); then
+  awk -v b="$b" 'BEGIN{printf "%.1f MiB", b/1048576}'
+ elif ((b >= 1024)); then
+  awk -v b="$b" 'BEGIN{printf "%.1f KiB", b/1024}'
+ else
+  printf "%d B" "$b"
+ fi
+}
+
+# ─── Inputs ──────────────────────────────────────────────────────────────────
+
+read -e -r -p "Enter Template Name (e.g., ubuntu-desktop) : " TEMPLATE_NAME
+if [[ -z "$TEMPLATE_NAME" ]]; then
+ err "Template name cannot be empty."
+ exit 1
+fi
+
+read -e -r -p "Enter path to Terraform file (main.tf)     : " TF_FILE_PATH
+TF_FILE_PATH="${TF_FILE_PATH/#\~/$HOME}"
+if [[ ! -f "$TF_FILE_PATH" ]]; then
+ err "File not found at: $TF_FILE_PATH"
+ exit 1
+fi
+
+echo
+echo "${DIM}Filebrowser installation source:"
+echo "  • Path to a local Linux amd64 binary or linux-amd64-filebrowser.tar.gz"
+echo "    on THIS machine (recommended — fully self-contained; the binary is"
+echo "    embedded into the template, no internet needed at workspace start)."
+echo "  • https?:// URL on a mirror the workspace can reach."
+echo "  • Leave blank to keep the upstream GitHub install script.${RST}"
+read -e -r -p "Enter Filebrowser path or URL (optional)   : " FB_PATH
+FB_PATH="${FB_PATH/#\~/$HOME}"
+
+# ─── Stage main.tf ───────────────────────────────────────────────────────────
+
+STAGING_DIR=$(mktemp -d)
+EXTRACT_DIR=""
+cleanup() { rm -rf "$STAGING_DIR" "${EXTRACT_DIR:-}"; }
+trap cleanup EXIT
+
+log "Copying $TF_FILE_PATH to staging directory..."
+cp "$TF_FILE_PATH" "$STAGING_DIR/main.tf"
+
+# Exact line we expect to replace in the template
+SEARCH_STRING='curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash'
+
+# ─── Filebrowser handling ────────────────────────────────────────────────────
+
+if [[ -n "$FB_PATH" ]]; then
+ # Bail out early if the placeholder line isn't present — substitution would
+ # silently no-op otherwise, and we'd push an unchanged template.
+ if ! grep -qF "$SEARCH_STRING" "$STAGING_DIR/main.tf"; then
+  err "Could not find the expected Filebrowser install line in main.tf:"
+  err "    $SEARCH_STRING"
+  err "Has the template already been modified? Aborting."
+  exit 1
+ fi
+
+ REPLACEMENT_FILE="$STAGING_DIR/.fb_replacement"
+
+ if [[ "$FB_PATH" =~ ^https?:// ]]; then
+  # ── Internal-mirror URL ──────────────────────────────────────────────
+  log "Configuring Filebrowser install from URL: $FB_PATH"
+  warn "The workspace container must be able to reach this URL."
+  # Indented to match surrounding lines (4 spaces post Terraform strip).
+  cat >"$REPLACEMENT_FILE" <<EOF
+      curl -fsSL "$FB_PATH" -o /usr/local/bin/filebrowser && chmod +x /usr/local/bin/filebrowser
+EOF
+ else
+  # ── Local file → embed as gzip + base64 (truly self-contained) ───────
+  if [[ ! -f "$FB_PATH" ]]; then
+   err "Path is neither an http(s):// URL nor an existing file: $FB_PATH"
+   exit 1
+  fi
+
+  # Detect whether we have a raw binary or the official tarball
+  FILE_INFO="$(file -b "$FB_PATH")"
+  BIN_FILE="$FB_PATH"
+
+  case "$FILE_INFO" in
+  *"ELF 64-bit"*"x86-64"*)
+   log "Detected Linux amd64 ELF binary."
+   ;;
+  *"gzip compressed"* | *"POSIX tar"*)
+   log "Detected archive — extracting filebrowser binary..."
+   if ! command -v tar >/dev/null 2>&1; then
+    err "tar is required to extract an archive but is not installed."
+    exit 1
+   fi
+   EXTRACT_DIR=$(mktemp -d)
+   if ! tar -xf "$FB_PATH" -C "$EXTRACT_DIR" 2>/dev/null; then
+    err "Failed to extract $FB_PATH."
+    exit 1
+   fi
+   # Pick the first regular file named 'filebrowser' inside
+   CANDIDATE="$(find "$EXTRACT_DIR" -type f -name 'filebrowser' -print -quit)"
+   if [[ -z "$CANDIDATE" ]]; then
+    err "Archive did not contain a 'filebrowser' binary."
+    exit 1
+   fi
+   CANDIDATE_INFO="$(file -b "$CANDIDATE")"
+   if [[ "$CANDIDATE_INFO" != *"ELF 64-bit"*"x86-64"* ]]; then
+    err "Extracted binary is not Linux amd64."
+    err "  $CANDIDATE_INFO"
+    exit 1
+   fi
+   BIN_FILE="$CANDIDATE"
+   ok "Extracted: $CANDIDATE"
+   ;;
+  *)
+   err "File at $FB_PATH does not look like a Linux amd64 binary or tar archive."
+   err "  Detected: $FILE_INFO"
+   exit 1
+   ;;
+  esac
+
+  BIN_SIZE=$(file_size "$BIN_FILE")
+  log "Embedding binary ($(human_size "$BIN_SIZE")) into template via gzip + base64..."
+
+  # Build the replacement snippet directly into a file. The base64 blob
+  # is written WITHOUT line-wrapping (one long line) so that:
+  #   1. We don't need a nested bash heredoc inside the Terraform <<-EOT
+  #      heredoc (nested heredocs and Terraform's whitespace-stripping
+  #      do not get along), and
+  #   2. We avoid hitting ARG_MAX, since the blob never lives on a
+  #      command line — it's piped through tools that read stdin and
+  #      written straight to the replacement file.
+  #
+  # Indentation: 6 leading spaces matches the surrounding `if ... then`
+  # body in workspace.tf. After Terraform strips 2, the agent runs the
+  # script with 4-space indent — same as the existing lines.
+  #
+  # Quoting: the base64 alphabet is [A-Za-z0-9+/=] only, so it is
+  # entirely safe inside bash double quotes (no $, `, \, or " in it).
+  # It is also safe inside a Terraform heredoc (no ${ … } interpolation
+  # markers can appear).
+  {
+   echo '      # ── Self-contained Filebrowser install (embedded binary) ──'
+   echo '      echo "Installing embedded Filebrowser binary..."'
+   printf '      printf %%s "'
+   gzip -9 -c "$BIN_FILE" | base64 | tr -d '\n'
+   printf '" | base64 -d | gunzip -c > /usr/local/bin/filebrowser\n'
+   echo '      chmod +x /usr/local/bin/filebrowser'
+   echo '      echo "Filebrowser installed at /usr/local/bin/filebrowser"'
+  } >"$REPLACEMENT_FILE"
+
+  REPL_SIZE=$(file_size "$REPLACEMENT_FILE")
+  log "Embedded payload: $(human_size "$REPL_SIZE") of base64 text."
+  if ((REPL_SIZE > 50 * 1024 * 1024)); then
+   warn "Payload is large (>50 MiB). Template push may be slow."
+  fi
+ fi
+
+ # Splice the replacement file in place of the original line.
+ # Using sed's `r FILE` + `d` keeps the multi-megabyte payload off the
+ # command line entirely — sed reads the file from disk.
+ log "Patching main.tf..."
+
+ # Escape regex metachars in SEARCH_STRING so it matches literally; '@' is
+ # used as the address delimiter so '/' in the URL needs no escaping.
+ ESC_SEARCH=$(printf '%s' "$SEARCH_STRING" | sed -e 's/[].*^$\[]/\\&/g')
+
+ sed -i.bak "\\@${ESC_SEARCH}@{
+r ${REPLACEMENT_FILE}
+d
+}" "$STAGING_DIR/main.tf"
+ rm -f "$STAGING_DIR/main.tf.bak"
+
+ # Verify the substitution actually happened
+ if grep -qF "$SEARCH_STRING" "$STAGING_DIR/main.tf"; then
+  err "Patch failed — the original install line is still in main.tf."
+  exit 1
+ fi
+ if ! grep -q 'Self-contained Filebrowser install\|Filebrowser install from URL\|/usr/local/bin/filebrowser' "$STAGING_DIR/main.tf"; then
+  err "Patch failed — replacement content not found in main.tf."
+  exit 1
+ fi
+
+ ok "Filebrowser installation logic updated."
+else
+ log "No custom Filebrowser path provided — keeping upstream GitHub install."
+ warn "Workspaces will need internet access to install Filebrowser at startup."
+fi
+
+# ─── Push template ───────────────────────────────────────────────────────────
+
+echo
+log "Pushing template '${TEMPLATE_NAME}' to your Coder deployment..."
+if coder templates push "$TEMPLATE_NAME" --directory "$STAGING_DIR" --yes; then
+ echo
+ ok "Template '${TEMPLATE_NAME}' pushed successfully!"
+ log "You can now create workspaces using this template in your browser."
+else
+ echo
+ err "Failed to push the template. Check the error output above."
+ exit 1
+fi

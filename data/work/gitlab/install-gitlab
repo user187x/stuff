@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Uninstall the broken release
+helm uninstall gitlab -n gitlab > /dev/null 2>&1 || true
+
+# Wait for all pods to terminate
+kubectl delete namespace gitlab
+kubectl create namespace gitlab
+
+# Reinstall with the fixed flags
+helm upgrade --install gitlab gitlab/gitlab \
+ --namespace gitlab \
+ --timeout 600s \
+ --set global.hosts.domain=$(minikube ip).nip.io \
+ --set global.hosts.externalIP=$(minikube ip) \
+ --set global.hosts.gitlab.name=gitlab.$(minikube ip).nip.io \
+ --set global.hosts.domain=$(minikube ip).nip.io \
+ --set global.externalUrl=http://gitlab.$(minikube ip).nip.io \
+ --set global.ingress.class=nginx \
+ --set global.ingress.configureCertmanager=false \
+ --set global.ingress.tls.enabled=false \
+ --set certmanager.enabled=false \
+ --set nginx-ingress.enabled=false \
+ --set prometheus.install=false \
+ --set gitlab-runner.install=false \
+ --set registry.enabled=false \
+ --set global.edition=ce
+
+echo "Gitlab URL : http://$(minikube ip).nip.io/users/sign_in"
+
+password=$(kubectl get secret gitlab-gitlab-initial-root-password -n gitlab -o jsonpath='{.data.password}' | base64 --decode && echo)
+
+echo "Gitlab Login"
+echo "User: root"
+echo "Pass: $password"

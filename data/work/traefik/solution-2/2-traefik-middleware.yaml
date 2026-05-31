@@ -1,0 +1,18 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: enrichment-auth
+  namespace: argocd # Must be in the same namespace as the IngressRoute using it
+spec:
+  forwardAuth:
+    # Points to the Service we created above
+    address: "http://auth-shim.traefik-system.svc.cluster.local/verify"
+    
+    # Headers to copy FROM the shim's response TO the application (ArgoCD)
+    authResponseHeaders:
+      - "X-Enriched-Role"
+      - "X-Auth-User"
+    
+    # Headers to send FROM the client TO the shim
+    authRequestHeaders:
+      - "X-User-DN"

@@ -1,0 +1,43 @@
+# Apply via: envsubst < deployment.yaml | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vllm }
+  template:
+    metadata:
+      labels: { app: vllm }
+    spec:
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          args:
+            - --model
+            - ${MODEL_PATH}/${MODEL_NAME}
+            - --alias
+            - ${MODEL_SERVED_NAME}
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --ctx-size
+            - "${MAX_LEN}"
+            - --n-gpu-layers
+            - "999"
+            - --jinja
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: models
+              mountPath: /data
+      volumes: 
+        - name: models
+          persistentVolumeClaim:
+            claimName: model-cache

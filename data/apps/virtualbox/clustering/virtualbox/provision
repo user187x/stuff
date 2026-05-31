@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+set -e
+
+TALOS_VERSION="v1.13.0"
+
+# Deterministic MAC addresses for the host-only NIC of each VM.
+# Format is the VBoxManage-native one (no colons). Keep the "080027" OUI
+# so VirtualBox is happy with it.
+declare -A VM_MACS=(
+ [talos-cp-1]="080027a10001"
+ [talos-cp-2]="080027a10002"
+ [talos-cp-3]="080027a10003"
+ [talos-worker-1]="080027b10001"
+ [talos-worker-2]="080027b10002"
+ [talos-worker-3]="080027b10003"
+)
+
+# Helper: convert "080027a10001" -> "08:00:27:a1:00:01"
+mac_with_colons() {
+ echo "$1" | sed 's/\(..\)/\1:/g; s/:$//'
+}
+
+echo "=== 1. Checking Prerequisites ==="
+if ! command -v VBoxManage &>/dev/null || ! command -v talosctl &>/dev/null || ! command -v kubectl &>/dev/null; then
+ echo "Missing prerequisites. Please ensure VirtualBox, talosctl, and kubectl are installed."
+ exit 1
+fi
+
+echo "=== 2. Downloading Talos ISO (${TALOS_VERSION}) ==="
+VBOX_DIR="${HOME}/talos-vbox"
+mkdir -p "${VBOX_DIR}"
+cd "${VBOX_DIR}"
+
+# Version-suffixed filename so changing TALOS_VERSION triggers a fresh download
+# instead of silently reusing a stale ISO from a previous run.
+ISO_NAME="metal-amd64-${TALOS_VERSION}.iso"
+if [ ! -s "${ISO_NAME}" ]; then
+ echo "Downloading ISO ${TALOS_VERSION}..."
+ curl -L -o "${ISO_NAME}" "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/metal-amd64.iso"
+fi
+
+echo "=== 3. Setting up VirtualBox Network ==="
+if ! VBoxManage list hostonlyifs | grep -q "vboxnet0"; then
+ VBoxManage hostonlyif create || true
+ VBoxManage hostonlyif ipconfig vboxnet0 --ip 192.168.56.1 --netmask 255.255.255.0
+fi
+
+if ! VBoxManage list dhcpservers | grep -q "vboxnet0"; then
+ VBoxManage dhcpserver add --ifname vboxnet0 \
+  --ip 192.168.56.1 \
+  --netmask 255.255.255.0 \
+  --lowerip 192.168.56.10 \
+  --upperip 192.168.56.254 \
+  --enable || true
+fi
+
+echo "=== 4. Creating Virtual Machines ==="
+create_talos_vm() {
+ local NAME=$1
+ local MEMORY=$2
+ local CPUS=$3
+ local DISK_SIZE=$4
+ local MAC=${VM_MACS[$NAME]}
+
+ if VBoxManage showvminfo "${NAME}" &>/dev/null; then
+  echo "VM ${NAME} already exists. Skipping."
+  return
+ fi
+
+ VBoxManage createvm --name "${NAME}" --ostype "Linux_64" --register
+
+ VBoxManage modifyvm "${NAME}" \
+  --memory ${MEMORY} \
+  --cpus ${CPUS} \
+  --boot1 dvd \
+  --boot2 disk \
+  --boot3 none \
+  --boot4 none \
+  --firmware efi \
+  --rtcuseutc on \
+  --graphicscontroller vmsvga \
+  --vram 16 \
+  --audio-driver none
+
+ # Pin the host-only NIC to a known MAC so we can look up its DHCP lease later.
+ VBoxManage modifyvm "${NAME}" \
+  --nic1 hostonly \
+  --hostonlyadapter1 "vboxnet0" \
+  --nictype1 virtio \
+  --macaddress1 "${MAC}" \
+  --nic2 nat \
+  --nictype2 virtio
+
+ VBoxManage createmedium disk --filename "${VBOX_DIR}/${NAME}/${NAME}.vdi" --size ${DISK_SIZE} --format VDI
+ VBoxManage storagectl "${NAME}" --name "SATA" --add sata --controller IntelAhci
+ VBoxManage storageattach "${NAME}" --storagectl "SATA" --port 0 --device 0 --type hdd --medium "${VBOX_DIR}/${NAME}/${NAME}.vdi"
+ VBoxManage storagectl "${NAME}" --name "IDE" --add ide
+ VBoxManage storageattach "${NAME}" --storagectl "IDE" --port 0 --device 0 --type dvddrive --medium "${VBOX_DIR}/${ISO_NAME}"
+
+ echo "Created VM: ${NAME} (MAC: $(mac_with_colons "${MAC}"))"
+}
+
+create_talos_vm "talos-cp-1" 8192 4 51200
+create_talos_vm "talos-cp-2" 8192 4 51200
+create_talos_vm "talos-cp-3" 8192 4 51200
+create_talos_vm "talos-worker-1" 8192 4 102400
+create_talos_vm "talos-worker-2" 8192 4 102400
+create_talos_vm "talos-worker-3" 8192 4 102400
+
+echo "=== 5. Starting Virtual Machines ==="
+for vm in talos-cp-1 talos-cp-2 talos-cp-3 talos-worker-1 talos-worker-2 talos-worker-3; do
+ if ! VBoxManage showvminfo "${vm}" | grep -q "State:.*running"; then
+  VBoxManage startvm "${vm}" --type headless
+  echo "Started ${vm}"
+ fi
+done
+
+echo "=== 5b. Discovering VM IPs via DHCP leases ==="
+# Poll the VirtualBox DHCP server until each VM has a lease for its known MAC.
+# Talos in maintenance mode comes up fairly quickly, but DHCP can take 30-90s
+# after VM start, so we give it a generous timeout.
+get_vm_ip() {
+ local NAME=$1
+ local MAC_COLON
+ MAC_COLON=$(mac_with_colons "${VM_MACS[$NAME]}")
+ local TIMEOUT=300
+ local ELAPSED=0
+ local IP=""
+
+ while [ ${ELAPSED} -lt ${TIMEOUT} ]; do
+  # `findlease` prints something like:
+  #   IP Address:  192.168.56.101
+  #   MAC Address: 08:00:27:a1:00:01
+  #   ...
+  IP=$(VBoxManage dhcpserver findlease --interface vboxnet0 --mac-address "${MAC_COLON}" 2>/dev/null \
+   | awk -F'[: ]+' '/^IP Address/ {print $3; exit}')
+  if [[ "${IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+   echo "${IP}"
+   return 0
+  fi
+  sleep 5
+  ELAPSED=$((ELAPSED + 5))
+ done
+
+ echo "ERROR: Timed out waiting for DHCP lease for ${NAME} (${MAC_COLON})" >&2
+ return 1
+}
+
+echo "Waiting for VMs to obtain DHCP leases (this can take a couple minutes)..."
+CP1_IP=$(get_vm_ip talos-cp-1)
+echo " talos-cp-1     -> ${CP1_IP}"
+CP2_IP=$(get_vm_ip talos-cp-2)
+echo " talos-cp-2     -> ${CP2_IP}"
+CP3_IP=$(get_vm_ip talos-cp-3)
+echo " talos-cp-3     -> ${CP3_IP}"
+WORKER1_IP=$(get_vm_ip talos-worker-1)
+echo " talos-worker-1 -> ${WORKER1_IP}"
+WORKER2_IP=$(get_vm_ip talos-worker-2)
+echo " talos-worker-2 -> ${WORKER2_IP}"
+WORKER3_IP=$(get_vm_ip talos-worker-3)
+echo " talos-worker-3 -> ${WORKER3_IP}"
+
+CONTROL_PLANE_IPS=("${CP1_IP}" "${CP2_IP}" "${CP3_IP}")
+WORKER_IPS=("${WORKER1_IP}" "${WORKER2_IP}" "${WORKER3_IP}")
+ALL_IPS=("${CONTROL_PLANE_IPS[@]}" "${WORKER_IPS[@]}")
+
+echo "=== 6. Generating and Patching Talos Configuration ==="
+# Force clear old configs
+rm -rf _out
+
+# --talos-version pins the generated config to fields valid for the target
+# Talos release, so a newer local talosctl won't emit keys (e.g.
+# grubUseUKICmdline) that the booted node doesn't understand.
+# The flag wants vMAJOR.MINOR (e.g. v1.13), not the full vMAJOR.MINOR.PATCH.
+TALOS_VERSION_MM="${TALOS_VERSION%.*}"
+
+talosctl gen config talos-vbox-cluster "https://${CP1_IP}:6443" \
+ --talos-version "${TALOS_VERSION_MM}" \
+ --output-dir _out
+
+cat >vbox-patch.yaml <<EOF
+machine:
+  install:
+    disk: /dev/sda
+    image: ghcr.io/siderolabs/installer:${TALOS_VERSION}
+  network:
+    interfaces:
+      - interface: eth0
+        dhcp: true
+      - interface: eth1
+        dhcp: true
+EOF
+
+talosctl machineconfig patch _out/controlplane.yaml --patch @vbox-patch.yaml --output _out/controlplane-patched.yaml
+talosctl machineconfig patch _out/worker.yaml --patch @vbox-patch.yaml --output _out/worker-patched.yaml
+
+echo "=== 7. Applying Configuration to Nodes ==="
+for ip in "${CONTROL_PLANE_IPS[@]}"; do
+ echo "Applying controlplane config to ${ip}"
+ talosctl apply-config --insecure --nodes "${ip}" --file _out/controlplane-patched.yaml || true
+done
+
+for ip in "${WORKER_IPS[@]}"; do
+ echo "Applying worker config to ${ip}"
+ talosctl apply-config --insecure --nodes "${ip}" --file _out/worker-patched.yaml || true
+done
+
+echo "Waiting for installation and reboot (180 seconds)..."
+sleep 180
+
+echo "=== 8. Detaching ISOs ==="
+for vm in talos-cp-1 talos-cp-2 talos-cp-3 talos-worker-1 talos-worker-2 talos-worker-3; do
+ VBoxManage storageattach "${vm}" --storagectl "IDE" --port 0 --device 0 --type dvddrive --medium emptydrive || true
+done
+
+echo "=== 9. Bootstrapping the Cluster ==="
+talosctl config merge _out/talosconfig
+talosctl config endpoint "${CONTROL_PLANE_IPS[@]}"
+talosctl config node "${ALL_IPS[@]}"
+
+talosctl bootstrap --nodes "${CP1_IP}" || true
+
+echo "Waiting for cluster health (this may take a few minutes)..."
+talosctl health --wait-timeout 15m
+
+echo "=== 10. Success! Fetching Kubeconfig ==="
+talosctl kubeconfig
+kubectl get nodes -o wide

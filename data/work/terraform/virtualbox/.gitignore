@@ -1,0 +1,15 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Local overrides — should never be committed
+terraform.tfvars
+*.auto.tfvars
+
+# ISO cache
+.iso_cache/

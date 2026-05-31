@@ -1,0 +1,1494 @@
+
+========================================================
+File: README.md
+========================================================
+# install-coder
+
+A modular installer for self-hosted Coder on Minikube. This is a refactor of the
+original single-file script: the orchestrator stays small while every step lives
+in its own module under `lib/`, and every Kubernetes resource lives as a real
+file under `manifests/`.
+
+## Layout
+
+```
+install-coder                       # thin orchestrator — sources libs and dispatches
+filebrowser                         # air-gap binary — placed alongside the script
+lib/
+  common.sh                         # defaults, logging, arg parsing, ERR trap
+  preflight.sh                      # required-tool + driver checks
+  minikube.sh                       # cluster bring-up
+  certs.sh                          # Root CA + server cert
+  secrets.sh                        # namespace + TLS/CA/PG secrets
+  postgres.sh                       # apply manifests/postgres.yaml + DB-URL secret
+  coder.sh                          # render Helm values + helm upgrade --install
+  ingress.sh                        # detect/install controller + apply ingress template
+  hosts.sh                          # /etc/hosts entry
+  health.sh                         # /healthz probe
+  ca-trust.sh                       # OS + browser CA trust
+  cli.sh                            # download Coder CLI from its own server
+  admin.sh                          # create first-user via CLI
+  filebrowser.sh                    # air-gap filebrowser binary host (kubectl cp)
+  summary.sh                        # final printout
+  status.sh                         # --status implementation
+  uninstall.sh                      # --uninstall implementation
+manifests/
+  server-ext.cnf.tpl                # OpenSSL ext config (was inline heredoc)
+  postgres.yaml                     # PG PVC + Deployment + Service
+  coder-values.yaml.tpl             # Helm values (rendered to $VALUES_FILE)
+  coder-ingress-nginx.yaml.tpl      # Ingress when reusing ingress-nginx
+  coder-ingress-traefik.yaml.tpl    # Ingress when installing Traefik
+  filebrowser-host.yaml.tpl         # in-cluster HTTP host for filebrowser binary
+```
+
+## Variable paths
+
+Every external resource is reached via a variable with a sensible default.
+Override any of these to point at a different location:
+
+| Variable             | Default                       | Purpose                                       |
+| -------------------- | ----------------------------- | --------------------------------------------- |
+| `LIB_DIR`            | `<script dir>/lib`            | shell library modules                         |
+| `MANIFESTS_DIR`      | `<script dir>/manifests`      | Kubernetes manifests / templates              |
+| `FILEBROWSER_BINARY` | `<script dir>/filebrowser`    | the filebrowser binary for air-gap workspaces |
+| `CERT_DIR`           | `$PWD/certs`                  | where Root CA + server certs live             |
+| `VALUES_FILE`        | `$PWD/coder-values.yaml`      | rendered Helm values                          |
+
+Templates (`*.tpl`) are rendered by `envsubst` with a fixed allowlist of
+variables (`$DOMAIN`, `$NAMESPACE`, `$SAFE_NAME`, `$TLS_SECRET`, `$CA_SECRET`,
+`$FILEBROWSER_HOST_IMAGE`). Other `$...` references inside a template are
+left untouched, so Helm syntax or shell snippets in init scripts won't get
+clobbered.
+
+## Air-gap notes
+
+The original script downloaded the filebrowser binary from the internet at
+workspace-creation time. That doesn't work in an air-gapped cluster, so the
+installer ships its own copy and hosts it inside the cluster.
+
+**Step 1 — Place the binary.** Drop the `filebrowser` binary in the same
+directory as `install-coder` (or pass `--filebrowser-binary /some/path`).
+
+**Step 2 — Pre-load the host image.** The host pod runs `busybox:1.36` by
+default. In a fully air-gapped cluster, either pre-load it:
+
+```bash
+minikube image load busybox:1.36 -p minikube
+```
+
+…or override `FILEBROWSER_HOST_IMAGE` to a name your private registry
+already has.
+
+**Step 3 — Run the installer.** It applies `manifests/filebrowser-host.yaml.tpl`
+and `kubectl cp`s the binary into `/www/filebrowser` inside the pod. Re-runs
+are no-ops when the in-pod size matches the local size.
+
+**Step 4 — Reference it from your workspace template.** Replace whatever
+filebrowser module/install-script you had with a `wget` against cluster DNS:
+
+```bash
+wget -qO /tmp/filebrowser \
+    http://filebrowser-host.coder.svc.cluster.local/filebrowser
+chmod +x /tmp/filebrowser
+/tmp/filebrowser --noauth --address 0.0.0.0 --port 13339 --root /home/coder
+```
+
+Plain HTTP is fine here because traffic never leaves the cluster.
+
+**Other air-gap concerns.** This refactor doesn't change how `helm` and the
+container images are fetched (still `helm.coder.com`, `traefik.github.io`,
+`postgres:16-alpine`, etc.). For a fully offline install you'll also need to:
+
+- Mirror the Coder + Traefik Helm charts to a local repo (or use
+  `helm install <release> /path/to/chart-x.y.z.tgz`).
+- Pre-load `postgres:16-alpine` and the Coder image into the cluster's image
+  cache, the same way you handled `busybox`.
+
+## Extending
+
+- **Add a step:** drop a new file in `lib/`, source it from `install-coder`,
+  and call its function in the dispatch block. Each module should expose one
+  top-level function.
+- **Tweak a resource:** edit the YAML directly under `manifests/`. No shell
+  changes needed unless you're introducing a new template variable (in which
+  case add it to the allowlist in `lib/common.sh`'s `render_template`).
+- **Run a single step:** source `lib/common.sh` plus the step you want, call
+  `parse_args "$@"`, then call the function. Useful for debugging.
+
+========================================================
+File: install-coder
+========================================================
+#!/usr/bin/env bash
+#
+# install-coder — thin orchestrator for self-hosted Coder on Minikube.
+#
+# This script does no real work itself; it sources step modules from lib/
+# and invokes them in order. Kubernetes resources live in manifests/
+# (rendered via envsubst when they have ${VAR} placeholders).
+#
+# Layout:
+#   install-coder           ← you are here
+#   lib/*.sh                ← one module per step (preflight, certs, …)
+#   manifests/*.yaml[.tpl]  ← every resource that used to be a heredoc
+#   filebrowser             ← air-gap binary, hosted in-cluster for workspaces
+#
+# Quick start:
+#   ./install-coder                                  # install with defaults
+#   ./install-coder --domain coder.local --cpus 6    # custom config
+#   ./install-coder --status                         # show running components
+#   ./install-coder --uninstall                      # tear it all down
+#
+# All flags can also be set via env vars: CODER_DOMAIN, CODER_NAMESPACE,
+# MINIKUBE_CPUS, MINIKUBE_MEMORY, MINIKUBE_DRIVER, CERT_DIR, LIB_DIR,
+# MANIFESTS_DIR, FILEBROWSER_BINARY, etc.
+#
+# The script is safe to re-run: every step is idempotent.
+set -Eeuo pipefail
+
+# ─── Locate ourselves ────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export SCRIPT_DIR
+export LIB_DIR="${LIB_DIR:-$SCRIPT_DIR/lib}"
+export MANIFESTS_DIR="${MANIFESTS_DIR:-$SCRIPT_DIR/manifests}"
+
+# Override with --filebrowser-binary or FILEBROWSER_BINARY=/path/to/filebrowser.
+export FILEBROWSER_BINARY="${FILEBROWSER_BINARY:-$SCRIPT_DIR/addons/filebrowser}"
+
+[[ -d "$LIB_DIR" ]]       || { echo "lib dir not found: $LIB_DIR"        >&2; exit 1; }
+[[ -d "$MANIFESTS_DIR" ]] || { echo "manifests dir not found: $MANIFESTS_DIR" >&2; exit 1; }
+
+# ─── Source library modules ──────────────────────────────────────────────────
+# common.sh sets defaults, colors, log helpers, arg parsing, and the ERR trap.
+# It MUST be sourced first; the rest only define functions.
+. "$LIB_DIR/common.sh"
+. "$LIB_DIR/preflight.sh"
+. "$LIB_DIR/minikube.sh"
+. "$LIB_DIR/certs.sh"
+. "$LIB_DIR/secrets.sh"
+. "$LIB_DIR/postgres.sh"
+. "$LIB_DIR/coder.sh"
+. "$LIB_DIR/ingress.sh"
+. "$LIB_DIR/hosts.sh"
+. "$LIB_DIR/health.sh"
+. "$LIB_DIR/ca-trust.sh"
+. "$LIB_DIR/cli.sh"
+. "$LIB_DIR/admin.sh"
+. "$LIB_DIR/filebrowser.sh"
+. "$LIB_DIR/summary.sh"
+. "$LIB_DIR/status.sh"
+. "$LIB_DIR/uninstall.sh"
+
+parse_args "$@"
+
+# ─── Dispatch ────────────────────────────────────────────────────────────────
+case "$ACTION" in
+install)
+    banner
+    preflight
+    ensure_minikube
+    generate_certs
+    apply_secrets
+    apply_postgres
+    install_coder
+    install_ingress
+    update_hosts
+    health_check
+    trust_local_ca
+    install_cli
+    [[ -n "${CLI_PATH:-}" ]] && create_admin
+    install_filebrowser
+    print_summary
+    ;;
+status)    do_status ;;
+uninstall) do_uninstall ;;
+*)         die "Unknown action: $ACTION" ;;
+esac
+
+========================================================
+File: lib/health.sh
+========================================================
+# lib/health.sh — probe https://DOMAIN/healthz from outside until it returns 200.
+
+health_check() {
+ step "Health check"
+ local target_ip url status
+ target_ip=$(minikube ip -p "$MINIKUBE_PROFILE")
+ url="https://${DOMAIN}/healthz"
+ log "Probing ${url} …"
+
+ for _ in {1..30}; do
+  status=$(curl --cacert "$CERT_DIR/ca-cert.pem" \
+   --resolve "${DOMAIN}:443:${target_ip}" \
+   -s -o /dev/null -w '%{http_code}' \
+   --max-time 5 "$url" || true)
+  if [[ "$status" == "200" ]]; then
+   ok "Coder is responding 200 on ${url}"
+   return
+  fi
+  sleep 2
+ done
+ warn "Coder did not return 200 within ~60s (last status: ${status:-no-response})"
+ warn "Check pods:  kubectl get pods -n ${NAMESPACE}"
+ warn "Tail logs:   kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/name=coder --tail=100"
+}
+
+========================================================
+File: lib/certs.sh
+========================================================
+# lib/certs.sh — generate self-signed Root CA + server cert (wildcard SAN).
+
+generate_certs() {
+ step "TLS PKI for ${DOMAIN}"
+ mkdir -p "$CERT_DIR"
+
+ if [[ -f "$CERT_DIR/ca-cert.pem" && -f "$CERT_DIR/server.crt" && -f "$CERT_DIR/server.key" ]]; then
+  if openssl x509 -in "$CERT_DIR/server.crt" -text -noout 2>/dev/null | grep -q "DNS:${DOMAIN}\b"; then
+   ok "Reusing existing certs in ${CERT_DIR}"
+   return
+  fi
+  warn "Existing certs don't cover ${DOMAIN}; regenerating"
+ fi
+
+ log "Generating self-signed Root CA + server cert (with wildcard SAN)…"
+
+ # Render the OpenSSL extension config from a template (uses ${DOMAIN}).
+ render_template "$MANIFESTS_DIR/server-ext.cnf.tpl" >"$CERT_DIR/server-ext.cnf"
+
+ (
+  cd "$CERT_DIR"
+  openssl genrsa -out ca.key 4096 >/dev/null 2>&1
+  openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
+   -out ca-cert.pem -subj "/O=Coder Local CA/CN=Coder Local Root CA" >/dev/null 2>&1
+
+  openssl genrsa -out server.key 4096 >/dev/null 2>&1
+  openssl req -new -key server.key -out server.csr \
+   -subj "/CN=${DOMAIN}" >/dev/null 2>&1
+
+  openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca.key \
+   -CAcreateserial -out server.crt -days 825 -sha256 \
+   -extfile server-ext.cnf >/dev/null 2>&1
+ )
+ ok "Certs written to ${CERT_DIR}"
+}
+
+========================================================
+File: lib/hosts.sh
+========================================================
+# lib/hosts.sh — add (or refresh) a /etc/hosts entry pointing DOMAIN at minikube.
+
+update_hosts() {
+ step "Local DNS (/etc/hosts)"
+ if $SKIP_HOSTS; then
+  warn "Skipping /etc/hosts (--skip-hosts)"
+  return
+ fi
+
+ local target_ip marker hosts_file
+ target_ip=$(minikube ip -p "$MINIKUBE_PROFILE")
+ marker="# install-coder:${DOMAIN}"
+ hosts_file="/etc/hosts"
+
+ if grep -qF "$marker" "$hosts_file" 2>/dev/null; then
+  local existing_ip
+  existing_ip=$(awk -v m="$marker" 'index($0,m){print $1; exit}' "$hosts_file")
+  if [[ "$existing_ip" == "$target_ip" ]]; then
+   ok "/etc/hosts already maps ${DOMAIN} → ${target_ip}"
+   return
+  fi
+  warn "Replacing stale entry: ${existing_ip} → ${target_ip}"
+  local tmp
+  tmp=$(mktemp)
+  grep -vF "$marker" "$hosts_file" >"$tmp"
+  echo "${target_ip} ${DOMAIN} ${marker}" >>"$tmp"
+  sudo cp "$tmp" "$hosts_file"
+  rm -f "$tmp"
+ else
+  log "Adding ${DOMAIN} → ${target_ip} (sudo prompt incoming)…"
+  echo "${target_ip} ${DOMAIN} ${marker}" | sudo tee -a "$hosts_file" >/dev/null
+ fi
+ ok "/etc/hosts updated"
+}
+
+========================================================
+File: lib/postgres.sh
+========================================================
+# lib/postgres.sh — deploy Postgres from manifests/postgres.yaml and build
+# the DB connection-URL secret that Coder reads.
+
+apply_postgres() {
+ step "PostgreSQL"
+ kubectl apply -n "$NAMESPACE" -f "$MANIFESTS_DIR/postgres.yaml" >/dev/null
+
+ log "Waiting for Postgres rollout…"
+ kubectl rollout status deployment/postgres -n "$NAMESPACE" --timeout=300s
+ ok "Postgres ready"
+
+ local pg_user pg_pass pg_db
+ pg_user=$(kubectl get secret coder-pg-credentials -n "$NAMESPACE" -o go-template='{{.data.username | base64decode}}')
+ pg_pass=$(kubectl get secret coder-pg-credentials -n "$NAMESPACE" -o go-template='{{.data.password | base64decode}}')
+ pg_db=$(kubectl get secret coder-pg-credentials -n "$NAMESPACE" -o go-template='{{.data.database | base64decode}}')
+
+ kubectl create secret generic coder-db-url -n "$NAMESPACE" \
+  --from-literal=url="postgres://${pg_user}:${pg_pass}@postgres.${NAMESPACE}.svc.cluster.local:5432/${pg_db}?sslmode=disable" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ ok "DB URL secret: coder-db-url"
+}
+
+========================================================
+File: lib/status.sh
+========================================================
+# lib/status.sh — print the current state of every moving part.
+
+do_status() {
+ step "Cluster"
+ minikube status -p "$MINIKUBE_PROFILE" || true
+
+ step "Pods (${NAMESPACE})"
+ kubectl get pods -n "$NAMESPACE" 2>/dev/null || warn "namespace ${NAMESPACE} not found"
+
+ step "Services & Ingress (${NAMESPACE})"
+ kubectl get svc,ingress -n "$NAMESPACE" 2>/dev/null || true
+
+ step "Ingress controller"
+ if kubectl get deploy -n ingress-nginx ingress-nginx-controller >/dev/null 2>&1; then
+  echo "  detected   : ingress-nginx (in use if --ingress-controller=auto/nginx)"
+  kubectl get pods,svc -n ingress-nginx 2>/dev/null || true
+ fi
+ if kubectl get deploy -n "$TRAEFIK_NAMESPACE" traefik >/dev/null 2>&1; then
+  echo "  detected   : traefik (namespace=${TRAEFIK_NAMESPACE})"
+  kubectl get pods,svc -n "$TRAEFIK_NAMESPACE" 2>/dev/null || true
+ fi
+
+ step "Filebrowser host"
+ if kubectl get deploy -n "$NAMESPACE" filebrowser-host >/dev/null 2>&1; then
+  kubectl get pods,svc -n "$NAMESPACE" -l app=filebrowser-host 2>/dev/null || true
+  echo "  in-cluster URL: http://filebrowser-host.${NAMESPACE}.svc.cluster.local/filebrowser"
+ else
+  echo "  not deployed"
+ fi
+
+ step "Reachability"
+ local target_ip
+ target_ip=$(minikube ip -p "$MINIKUBE_PROFILE" 2>/dev/null || echo unknown)
+ echo "  minikube IP : ${target_ip}"
+ echo "  domain      : https://${DOMAIN}"
+ if [[ -f "$CERT_DIR/ca-cert.pem" && "$target_ip" != "unknown" ]]; then
+  local s
+  s=$(curl --cacert "$CERT_DIR/ca-cert.pem" \
+   --resolve "${DOMAIN}:443:${target_ip}" \
+   -s -o /dev/null -w '%{http_code}' \
+   --max-time 5 "https://${DOMAIN}/healthz" || true)
+  echo "  /healthz    : ${s:-no response}"
+ fi
+}
+
+========================================================
+File: lib/coder.sh
+========================================================
+# lib/coder.sh — install Coder via Helm with values rendered from a template.
+
+install_coder() {
+ step "Coder (Helm)"
+ helm repo add coder-v2 https://helm.coder.com/v2 >/dev/null 2>&1 || true
+ helm repo update coder-v2 >/dev/null
+
+ # Render the values template into VALUES_FILE so it's easy to inspect/diff.
+ render_template "$MANIFESTS_DIR/coder-values.yaml.tpl" >"$VALUES_FILE"
+ log "Rendered Helm values → ${VALUES_FILE}"
+
+ log "helm upgrade --install coder…"
+ helm upgrade --install coder coder-v2/coder \
+  --namespace="$NAMESPACE" \
+  -f "$VALUES_FILE" \
+  --wait --timeout=10m
+ ok "Coder deployment ready"
+}
+
+========================================================
+File: lib/preflight.sh
+========================================================
+# lib/preflight.sh — verify required tools are installed and detect driver.
+
+preflight() {
+ step "Pre-flight checks"
+
+ local missing=()
+ # envsubst needed to render manifests/*.tpl files.
+ for cmd in minikube kubectl helm openssl curl tar envsubst; do
+  command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+ done
+ if ((${#missing[@]} > 0)); then
+  err "Missing required commands: ${missing[*]}"
+  case "$OS" in
+  Darwin) warn "Install with: brew install ${missing[*]}" ;;
+  Linux) warn "Install via your package manager (apt/dnf/pacman). 'envsubst' is in the gettext package." ;;
+  esac
+  exit 1
+ fi
+ ok "All required tools present (minikube, kubectl, helm, openssl, curl, envsubst)"
+
+ # Auto-detect driver if not specified.
+ if [[ -z "$MINIKUBE_DRIVER" ]]; then
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+   MINIKUBE_DRIVER="docker"
+  fi
+ fi
+ if [[ "$MINIKUBE_DRIVER" == "docker" ]] && ! docker info >/dev/null 2>&1; then
+  die "docker driver selected but Docker is not running. Start Docker Desktop and retry."
+ fi
+ ok "Driver: ${MINIKUBE_DRIVER:-(minikube default)}"
+
+ if [[ "$OS" == "Darwin" && "$MINIKUBE_DRIVER" == "docker" ]]; then
+  warn "macOS + docker driver: traffic uses an internal Docker network."
+  warn "If the final health check fails, either:"
+  warn "  • run 'minikube tunnel' in another terminal, or"
+  warn "  • re-create with --driver=qemu2 (recommended for Apple Silicon)"
+ fi
+}
+
+========================================================
+File: lib/admin.sh
+========================================================
+# lib/admin.sh — create the Coder first-user (admin) via the CLI.
+# Called by the orchestrator only when install_cli succeeded.
+
+create_admin() {
+ step "First-user (admin) account"
+ local coder_bin="${CLI_PATH:-coder}"
+
+ if ! { [[ -x "$coder_bin" ]] || command -v "$coder_bin" >/dev/null 2>&1; }; then
+  warn "Coder CLI not found; skipping admin creation."
+  return
+ fi
+
+ log "Creating admin account..."
+
+ ADMIN_USER="admin"
+ ADMIN_EMAIL="admin@${DOMAIN}"
+ ADMIN_PASSWORD="Changeit1!"
+
+ local tmp_log
+ tmp_log=$(mktemp)
+
+ # 1. CODER_TLS_NO_VERIFY=1 in case the local CA isn't fully trusted by Go yet.
+ # 2. --first-user-trial=false skips the enterprise trial prompt.
+ # 3. </dev/null so it fails fast instead of hanging on unforeseen prompts.
+ if env CODER_TLS_NO_VERIFY=1 "$coder_bin" login "https://${DOMAIN}" \
+  --first-user-username "$ADMIN_USER" \
+  --first-user-email "$ADMIN_EMAIL" \
+  --first-user-password "$ADMIN_PASSWORD" \
+  --first-user-trial=false \
+  </dev/null >"$tmp_log" 2>&1; then
+
+  ok "Admin account created!"
+  echo
+  echo "    Username  : $ADMIN_USER"
+  echo "    Email     : $ADMIN_EMAIL"
+  echo "    Password  : $ADMIN_PASSWORD"
+  echo
+ else
+  warn "Failed to create admin account automatically (it might already exist)."
+  warn "Logs from the attempt:"
+  sed 's/^/    /' "$tmp_log" >&2
+ fi
+
+ rm -f "$tmp_log"
+}
+
+========================================================
+File: lib/ingress.sh
+========================================================
+# lib/ingress.sh — pick (or install) an ingress controller, then apply
+# the Coder Ingress object. The controller-specific manifests live in
+# manifests/coder-ingress-{nginx,traefik}.yaml.tpl.
+
+INGRESS_MODE=""
+
+install_ingress() {
+ step "Ingress controller"
+ resolve_ingress_mode
+ case "$INGRESS_MODE" in
+ nginx) use_existing_nginx ;;
+ traefik) install_traefik ;;
+ esac
+ apply_coder_ingress
+}
+
+resolve_ingress_mode() {
+ local nginx_present=false
+ if kubectl get deploy -n ingress-nginx ingress-nginx-controller >/dev/null 2>&1; then
+  nginx_present=true
+ fi
+
+ case "$INGRESS_CONTROLLER" in
+ auto)
+  if $nginx_present; then
+   INGRESS_MODE=nginx
+   ok "Detected existing ingress-nginx — reusing it"
+  else
+   INGRESS_MODE=traefik
+   ok "No existing ingress controller — will install Traefik"
+  fi
+  ;;
+ nginx)
+  $nginx_present || die "--ingress-controller=nginx but ingress-nginx-controller is not running."
+  INGRESS_MODE=nginx
+  ok "Using existing ingress-nginx (forced by --ingress-controller=nginx)"
+  ;;
+ traefik)
+  INGRESS_MODE=traefik
+  ok "Installing Traefik (forced by --ingress-controller=traefik)"
+  ;;
+ esac
+}
+
+use_existing_nginx() {
+ log "Verifying ingress-nginx is ready…"
+ kubectl rollout status deployment/ingress-nginx-controller \
+  -n ingress-nginx --timeout=120s >/dev/null ||
+  warn "ingress-nginx didn't report Ready in 120s — continuing anyway"
+
+ if ! kubectl get ingressclass nginx >/dev/null 2>&1; then
+  warn "No IngressClass named 'nginx' found. The Ingress we apply uses ingressClassName: nginx."
+ fi
+ ok "ingress-nginx looks ready"
+}
+
+install_traefik() {
+ helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
+ helm repo update traefik >/dev/null
+
+ # Remove stale Traefik releases in other namespaces so they free up hostPort 80/443.
+ local stale_ns
+ stale_ns=$(helm list -A 2>/dev/null | awk -v want="$TRAEFIK_NAMESPACE" 'NR>1 && $1=="traefik" && $2!=want {print $2}')
+ if [[ -n "$stale_ns" ]]; then
+  while IFS= read -r ns; do
+   [[ -z "$ns" ]] && continue
+   warn "Found existing traefik release in '${ns}' — removing to free hostPort 80/443"
+   helm uninstall traefik -n "$ns" --wait 2>/dev/null || true
+  done <<<"$stale_ns"
+  for _ in {1..30}; do
+   kubectl get pods -A -l app.kubernetes.io/name=traefik 2>/dev/null | grep -q traefik || break
+   sleep 2
+  done
+ fi
+
+ # Bail early if some other workload is already binding 80/443 — Traefik won't schedule.
+ local port_holder
+ port_holder=$(kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\t"}{.spec.containers[*].ports[*].hostPort}{"\n"}{end}' 2>/dev/null |
+  awk -F'\t' '$2 ~ /(^| )(80|443)( |$)/ {print $1}' |
+  grep -v '^traefik/' || true)
+ if [[ -n "$port_holder" ]]; then
+  err "Pods are already binding hostPort 80/443 — Traefik will not schedule:"
+  printf '  %s\n' $port_holder >&2
+  die "Either remove those, or re-run with --ingress-controller=nginx to use the existing controller."
+ fi
+
+ kubectl get ns "$TRAEFIK_NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$TRAEFIK_NAMESPACE"
+
+ log "helm upgrade --install traefik…"
+ helm upgrade --install traefik traefik/traefik \
+  --namespace="$TRAEFIK_NAMESPACE" \
+  --set ports.web.hostPort=80 \
+  --set ports.websecure.hostPort=443 \
+  --set service.type=ClusterIP \
+  --set ingressClass.enabled=true \
+  --set ingressClass.isDefaultClass=true \
+  --wait --timeout=5m
+ ok "Traefik ready"
+}
+
+apply_coder_ingress() {
+ local tpl="$MANIFESTS_DIR/coder-ingress-${INGRESS_MODE}.yaml.tpl"
+ [[ -f "$tpl" ]] || die "Ingress template not found: $tpl"
+
+ render_template "$tpl" | kubectl apply -n "$NAMESPACE" -f - >/dev/null
+ ok "Ingress applied (class=${INGRESS_MODE}, with wildcard for *.${DOMAIN})"
+}
+
+========================================================
+File: lib/cli.sh
+========================================================
+# lib/cli.sh — download the Coder CLI from the freshly installed Coder server.
+# Sets two globals consumed by summary.sh:
+#   CLI_PATH        — full path to the installed binary, or empty if skipped/failed
+#   CLI_NEEDS_PATH  — 1 if CLI_INSTALL_DIR is not on $PATH
+
+CLI_PATH=""
+CLI_NEEDS_PATH=0
+
+install_cli() {
+ step "Coder CLI"
+ if $SKIP_CLI; then
+  warn "Skipping CLI install (--skip-cli)"
+  return
+ fi
+
+ local arch_raw os_lc arch target_ip url
+ arch_raw="$(uname -m)"
+ os_lc="$(echo "$OS" | tr '[:upper:]' '[:lower:]')"
+
+ case "$arch_raw" in
+ x86_64 | amd64) arch=amd64 ;;
+ aarch64 | arm64) arch=arm64 ;;
+ armv7l) arch=armv7 ;;
+ *)
+  warn "Unknown CPU arch '${arch_raw}' — skipping CLI install"
+  return
+  ;;
+ esac
+ case "$os_lc" in
+ linux | darwin) ;;
+ *)
+  warn "Unsupported OS '${OS}' for auto CLI install — skipping"
+  return
+  ;;
+ esac
+
+ target_ip=$(minikube ip -p "$MINIKUBE_PROFILE")
+ url="https://${DOMAIN}/bin/coder-${os_lc}-${arch}"
+
+ mkdir -p "$CLI_INSTALL_DIR"
+ local tmpdir
+ tmpdir=$(mktemp -d)
+ trap 'rm -rf "$tmpdir"' RETURN
+
+ log "Downloading Coder CLI from its newly provisioned installation at ${url}…"
+
+ # Coder's /healthz passes before the binary cache finishes extracting,
+ # so retry a few times with backoff.
+ local success=false
+ for i in {1..6}; do
+  if curl --cacert "$CERT_DIR/ca-cert.pem" --resolve "${DOMAIN}:443:${target_ip}" \
+   -fsSL --max-time 60 "$url" -o "$tmpdir/coder"; then
+   success=true
+   break
+  fi
+  warn "Download failed (server may still be unpacking binaries). Retrying in 10s... ($i/6)"
+  sleep 10
+ done
+
+ if ! $success; then
+  err "Download completely failed from ${url}"
+  warn "Install manually:  curl -L https://coder.com/install.sh | sh"
+  return
+ fi
+
+ chmod +x "$tmpdir/coder"
+ install -m 0755 "$tmpdir/coder" "${CLI_INSTALL_DIR}/coder"
+ CLI_PATH="${CLI_INSTALL_DIR}/coder"
+ ok "Installed to ${CLI_PATH}"
+
+ case ":${PATH}:" in
+ *":${CLI_INSTALL_DIR}:"*) CLI_NEEDS_PATH=0 ;;
+ *) CLI_NEEDS_PATH=1 ;;
+ esac
+}
+
+========================================================
+File: lib/secrets.sh
+========================================================
+# lib/secrets.sh — namespace + TLS secret + CA secret + Postgres credentials.
+
+apply_secrets() {
+ step "Namespace + secrets"
+ kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+ ok "Namespace: $NAMESPACE"
+
+ kubectl create secret tls "$TLS_SECRET" \
+  --cert="$CERT_DIR/server.crt" --key="$CERT_DIR/server.key" \
+  --namespace="$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ kubectl create secret generic "$CA_SECRET" \
+  --from-file=ca.crt="$CERT_DIR/ca-cert.pem" \
+  --namespace="$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ ok "TLS secret: $TLS_SECRET"
+ ok "CA secret:  $CA_SECRET   ${DIM}(referenced by your main.tf)${RST}"
+
+ if ! kubectl get secret coder-pg-credentials -n "$NAMESPACE" >/dev/null 2>&1; then
+  local pwd
+  pwd="$(openssl rand -hex 24)"
+  kubectl create secret generic coder-pg-credentials -n "$NAMESPACE" \
+   --from-literal=username=coder \
+   --from-literal=password="$pwd" \
+   --from-literal=database=coder >/dev/null
+  ok "Generated random Postgres credentials"
+ else
+  ok "Reusing existing Postgres credentials"
+ fi
+}
+
+========================================================
+File: lib/ca-trust.sh
+========================================================
+# lib/ca-trust.sh — install the local CA into the OS trust store and the
+# user's NSS DB (Chrome/Chromium/Firefox) so https://DOMAIN works without warnings.
+
+trust_local_ca() {
+ step "Trusting Local CA"
+ local cert="$CERT_DIR/ca-cert.pem"
+
+ if [[ ! -f "$cert" ]]; then
+  warn "CA cert not found at $cert"
+  return
+ fi
+
+ log "Adding CA certificate to system trust stores (sudo prompt incoming)…"
+
+ case "$OS" in
+ Darwin)
+  if sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$cert" >/dev/null 2>&1; then
+   ok "Added to macOS System Keychain"
+  else
+   warn "Failed to add to macOS Keychain"
+  fi
+  ;;
+ Linux)
+  if command -v update-ca-certificates >/dev/null 2>&1; then
+   sudo cp "$cert" /usr/local/share/ca-certificates/coder-local-ca.crt
+   sudo update-ca-certificates >/dev/null 2>&1
+   ok "Added to Debian/Ubuntu CA trust"
+  elif command -v update-ca-trust >/dev/null 2>&1; then
+   sudo cp "$cert" /etc/pki/ca-trust/source/anchors/coder-local-ca.crt
+   sudo update-ca-trust >/dev/null 2>&1
+   ok "Added to RHEL/Fedora CA trust"
+  fi
+  ;;
+ esac
+
+ log "Adding new CA certificate to web browsers to trust..."
+ if [[ -d "$HOME/.pki/nssdb" ]]; then
+  if ! command -v certutil >/dev/null 2>&1; then
+   log "Installing libnss3-tools for certutil…"
+   if command -v apt >/dev/null 2>&1; then
+    sudo apt update >/dev/null && sudo apt install -y libnss3-tools >/dev/null
+   fi
+  fi
+
+  if command -v certutil >/dev/null 2>&1; then
+   if certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "CoderLocalCA" -i "$cert" >/dev/null 2>&1; then
+    ok "Successfully added new CA certifcate to nssdb"
+   else
+    warn "Failed adding CA certificate to nssdb"
+   fi
+  fi
+ fi
+}
+
+========================================================
+File: lib/uninstall.sh
+========================================================
+# lib/uninstall.sh — tear it all down.
+
+do_uninstall() {
+ step "Uninstall"
+ local extra_ns_msg=""
+ kubectl get ns "$TRAEFIK_NAMESPACE" >/dev/null 2>&1 &&
+  extra_ns_msg=" + '${TRAEFIK_NAMESPACE}'"
+ if ! confirm "Delete '${NAMESPACE}'${extra_ns_msg} namespace(s) and the /etc/hosts entry for ${DOMAIN}? (existing ingress-nginx will NOT be touched)"; then
+  log "Aborted"
+  exit 0
+ fi
+
+ helm uninstall coder -n "$NAMESPACE" 2>/dev/null || true
+ while IFS= read -r ns; do
+  [[ -z "$ns" ]] && continue
+  helm uninstall traefik -n "$ns" 2>/dev/null || true
+ done < <(helm list -A 2>/dev/null | awk 'NR>1 && $1=="traefik" {print $2}')
+
+ # The filebrowser-host deployment lives in $NAMESPACE so it goes away with the namespace.
+ kubectl delete namespace "$NAMESPACE" --ignore-not-found --wait=false
+ kubectl delete namespace "$TRAEFIK_NAMESPACE" --ignore-not-found --wait=false 2>/dev/null || true
+
+ if grep -qF "# install-coder:${DOMAIN}" /etc/hosts 2>/dev/null; then
+  log "Removing /etc/hosts entry…"
+  local tmp
+  tmp=$(mktemp)
+  grep -vF "# install-coder:${DOMAIN}" /etc/hosts >"$tmp"
+  sudo cp "$tmp" /etc/hosts
+  rm -f "$tmp"
+ fi
+
+ ok "Uninstall complete."
+ warn "Minikube cluster left running. Delete with: minikube delete -p ${MINIKUBE_PROFILE}"
+ warn "Cert directory left in place: ${CERT_DIR} (rm -rf to remove)"
+}
+
+========================================================
+File: lib/minikube.sh
+========================================================
+# lib/minikube.sh — start the cluster and align kubectl context.
+
+ensure_minikube() {
+ step "Minikube cluster"
+
+ if minikube status -p "$MINIKUBE_PROFILE" 2>/dev/null | grep -q "host: Running"; then
+  ok "Minikube profile '${MINIKUBE_PROFILE}' already running"
+ else
+  log "Starting minikube (profile=${MINIKUBE_PROFILE} cpus=${MINIKUBE_CPUS} mem=${MINIKUBE_MEMORY}MB disk=${MINIKUBE_DISK})…"
+  local args=(start
+   --profile="$MINIKUBE_PROFILE"
+   --cpus="$MINIKUBE_CPUS"
+   --memory="$MINIKUBE_MEMORY"
+   --disk-size="$MINIKUBE_DISK"
+  )
+  [[ -n "$MINIKUBE_DRIVER" ]] && args+=(--driver="$MINIKUBE_DRIVER")
+  minikube "${args[@]}"
+  ok "Minikube started"
+ fi
+
+ local ctx
+ ctx="$(kubectl config current-context 2>/dev/null || true)"
+ if [[ "$ctx" != "$MINIKUBE_PROFILE" ]]; then
+  warn "kubectl context is '${ctx:-unset}', switching to '${MINIKUBE_PROFILE}'"
+  kubectl config use-context "$MINIKUBE_PROFILE" >/dev/null
+ fi
+ kubectl cluster-info >/dev/null 2>&1 || die "Cannot reach Kubernetes API. Run 'minikube logs --problems' to debug."
+ ok "kubectl context: $(kubectl config current-context)"
+}
+
+========================================================
+File: lib/filebrowser.sh
+========================================================
+# lib/filebrowser.sh — air-gap support for the filebrowser workspace addon.
+#
+# In a normal install, Coder's filebrowser module fetches the binary from
+# the public internet (https://github.com/filebrowser/get). That doesn't
+# work air-gapped, so we ship the binary alongside this script and host
+# it inside the cluster on a tiny HTTP server.
+#
+# After this step, workspace templates can fetch it via cluster DNS:
+#
+#   wget -qO /tmp/filebrowser \
+#     http://filebrowser-host.${NAMESPACE}.svc.cluster.local/filebrowser
+#
+# The transport is plain HTTP because the traffic never leaves the cluster.
+
+install_filebrowser() {
+ step "Filebrowser binary host (air-gap)"
+
+ if $SKIP_FILEBROWSER; then
+  warn "Skipping filebrowser host (--skip-filebrowser)"
+  return
+ fi
+
+ if [[ ! -f "$FILEBROWSER_BINARY" ]]; then
+  warn "filebrowser binary not found at: ${FILEBROWSER_BINARY}"
+  warn "Place the binary alongside this script (or pass --filebrowser-binary)."
+  warn "Skipping in-cluster host. Workspaces relying on filebrowser will fail until this is done."
+  return
+ fi
+
+ log "Applying manifests/filebrowser-host.yaml…"
+ render_template "$MANIFESTS_DIR/filebrowser-host.yaml.tpl" |
+  kubectl apply -n "$NAMESPACE" -f - >/dev/null
+
+ log "Waiting for filebrowser-host rollout…"
+ kubectl rollout status deployment/filebrowser-host -n "$NAMESPACE" --timeout=120s
+
+ local pod
+ pod=$(kubectl get pod -n "$NAMESPACE" -l app=filebrowser-host \
+  -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' |
+  awk '{print $1}')
+ [[ -n "$pod" ]] || die "filebrowser-host pod did not reach Running state"
+
+ # Idempotency: skip the upload if the in-pod binary already matches in size.
+ local local_size remote_size
+ if [[ "$OS" == "Darwin" ]]; then
+  local_size=$(stat -f%z "$FILEBROWSER_BINARY")
+ else
+  local_size=$(stat -c%s "$FILEBROWSER_BINARY")
+ fi
+ remote_size=$(kubectl exec -n "$NAMESPACE" "$pod" -- \
+  sh -c 'stat -c%s /www/filebrowser 2>/dev/null || echo 0' | tr -d '[:space:]')
+
+ if [[ "$local_size" == "$remote_size" ]]; then
+  ok "Binary already uploaded (size=${local_size} bytes) — skipping copy"
+ else
+  log "Uploading filebrowser binary (${local_size} bytes)…"
+  # `kubectl cp` needs `tar` on the target; busybox has it built-in.
+  kubectl cp "$FILEBROWSER_BINARY" "$NAMESPACE/$pod:/www/filebrowser"
+  kubectl exec -n "$NAMESPACE" "$pod" -- chmod +x /www/filebrowser
+  ok "Uploaded and made executable"
+ fi
+
+ ok "In-cluster URL: http://filebrowser-host.${NAMESPACE}.svc.cluster.local/filebrowser"
+}
+
+========================================================
+File: lib/common.sh
+========================================================
+# lib/common.sh — defaults, colors, logging, arg parsing, ERR trap.
+# Sourced by install-coder before any other lib.
+
+# ─── Defaults (env-overridable) ──────────────────────────────────────────────
+DOMAIN="${CODER_DOMAIN:-coder.xxx}"
+NAMESPACE="${CODER_NAMESPACE:-coder}"
+TRAEFIK_NAMESPACE="${TRAEFIK_NAMESPACE:-traefik}"
+CERT_DIR="${CERT_DIR:-$PWD/certs}"
+VALUES_FILE="${VALUES_FILE:-$PWD/coder-values.yaml}"
+
+MINIKUBE_PROFILE="${MINIKUBE_PROFILE:-minikube}"
+MINIKUBE_CPUS="${MINIKUBE_CPUS:-4}"
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-8192}"
+MINIKUBE_DISK="${MINIKUBE_DISK:-40g}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-}" # auto-detect if blank
+
+# auto | nginx | traefik
+INGRESS_CONTROLLER="${INGRESS_CONTROLLER:-auto}"
+
+SKIP_HOSTS="${SKIP_HOSTS:-false}"
+SKIP_CLI="${SKIP_CLI:-false}"
+SKIP_FILEBROWSER="${SKIP_FILEBROWSER:-false}"
+CLI_INSTALL_DIR="${CLI_INSTALL_DIR:-$HOME/.local/bin}"
+ASSUME_YES="${ASSUME_YES:-false}"
+ACTION="install"
+
+# Image used by the in-cluster filebrowser binary host (air-gap clusters
+# must have this image pre-loaded, e.g. via `minikube image load busybox:1.36`).
+FILEBROWSER_HOST_IMAGE="${FILEBROWSER_HOST_IMAGE:-busybox:1.36}"
+
+OS="$(uname -s)"
+
+# ─── Output helpers ──────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+ RED=$'\e[31m'
+ GRN=$'\e[32m'
+ YLW=$'\e[33m'
+ BLU=$'\e[34m'
+ CYN=$'\e[36m'
+ BLD=$'\e[1m'
+ DIM=$'\e[2m'
+ RST=$'\e[0m'
+else
+ RED=''
+ GRN=''
+ YLW=''
+ BLU=''
+ CYN=''
+ BLD=''
+ DIM=''
+ RST=''
+fi
+
+log() { printf "%s[*]%s %s\n" "$BLU" "$RST" "$*"; }
+ok() { printf "%s[✓]%s %s\n" "$GRN" "$RST" "$*"; }
+warn() { printf "%s[!]%s %s\n" "$YLW" "$RST" "$*" >&2; }
+err() { printf "%s[x]%s %s\n" "$RED" "$RST" "$*" >&2; }
+step() { printf "\n%s━━━ %s ━━━%s\n" "$BLD" "$*" "$RST"; }
+die() {
+ err "$*"
+ exit 1
+}
+
+confirm() {
+ $ASSUME_YES && return 0
+ if [[ ! -t 0 ]]; then
+  warn "Non-interactive shell; refusing destructive action without --yes"
+  return 1
+ fi
+ read -r -p "$1 [y/N] " ans
+ [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+# render_template — substitute the listed vars in a template file.
+# Only named vars are expanded so anything like Helm's {{ }} or shell
+# command substitutions in the template stay untouched.
+render_template() {
+ local tpl="$1"
+ [[ -f "$tpl" ]] || die "Template not found: $tpl"
+ envsubst '${DOMAIN} ${NAMESPACE} ${SAFE_NAME} ${TLS_SECRET} ${CA_SECRET} ${FILEBROWSER_HOST_IMAGE}' <"$tpl"
+}
+
+# ─── Usage ───────────────────────────────────────────────────────────────────
+usage() {
+ cat <<EOF
+${BLD}install-coder${RST} — Coder installer for Minikube.
+${BLD}USAGE${RST}
+    install-coder [OPTIONS]
+
+${BLD}OPTIONS${RST}
+    --domain <name>             Domain to use for Coder           (default: ${DOMAIN})
+    --namespace <ns>            Kubernetes namespace              (default: ${NAMESPACE})
+    --cpus <n>                  Minikube CPUs                     (default: ${MINIKUBE_CPUS})
+    --memory <mb>               Minikube memory in MB             (default: ${MINIKUBE_MEMORY})
+    --disk <size>               Minikube disk size, e.g. 40g      (default: ${MINIKUBE_DISK})
+    --driver <drv>              Minikube driver (docker, qemu2, …; auto-detected)
+    --cert-dir <path>           Where to store certs              (default: ${CERT_DIR})
+    --ingress-controller <mode> auto | nginx | traefik            (default: ${INGRESS_CONTROLLER})
+                                  auto    — use ingress-nginx if it's already running,
+                                            otherwise install Traefik
+                                  nginx   — use existing ingress-nginx (fail if absent)
+                                  traefik — install Traefik (fails if 80/443 are taken)
+    --skip-hosts                Don't modify /etc/hosts
+    --skip-cli                  Don't install the coder CLI
+    --skip-filebrowser          Don't deploy the in-cluster filebrowser host
+    --cli-install-dir <path>    Where to drop the coder CLI       (default: ${CLI_INSTALL_DIR})
+    --filebrowser-binary <path> Path to filebrowser binary        (default: ${FILEBROWSER_BINARY})
+    -y, --yes                   Skip confirmation prompts (for CI)
+    --status                    Show component status and exit
+    --uninstall                 Remove everything (releases, namespaces, /etc/hosts entry)
+    -h, --help                  Show this help
+
+${BLD}LAYOUT${RST}
+    install-coder       this orchestrator
+    lib/                step-by-step shell modules
+    manifests/          Kubernetes manifests / templates
+    filebrowser         the filebrowser binary (air-gap; place alongside this script)
+
+${BLD}EXAMPLES${RST}
+    install-coder
+    install-coder --domain coder.local --cpus 6 --memory 12288
+    CODER_DOMAIN=dev.coder.test install-coder
+    install-coder --uninstall -y
+EOF
+ exit 0
+}
+
+# ─── Arg parsing ─────────────────────────────────────────────────────────────
+parse_args() {
+ while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --domain)
+   DOMAIN="$2"
+   shift 2
+   ;;
+  --namespace)
+   NAMESPACE="$2"
+   shift 2
+   ;;
+  --cpus)
+   MINIKUBE_CPUS="$2"
+   shift 2
+   ;;
+  --memory)
+   MINIKUBE_MEMORY="$2"
+   shift 2
+   ;;
+  --disk)
+   MINIKUBE_DISK="$2"
+   shift 2
+   ;;
+  --driver)
+   MINIKUBE_DRIVER="$2"
+   shift 2
+   ;;
+  --cert-dir)
+   CERT_DIR="$2"
+   shift 2
+   ;;
+  --ingress-controller)
+   INGRESS_CONTROLLER="$2"
+   shift 2
+   ;;
+  --skip-hosts)
+   SKIP_HOSTS=true
+   shift
+   ;;
+  --skip-cli)
+   SKIP_CLI=true
+   shift
+   ;;
+  --skip-filebrowser)
+   SKIP_FILEBROWSER=true
+   shift
+   ;;
+  --cli-install-dir)
+   CLI_INSTALL_DIR="$2"
+   shift 2
+   ;;
+  --filebrowser-binary)
+   FILEBROWSER_BINARY="$2"
+   shift 2
+   ;;
+  -y | --yes)
+   ASSUME_YES=true
+   shift
+   ;;
+  --status)
+   ACTION="status"
+   shift
+   ;;
+  --uninstall)
+   ACTION="uninstall"
+   shift
+   ;;
+  -h | --help) usage ;;
+  *) die "Unknown option: $1 (try --help)" ;;
+  esac
+ done
+
+ # Derived values (export so envsubst sees them in render_template)
+ SAFE_NAME="${DOMAIN//./-}"
+ TLS_SECRET="${SAFE_NAME}-tls"
+ CA_SECRET="${SAFE_NAME}-ca"
+ export DOMAIN NAMESPACE SAFE_NAME TLS_SECRET CA_SECRET FILEBROWSER_HOST_IMAGE
+
+ case "$INGRESS_CONTROLLER" in
+ auto | nginx | traefik) ;;
+ *) die "--ingress-controller must be one of: auto, nginx, traefik (got: ${INGRESS_CONTROLLER})" ;;
+ esac
+}
+
+# ─── Banner ──────────────────────────────────────────────────────────────────
+banner() {
+ cat <<EOF
+${CYN}${BLD}
+╔══════════════════════════════════════════════════════════╗
+║         Coder Zero-to-Hero • Minikube Installer          ║
+╚══════════════════════════════════════════════════════════╝${RST}
+  domain     : ${BLD}${DOMAIN}${RST}
+  namespace  : ${NAMESPACE}
+  ingress    : ${INGRESS_CONTROLLER}  ${DIM}(auto = reuse nginx if present, else install Traefik)${RST}
+  cert dir   : ${CERT_DIR}
+  manifests  : ${MANIFESTS_DIR}
+  minikube   : profile=${MINIKUBE_PROFILE} cpus=${MINIKUBE_CPUS} mem=${MINIKUBE_MEMORY}MB driver=${MINIKUBE_DRIVER:-auto}
+EOF
+}
+
+# ─── Error trap ──────────────────────────────────────────────────────────────
+on_error() {
+ local rc=$? line="$1"
+ err "Failed at line ${line} (exit ${rc})"
+ printf "\n%sQuick diagnostics:%s\n" "$YLW" "$RST"
+ cat <<EOF >&2
+    kubectl get pods -n ${NAMESPACE}
+    kubectl describe pods -n ${NAMESPACE}
+    kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/name=coder --tail=100
+    kubectl get events -n ${NAMESPACE} --sort-by=.lastTimestamp | tail -20
+    minikube logs --problems
+EOF
+ warn "After fixing, just re-run this script — every step is idempotent."
+ exit "$rc"
+}
+trap 'on_error $LINENO' ERR
+
+========================================================
+File: lib/summary.sh
+========================================================
+# lib/summary.sh — final "you're done" message with copy-paste next steps.
+
+print_summary() {
+ step "🎉 Done"
+ cat <<EOF
+${GRN}${BLD}Coder is ready at:${RST}  ${BLD}https://${DOMAIN}${RST}
+
+${BLD}First-time setup${RST}
+  1. Open https://${DOMAIN} in your browser
+  2. Login with the Admin credentials listed above!
+
+${BLD}Coder CLI quickstart${RST}
+EOF
+ if [[ -n "$CLI_PATH" && $CLI_NEEDS_PATH -eq 0 ]]; then
+  cat <<EOF
+  ${GRN}✓ Installed:${RST} ${CLI_PATH}
+  coder login https://${DOMAIN}
+  coder templates push my-template -d /path/to/template
+EOF
+ elif [[ -n "$CLI_PATH" && $CLI_NEEDS_PATH -eq 1 ]]; then
+  local shell_rc
+  case "${SHELL##*/}" in
+  zsh) shell_rc="~/.zshrc" ;;
+  bash) shell_rc="~/.bashrc" ;;
+  fish) shell_rc="~/.config/fish/config.fish" ;;
+  *) shell_rc="your shell rc" ;;
+  esac
+  cat <<EOF
+  ${GRN}✓ Installed:${RST} ${CLI_PATH}
+  ${YLW}!${RST} ${CLI_INSTALL_DIR} is not on your PATH.
+  Add it:
+       echo 'export PATH="${CLI_INSTALL_DIR}:\$PATH"' >> ${shell_rc}
+       source ${shell_rc}
+  Or run with the full path:
+       ${CLI_PATH} login https://${DOMAIN}
+EOF
+ else
+  cat <<EOF
+  ${YLW}CLI not auto-installed${RST} — install it manually:
+       curl -L https://coder.com/install.sh | sh
+  Then:
+       coder login https://${DOMAIN}
+EOF
+ fi
+
+ # Filebrowser hint (only when the host was actually deployed).
+ if ! $SKIP_FILEBROWSER && [[ -f "$FILEBROWSER_BINARY" ]]; then
+  cat <<EOF
+
+${BLD}Filebrowser (air-gap)${RST}
+  In your workspace template (main.tf), fetch the binary from cluster DNS:
+       wget -qO /tmp/filebrowser \\
+           http://filebrowser-host.${NAMESPACE}.svc.cluster.local/filebrowser
+       chmod +x /tmp/filebrowser
+EOF
+ fi
+
+ cat <<EOF
+
+${BLD}Useful commands${RST}
+  $0 --status                                       show status
+  $0 --uninstall                                    tear it all down
+  kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/name=coder -f
+  kubectl get pods,svc,ingress -n ${NAMESPACE}
+
+${DIM}Note: your main.tf references the secret '${CA_SECRET}' for workspace
+CA trust — keep --domain consistent with that name.${RST}
+EOF
+}
+
+========================================================
+File: manifests/coder-values.yaml.tpl
+========================================================
+coder:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: "2",  memory: 2Gi }
+  env:
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-url
+          key: url
+    - name: CODER_ACCESS_URL
+      value: "https://${DOMAIN}"
+    - name: CODER_WILDCARD_ACCESS_URL
+      value: "*.${DOMAIN}"
+
+========================================================
+File: manifests/coder-ingress-nginx.yaml.tpl
+========================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${SAFE_NAME}-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["${DOMAIN}", "*.${DOMAIN}"]
+      secretName: ${TLS_SECRET}
+  rules:
+    - host: ${DOMAIN}
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: coder, port: { number: 80 } } } }
+    - host: "*.${DOMAIN}"
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: coder, port: { number: 80 } } } }
+
+========================================================
+File: manifests/filebrowser-host.yaml.tpl
+========================================================
+# filebrowser-host — serves the filebrowser binary on cluster-internal HTTP
+# so workspaces can `wget` it without touching the public internet.
+#
+# The PVC keeps the binary across pod restarts; the install script uses
+# `kubectl cp` to push the binary into /www on first run (or whenever the
+# local file's size differs from the in-pod copy).
+#
+# Image: ${FILEBROWSER_HOST_IMAGE} (default busybox:1.36) — must be
+# pre-loaded in the cluster's image cache for fully air-gapped installs:
+#     minikube image load busybox:1.36
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: filebrowser-host-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: filebrowser-host
+  labels: { app: filebrowser-host }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: filebrowser-host }
+  template:
+    metadata:
+      labels: { app: filebrowser-host }
+    spec:
+      containers:
+        - name: httpd
+          image: ${FILEBROWSER_HOST_IMAGE}
+          command: ["sh", "-c", "mkdir -p /www && exec busybox httpd -f -v -p 8080 -h /www"]
+          ports:
+            - { containerPort: 8080, name: http }
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m,  memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: data, mountPath: /www }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: filebrowser-host-pvc }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: filebrowser-host
+  labels: { app: filebrowser-host }
+spec:
+  selector: { app: filebrowser-host }
+  ports:
+    - { port: 80, targetPort: 8080, name: http }
+
+========================================================
+File: manifests/coder-ingress-traefik.yaml.tpl
+========================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${SAFE_NAME}-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: ["${DOMAIN}", "*.${DOMAIN}"]
+      secretName: ${TLS_SECRET}
+  rules:
+    - host: ${DOMAIN}
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: coder, port: { number: 80 } } } }
+    - host: "*.${DOMAIN}"
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: coder, port: { number: 80 } } } }
+
+========================================================
+File: manifests/server-ext.cnf.tpl
+========================================================
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=@alt_names
+[alt_names]
+DNS.1=${DOMAIN}
+DNS.2=*.${DOMAIN}
+
+========================================================
+File: manifests/postgres.yaml
+========================================================
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: coder-pg-credentials, key: username } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: coder-pg-credentials, key: password } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: coder-pg-credentials, key: database } }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - { containerPort: 5432 }
+          readinessProbe:
+            exec: { command: [pg_isready, -U, coder, -d, coder] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: [pg_isready, -U, coder, -d, coder] }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: postgres-pvc }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - { port: 5432, targetPort: 5432 }
+
+========================================================
+Project Directory Structure
+========================================================
+../../projects/coder/install-coder-v3
+├── addons
+│   └── filebrowser
+├── install-coder
+├── lib
+│   ├── admin.sh
+│   ├── ca-trust.sh
+│   ├── certs.sh
+│   ├── cli.sh
+│   ├── coder.sh
+│   ├── common.sh
+│   ├── filebrowser.sh
+│   ├── health.sh
+│   ├── hosts.sh
+│   ├── ingress.sh
+│   ├── minikube.sh
+│   ├── postgres.sh
+│   ├── preflight.sh
+│   ├── secrets.sh
+│   ├── status.sh
+│   ├── summary.sh
+│   └── uninstall.sh
+├── manifests
+│   ├── coder-ingress-nginx.yaml.tpl
+│   ├── coder-ingress-traefik.yaml.tpl
+│   ├── coder-values.yaml.tpl
+│   ├── filebrowser-host.yaml.tpl
+│   ├── postgres.yaml
+│   └── server-ext.cnf.tpl
+└── README.md
+
+4 directories, 26 files

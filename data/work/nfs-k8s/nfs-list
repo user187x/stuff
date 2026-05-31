@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# List files in the NFS shared volume via an ephemeral busybox pod.
+#
+# Usage:
+#   ./nfs-ls.sh [path] [-r]
+#
+# Examples:
+#   ./nfs-ls.sh                    # list root of the volume
+#   ./nfs-ls.sh /assets            # list a subdirectory
+#   ./nfs-ls.sh / -r               # recursive listing
+#   ./nfs-ls.sh /assets -r
+#
+# Env overrides:
+#   NAMESPACE  Namespace where the PVC lives (default: nfs-demo)
+#   PVC        PVC name (default: nfs-shared-pvc)
+
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PVC="${PVC:-nfs-shared-pvc}"
+TARGET_PATH="/"
+RECURSIVE=false
+
+for arg in "$@"; do
+ case "$arg" in
+ -r | --recursive) RECURSIVE=true ;;
+ -h | --help)
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+  ;;
+ -*)
+  echo "Unknown flag: $arg"
+  exit 1
+  ;;
+ *) TARGET_PATH="$arg" ;;
+ esac
+done
+
+# Normalize path: ensure leading slash, strip trailing slash (except for "/")
+[[ "$TARGET_PATH" != /* ]] && TARGET_PATH="/$TARGET_PATH"
+[[ "$TARGET_PATH" != "/" ]] && TARGET_PATH="${TARGET_PATH%/}"
+
+POD="nfs-ls-$$"
+cleanup() { kubectl delete pod -n "$NAMESPACE" "$POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+echo "==> Launching ephemeral pod '$POD' in '$NAMESPACE'..." >&2
+kubectl run "$POD" -n "$NAMESPACE" --restart=Never --image=busybox \
+ --overrides="{
+        \"spec\": {
+            \"containers\": [{
+                \"name\": \"$POD\",
+                \"image\": \"busybox\",
+                \"command\": [\"sleep\", \"3600\"],
+                \"volumeMounts\": [{\"name\": \"shared\", \"mountPath\": \"/data\"}]
+            }],
+            \"volumes\": [{
+                \"name\": \"shared\",
+                \"persistentVolumeClaim\": {\"claimName\": \"$PVC\"}
+            }]
+        }
+    }" >/dev/null
+
+kubectl wait -n "$NAMESPACE" --for=condition=ready "pod/$POD" --timeout=60s >/dev/null
+
+echo "==> Contents of /data$TARGET_PATH" >&2
+echo "" >&2
+
+if [[ "$RECURSIVE" == "true" ]]; then
+ # find prints both files and dirs with relative-ish output
+ kubectl exec -n "$NAMESPACE" "$POD" -- find "/data$TARGET_PATH" -mindepth 1 -printf '%y %p\n' 2>/dev/null ||
+  kubectl exec -n "$NAMESPACE" "$POD" -- find "/data$TARGET_PATH"
+else
+ kubectl exec -n "$NAMESPACE" "$POD" -- ls -lah "/data$TARGET_PATH"
+fi

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# Max file size in MB
+DESIRED_MAX_MB=50
+
+# Default max file size in bytes
+MAX_SIZE=52428800
+
+# Convenience method for converting MB to bytes
+function convert {
+ if [[ -n "$1" ]]; then
+  echo $(($1 * 1048576))
+ else
+  echo "$MAX_SIZE"
+ fi
+}
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+HOOKS_DIR=$(git rev-parse --show-toplevel)/$(git config core.hooksPath)
+
+MAX_SIZE="$(convert ${DESIRED_MAX_MB})"
+
+for file in $STAGED_FILES; do
+
+ SIZE=$(git cat-file -s ":$file")
+
+ if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+  SIZE_MB=$((SIZE / 1048576))
+  echo "Notice: $file is ${SIZE_MB}MB. Splitting..."
+
+  # Call the centralized script (Make sure the filename matches exactly)
+  "$HOOKS_DIR/splitter-combiner" --split "$file"
+
+  DIR_NAME="${file}-parts"
+
+  git add --force "$DIR_NAME"
+  git rm --cached "$file"
+
+  if ! grep -q "^${file}$" .gitignore 2>/dev/null; then
+   echo "$file" >>.gitignore
+   git add .gitignore
+  fi
+ fi
+done
+
+exit 0

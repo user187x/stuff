@@ -1,0 +1,95 @@
+#!/bin/bash
+#
+# Reset the GitLab root password in a Helm-deployed GitLab on Kubernetes.
+# Uses `gitlab-rails runner` (non-interactive) inside the toolbox pod —
+# no `expect` required.
+#
+# Usage:
+#   ./reset-gitlab-root.sh                       # uses defaults below
+#   ./reset-gitlab-root.sh myuser 'NewPass!23'   # custom user + password
+#
+# Env overrides:
+#   GITLAB_NAMESPACE  (default: gitlab)
+#   GITLAB_USERNAME   (default: root)
+#   GITLAB_PASSWORD   (default: ChangeIt1)
+
+set -euo pipefail
+
+NAMESPACE="${GITLAB_NAMESPACE:-gitlab}"
+USERNAME="${1:-${GITLAB_USERNAME:-root}}"
+PASSWORD="${2:-${GITLAB_PASSWORD:-ChangeIt1}}"
+
+# --- sanity checks --------------------------------------------------------
+
+command -v kubectl >/dev/null 2>&1 || {
+ echo "kubectl not found in PATH" >&2
+ exit 127
+}
+
+# Reject anything that would break the Ruby single-quoted string literal.
+# (The password is interpolated into Ruby source as '...'.)
+if [[ "$PASSWORD" == *\'* || "$PASSWORD" == *\\* ]]; then
+ echo "Password may not contain single-quote or backslash characters." >&2
+ exit 2
+fi
+if [[ "$USERNAME" == *\'* || "$USERNAME" == *\\* ]]; then
+ echo "Username may not contain single-quote or backslash characters." >&2
+ exit 2
+fi
+
+# --- find the toolbox pod -------------------------------------------------
+
+echo "Finding GitLab toolbox pod in namespace '$NAMESPACE'..."
+POD=$(kubectl get pods -n "$NAMESPACE" \
+ -l app=toolbox \
+ --field-selector=status.phase=Running \
+ -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+if [[ -z "$POD" ]]; then
+ echo "No running toolbox pod found in namespace '$NAMESPACE'." >&2
+ echo "Check: kubectl get pods -n $NAMESPACE -l app=toolbox" >&2
+ exit 1
+fi
+echo "Found pod: $POD"
+
+# --- run the password reset ----------------------------------------------
+
+echo "Resetting password for user '$USERNAME'..."
+
+# A unique sentinel lets us tell genuine success from a Ruby exception that
+# may still print other text. Heredoc is single-quoted ('RUBY') so $VAR and
+# backticks aren't expanded by bash — Ruby sees the source verbatim.
+SENTINEL="__GITLAB_PW_RESET_OK__"
+
+OUTPUT=$(
+ kubectl exec -i -n "$NAMESPACE" "$POD" -- \
+  gitlab-rails runner - <<RUBY 2>&1
+user = User.find_by_username('$USERNAME')
+if user.nil?
+  warn "ERROR: user '$USERNAME' not found"
+  exit 1
+end
+user.password = '$PASSWORD'
+user.password_confirmation = '$PASSWORD'
+user.password_automatically_set = false
+if user.save
+  puts '$SENTINEL'
+else
+  warn "ERROR: " + user.errors.full_messages.join('; ')
+  exit 1
+end
+RUBY
+) || {
+ echo "Password reset failed:" >&2
+ echo "$OUTPUT" >&2
+ exit 1
+}
+
+if grep -q "$SENTINEL" <<<"$OUTPUT"; then
+ echo "Password successfully updated for user '$USERNAME'."
+else
+ echo "Reset command exited 0 but success sentinel was not found." >&2
+ echo "Output was:" >&2
+ echo "$OUTPUT" >&2
+ exit 1
+fi

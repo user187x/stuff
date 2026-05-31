@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Wallpaper</string>
+    <string name="select_gif">Select GIF</string>
+    <string name="gif_preview_description">Preview of the selected animated GIF</string>
+    <string name="wallpaper_style">Wallpaper Style</string>
+    <string name="style_span">Span</string>
+    <string name="style_stretch">Stretch</string>
+    <string name="style_full">Full</string>
+    <string name="set_as_live_wallpaper">Set as Live Wallpaper</string>
+    <string name="wallpaper_service_label">My GIF Wallpaper</string>
+    <string name="wallpaper_settings">Settings</string>
+</resources>

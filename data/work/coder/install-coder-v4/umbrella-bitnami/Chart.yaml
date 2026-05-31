@@ -1,0 +1,23 @@
+apiVersion: v2
+name: coder-umbrella
+description: |
+  Umbrella Helm chart that bundles Coder + PostgreSQL so ArgoCD can manage
+  the entire Coder control plane as a single Application.
+type: application
+
+# Version of THIS umbrella chart. Bump on any change here.
+version: 0.1.0
+
+# appVersion tracks the Coder release we're deploying by default.
+appVersion: "2.29.5"
+
+dependencies:
+  - name: postgresql
+    version: "17.1.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+  - name: coder
+    version: "2.29.5"
+    repository: "https://helm.coder.com/v2"
+    condition: coder.enabled

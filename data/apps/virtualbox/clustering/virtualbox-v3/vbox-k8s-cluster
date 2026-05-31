@@ -1,0 +1,100 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+echo "================================================="
+echo " VirtualBox Kubernetes Node Provisioning Script  "
+echo "================================================="
+
+# 1. Verify VBoxManage is installed
+if ! command -v VBoxManage &>/dev/null; then
+ echo "Error: VBoxManage could not be found. Please install VirtualBox."
+ exit 1
+fi
+
+# 2. Get basic VM details
+read -p "Enter a base name for the VMs (e.g., k8s-node): " BASE_NAME
+read -p "Enter the number of VMs to create: " VM_COUNT
+
+if ! [[ "$VM_COUNT" =~ ^[0-9]+$ ]] || [ "$VM_COUNT" -le 0 ]; then
+ echo "Error: Please enter a valid number greater than 0."
+ exit 1
+fi
+
+# 3. Select the ISO file
+while true; do
+ read -e -p "Enter the full path to the OS ISO file (e.g., /path/to/ubuntu.iso): " ISO_PATH
+ if [ -f "$ISO_PATH" ]; then
+  break
+ else
+  echo "Error: File not found. Please check the path and try again."
+ fi
+done
+
+# 4. Select the Bridged Network Adapter
+echo ""
+echo "Fetching available host network interfaces..."
+# Parse the names of available bridged interfaces
+mapfile -t INTERFACES < <(VBoxManage list bridgedifs | grep "^Name:" | sed 's/^Name:[[:space:]]*//')
+
+if [ ${#INTERFACES[@]} -eq 0 ]; then
+ echo "Error: No bridged interfaces found on this host."
+ exit 1
+fi
+
+echo "Available Bridged Network Interfaces:"
+for i in "${!INTERFACES[@]}"; do
+ echo "$((i + 1)). ${INTERFACES[$i]}"
+done
+
+while true; do
+ read -p "Select the interface to bridge to (1-${#INTERFACES[@]}): " IF_SELECTION
+ if [[ "$IF_SELECTION" =~ ^[0-9]+$ ]] && [ "$IF_SELECTION" -ge 1 ] && [ "$IF_SELECTION" -le "${#INTERFACES[@]}" ]; then
+  SELECTED_IF="${INTERFACES[$((IF_SELECTION - 1))]}"
+  break
+ else
+  echo "Invalid selection. Please try again."
+ fi
+done
+
+# Get VirtualBox default machine folder to store the virtual disks
+DEFAULT_DIR=$(VBoxManage list systemproperties | grep "Default machine folder" | cut -d ':' -f 2- | sed -e 's/^[[:space:]]*//')
+
+echo ""
+echo "Starting creation of $VM_COUNT VMs bridging to $SELECTED_IF..."
+echo "================================================="
+
+# 5. Provisioning Loop
+for i in $(seq 1 "$VM_COUNT"); do
+ VM_NAME="${BASE_NAME}-${i}"
+ echo "-> Provisioning $VM_NAME..."
+
+ # Create and register the VM (Defaulting to Ubuntu 64-bit profile)
+ VBoxManage createvm --name "$VM_NAME" --ostype "Ubuntu_64" --register
+
+ # Apply Kubernetes Hardware Minimums (2 CPU, 2GB RAM, 16MB VRAM)
+ VBoxManage modifyvm "$VM_NAME" --cpus 2 --memory 2048 --vram 16
+
+ # Configure Network: Bridged mode, enabling promiscuous mode (needed for some K8s CNIs like Flannel/Calico)
+ VBoxManage modifyvm "$VM_NAME" --nic1 bridged --bridgeadapter1 "$SELECTED_IF"
+ VBoxManage modifyvm "$VM_NAME" --nicpromisc1 allow-all
+
+ # Setup Storage Controllers
+ VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAHCI --bootable on
+ VBoxManage storagectl "$VM_NAME" --name "IDE" --add ide
+
+ # Create a 20GB Virtual Hard Drive
+ VM_DIR="$DEFAULT_DIR/$VM_NAME"
+ VBoxManage createmedium disk --filename "$VM_DIR/$VM_NAME.vdi" --size 20480 --format VDI
+
+ # Attach Hard Drive and ISO
+ VBoxManage storageattach "$VM_NAME" --storagectl "SATA" --port 0 --device 0 --type hdd --medium "$VM_DIR/$VM_NAME.vdi"
+ VBoxManage storageattach "$VM_NAME" --storagectl "IDE" --port 0 --device 0 --type dvddrive --medium "$ISO_PATH"
+
+ echo "   [Done] $VM_NAME configured."
+done
+
+echo "================================================="
+echo "Setup complete! $VM_COUNT VMs have been successfully created."
+echo "You can now boot them from the VirtualBox GUI to run the OS installation."

@@ -1,0 +1,13 @@
+.classpath
+.project
+.settings/
+target/
+.idea/
+*.db
+*.class
+calendar_db/
+rocksdb-data/
+build/
+*.log
+*.ini
+*.zip

@@ -1,0 +1,191 @@
+#!/bin/bash
+
+set -e
+
+USER="xxx"
+WORKSPACE_NAME="storage"
+
+WORKSPACE_HOST="${PWD}/${WORKSPACE_NAME}"
+WORKSPACE_CNTR="/home/${USER}/${WORKSPACE_NAME}"
+
+if [[ ! -d "${WORKSPACE_HOST}" ]]; then
+ mkdir -p "${WORKSPACE_HOST}"
+fi
+
+cd "${WORKSPACE_HOST}"
+
+echo "🛠️ Creating Dockerfile Dev Environment..."
+
+cat <<'EOF' >Dockerfile
+FROM ubuntu:26.04
+
+ARG DEV_USER=developer
+ENV USER="${DEV_USER}"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. Install core utilities, desktop environment (XFCE4), VNC, and noVNC
+RUN apt-get update && apt-get install -y \
+  ca-certificates curl wget git sudo nano dbus-x11 iptables \
+  xfce4 xfce4-goodies \
+  tigervnc-standalone-server tigervnc-common \
+  novnc websockify \
+  && rm -rf /var/lib/apt/lists/*
+
+# 2. Install Filebrowser
+RUN curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
+
+# 3. Install Kitty, Neovim, Tmux
+RUN apt-get update && apt-get install -y \
+  kitty neovim tmux \
+  && rm -rf /var/lib/apt/lists/*
+
+# 4. Install Firefox natively (Bypass Snap)
+RUN apt-get update && apt-get install -y software-properties-common \
+  && add-apt-repository -y ppa:mozillateam/ppa \
+  && printf "Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n\nPackage: firefox\nPin: version 1:1snap1-0ubuntu2\nPin-Priority: -1\n" > /etc/apt/preferences.d/mozilla-firefox \
+  && apt-get update && apt-get install -y --allow-downgrades firefox \
+  && rm -rf /var/lib/apt/lists/*
+
+# 5. Install Docker (Docker-in-Docker setup)
+RUN install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null \
+  && apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+  && rm -rf /var/lib/apt/lists/*
+
+# 6. Create a non-root developer user, add to Docker group, and ensure ownership
+RUN useradd -m -s /bin/bash -G sudo,docker "${USER}" \
+  && echo "${USER}:${USER}" | chpasswd \
+  && echo "${USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+  && chown -R "${USER}":"${USER}" /home/"${USER}"
+
+# 7. Copy the entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Now safely declare the user environments
+ENV USER="${USER}"
+ENV HOME="/home/${USER}"
+USER "${USER}"
+WORKDIR "/home/${USER}"
+
+EXPOSE 8080 8081
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+EOF
+
+echo "📜 Creating Entrypoint Script..."
+
+cat <<'EOF' >entrypoint.sh
+#!/bin/bash
+
+# Start the Docker Daemon (Running as root via sudo)
+sudo dockerd > /tmp/dockerd.log 2>&1 &
+
+# Wait a moment for Docker to boot up, then ensure socket permissions
+sleep 3
+sudo chmod 666 /var/run/docker.sock || true
+
+# Setup VNC password (password: developer)
+mkdir -p ~/.vnc
+echo "developer" | vncpasswd -f > ~/.vnc/passwd
+chmod 600 ~/.vnc/passwd
+
+# Create the xstartup file
+cat << 'VNC_EOF' > ~/.vnc/xstartup
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+VNC_EOF
+chmod +x ~/.vnc/xstartup
+
+# ==========================================
+# 🔗 SYMLINK LOGIC
+# ==========================================
+
+# Use the container's internal path, not the host's variable!
+WORKSPACE_DIR="/home/${USER}/storage"
+
+if [ -d "${WORKSPACE_DIR}" ]; then
+ echo "🔗 Symlinking configs..."
+
+ # Force overwrite bashrc configuration directory
+ if [ -d "${WORKSPACE_DIR}/dotfiles/bashrc" ]; then
+  rm -rf ~/.bashrc
+  ln -s "${WORKSPACE_DIR}/dotfiles/bashrc" ~/.bashrc
+ fi
+
+ # Force overwrite VIM configuration directory
+ if [ -d "${WORKSPACE_DIR}/dotfiles/vim" ]; then
+  rm -rf ~/.config/vim
+  ln -s "${WORKSPACE_DIR}/dotfiles/vim" ~/.config/vim
+ fi
+
+ # Force overwrite Tmux configuration directory
+ if [ -d "${WORKSPACE_DIR}/dotfiles/tmux" ]; then
+  rm -rf ~/.config/tmux
+  ln -s "${WORKSPACE_DIR}/dotfiles/tmux" ~/.config/tmux
+ fi
+fi
+# ==========================================
+
+# Autostart Kitty on desktop login
+mkdir -p ~/.config/autostart
+cat << 'AUTOSTART_EOF' > ~/.config/autostart/kitty.desktop
+[Desktop Entry]
+Type=Application
+Exec=kitty
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Kitty IDE
+AUTOSTART_EOF
+
+# Clean up lock files
+rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 ~/.vnc/*.pid
+
+# Start the VNC server
+vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+
+# Start websockify
+websockify --web /usr/share/novnc/ 0.0.0.0:8080 localhost:5901 &
+
+# Start Filebrowser
+filebrowser -r "/home/${USER}" -p 8081 -a 0.0.0.0 --noauth &
+
+echo "🚀 NoVNC: http://localhost:8080/vnc.html"
+
+# Keep container alive with maximum efficiency
+sleep infinity
+EOF
+
+echo "🐳 Building the Docker Image (devbox)..."
+docker build --build-arg DEV_USER="${USER}" --tag devbox .
+
+echo "🏃 Restarting the Docker Container with --privileged..."
+docker rm --force devbox 2>/dev/null || true
+
+docker run --detach \
+ --name devbox \
+ --privileged \
+ --publish 8080:8080 \
+ --publish 8081:8081 \
+ --volume "${WORKSPACE_HOST}":"${WORKSPACE_CNTR}" \
+ devbox
+
+echo
+echo "======================================================="
+echo "✅                 SUCCESS!                            "
+echo "======================================================="
+echo
+echo "🌐 Desktop Access : http://localhost:8080/vnc.html     "
+echo "   Password       : developer                          "
+echo
+echo "📁 File Manager   : http://localhost:8081              "
+echo "======================================================="
+echo

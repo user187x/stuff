@@ -1,0 +1,226 @@
+#!/bin/bash
+
+if ! command -v git >/dev/null 2>&1; then
+ sudo apt install git
+fi
+
+function config-settings {
+
+ readonly defautl_user="$USER"
+ readonly default_email="$user@xxx.com"
+ readonly default_editor="vim"
+
+ read -p "Enter username: " user
+ read -p "Enter email: " email
+ read -p "Enter text editor: " editor
+
+ NAME="${defautl_user:-user}"
+ EMAIL="${defautl_email:-email}"
+ EDITOR="${defautl_editor:-editor}"
+
+ git config --global user.name "$NAME"
+ git config --global user.email "$EMAIL"
+ git config --global init.defaultBranch main
+ git config --global color.ui auto
+ git config --global core.editor "$EDITOR"
+
+ # 3. Pull & Push Behavior
+ git config --global pull.rebase true
+ git config --global push.autoSetupRemote true
+ git config --global fetch.prune true
+ git config --global merge.conflictstyle diff3
+ git config --global alias.st status
+ git config --global alias.co checkout
+ git config --global alias.br branch
+ git config --global alias.ci commit
+ git config --global alias.unstage 'reset HEAD --'
+ git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
+
+ echo "Git configuration complete!"
+}
+
+function configure-ssh {
+
+ GIT_EMAIL="xxx@xxx.com"
+ SSH_DIR="$HOME/.ssh"
+ KEY="$SSH_DIR/id_rsa"
+
+ info "Running as       : $(whoami)  (HOME=$HOME)"
+ info "Target key       : $KEY"
+ info "openssh version  : $(ssh-keygen -V 2>&1 || ssh -V 2>&1 || echo 'unknown')"
+
+ command -v ssh-keygen &>/dev/null || die "ssh-keygen not found — install openssh-client first:
+  sudo apt-get install -y openssh-client"
+
+ # Create ~/.ssh with correct permissions
+ info "Ensuring $SSH_DIR exists…"
+ mkdir -p "$SSH_DIR"
+ chmod 700 "$SSH_DIR"
+ log "$SSH_DIR  →  mode 700"
+
+ # Verify ownership
+ OWNER=$(stat -c '%U' "$SSH_DIR" 2>/dev/null || stat -f '%Su' "$SSH_DIR")
+ [[ "$OWNER" == "$(whoami)" ]] || die "$SSH_DIR is owned by '$OWNER', not $(whoami). Fix with:
+  sudo chown -R $(whoami):$(whoami) $SSH_DIR"
+
+ # Back up any existing (possibly corrupt) keys
+ for f in "$KEY" "${KEY}.pub"; do
+  if [[ -e "$f" ]]; then
+   BACKUP="${f}.bak.$(date +%s)"
+   warn "Found existing $f → backing up to $BACKUP"
+   mv "$f" "$BACKUP"
+  fi
+ done
+
+ # Generate the key pair
+ info "Generating 4096-bit RSA key pair (no passphrase)…"
+
+ ssh-keygen \
+  -t rsa \
+  -b 4096 \
+  -C "$GIT_EMAIL" \
+  -f "$KEY" \
+  -N "" \
+  -q # quiet — suppresses the art banner
+
+ # Verify both files were actually created
+ [[ -f "$KEY" ]] || die "Private key was NOT created at $KEY"
+ [[ -f "${KEY}.pub" ]] || die "Public key was NOT created at ${KEY}.pub"
+ log "Private key : $KEY"
+ log "Public key  : ${KEY}.pub"
+
+ # Enforce correct permissions
+ chmod 600 "$KEY"
+ chmod 644 "${KEY}.pub"
+ log "Permissions set  →  id_rsa=600  id_rsa.pub=644"
+
+ # Validate the key pair is internally consistent
+ info "Validating key fingerprint…"
+ FINGERPRINT=$(ssh-keygen -lf "$KEY" 2>&1)
+ log "Fingerprint: $FINGERPRINT"
+
+ info "Validating public key readability…"
+ ssh-keygen -y -f "$KEY" >/dev/null && log "Key pair consistency check passed"
+
+ # Add to ssh-agent
+ info "Adding key to ssh-agent…"
+
+ # Start agent if not already running
+ if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+  eval "$(ssh-agent -s)" >/dev/null
+  warn "ssh-agent started for this session only. For persistence add to ~/.bashrc:
+    eval \"\$(ssh-agent -s)\"
+    ssh-add ~/.ssh/id_rsa"
+ fi
+
+ ssh-add "$KEY" 2>/dev/null && log "Key added to ssh-agent" ||
+  warn "ssh-add failed (agent may not be available in this shell — key will still work)"
+
+ # Cache GitHub's host fingerprint
+ info "Caching github.com in known_hosts…"
+ ssh-keyscan -H github.com >>"$SSH_DIR/known_hosts" 2>/dev/null
+ sort -u "$SSH_DIR/known_hosts" -o "$SSH_DIR/known_hosts"
+ chmod 644 "$SSH_DIR/known_hosts"
+ log "known_hosts updated"
+
+ # Write ~/.ssh/config if missing
+
+ SSH_CONF="$SSH_DIR/config"
+
+ if ! grep -q "Host github.com" "$SSH_CONF" 2>/dev/null; then
+
+  # write to the ssh config file
+  {
+   echo "# GitHub"
+   echo "Host github.com"
+   echo "  HostName      github.com"
+   echo "  User          git"
+   echo "  IdentityFile  $KEY"
+   echo "  AddKeysToAgent yes"
+  } >"${SSH_CONF}"
+
+  chmod 600 "$SSH_CONF"
+  log "~/.ssh/config entry added for github.com"
+ else
+  warn "~/.ssh/config already has a github.com entry — skipped"
+ fi
+
+ echo -e "${BOLD}${CYAN}══ File listing ══════════════════════════════════════${RESET}"
+ ls -la "$SSH_DIR"
+
+ echo -e "${BOLD}${CYAN}══ Public Key (paste into GitHub → Settings → SSH Keys) ══${RESET}"
+ cat "${KEY}.pub"
+
+ echo -e "${BOLD}${CYAN}══ Test SSH to GitHub ════════════════════════════════════${RESET}"
+
+ info "Running: ssh -T git@github.com"
+ SSH_TEST=$(ssh -T git@github.com -o StrictHostKeyChecking=no -o BatchMode=yes 2>&1 || true)
+
+ echo "$SSH_TEST"
+ echo "$SSH_TEST" | grep -q "successfully authenticated" &&
+  log "GitHub SSH auth: ${GREEN}SUCCESS ✔${RESET}" ||
+  warn "Not authenticated yet — add the public key above to:
+  https://github.com/settings/keys  →  New SSH key"
+
+ echo -e "\n${GREEN}${BOLD}Done!${RESET}  Keys are at:"
+ echo -e "  Private : ${BOLD}$KEY${RESET}"
+ echo -e "  Public  : ${BOLD}${KEY}.pub${RESET}"
+
+}
+
+function usage {
+
+ echo
+ echo "Usage:"
+ echo " configure-get <option>"
+ echo "Options:"
+ echo "--config-settings   : auto configures Git settings"
+ echo "--config-ssh        : auto configures Ssh for remote repos"
+ echo
+}
+
+function parse-args {
+
+ if (($# == 0)); then
+  usage
+  exit 1
+ fi
+
+ CFG=0
+ SSH=0
+
+ eval set -- "$(getopt -o cs --long configure-settings,configure-ssh -n "$0" -- "$@")"
+
+ while true; do
+  case "$1" in
+  -c | --configure-settings)
+   CFG=1
+   shift
+   ;;
+  -s | --configure-ssh)
+   SSH=1
+   shift
+   ;;
+  --)
+   shift
+   break
+   ;;
+  *)
+   usage
+   exit
+   ;;
+  esac
+ done
+}
+
+################################
+#
+# SCRIPT ENTRY POINT
+#
+################################
+
+parse-args "$@"
+
+((CFG)) && configure-settings
+
+((SSH)) && configure-ssh

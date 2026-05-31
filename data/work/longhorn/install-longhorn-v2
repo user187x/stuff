@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+#
+# install-longhorn.sh
+# ----------------------------------------------------------------------------
+# Complete, idempotent installer for Longhorn on a running Kubernetes cluster.
+#
+# What it does:
+#   1. Verifies prerequisites (kubectl, helm, cluster reachability).
+#   2. Installs node-level dependencies on every Linux node (open-iscsi,
+#      nfs-common, util-linux) via a one-shot DaemonSet so you don't have
+#      to SSH to each node.
+#   3. Runs Longhorn's official environment check script.
+#   4. Installs Longhorn via Helm into the `longhorn-system` namespace.
+#   5. Waits for all Longhorn workloads to become Ready.
+#   6. Marks Longhorn as the default StorageClass (optional, on by default).
+#   7. Optionally exposes the Longhorn UI via an Ingress.
+#
+# Usage:
+#   chmod +x install-longhorn.sh
+#   ./install-longhorn.sh                          # default install
+#   LONGHORN_VERSION=1.7.2 ./install-longhorn.sh   # pin a version
+#   MAKE_DEFAULT_SC=false ./install-longhorn.sh    # don't change default SC
+#   EXPOSE_UI=true UI_HOST=longhorn.example.com ./install-longhorn.sh
+#   UNINSTALL=true ./install-longhorn.sh           # remove longhorn
+# ----------------------------------------------------------------------------
+set -euo pipefail
+
+# -------- Configuration (override via env vars) ------------------------------
+LONGHORN_VERSION="${LONGHORN_VERSION:-1.7.2}"
+LONGHORN_NAMESPACE="${LONGHORN_NAMESPACE:-longhorn-system}"
+HELM_REPO_NAME="${HELM_REPO_NAME:-longhorn}"
+HELM_REPO_URL="${HELM_REPO_URL:-https://charts.longhorn.io}"
+MAKE_DEFAULT_SC="${MAKE_DEFAULT_SC:-true}"
+EXPOSE_UI="${EXPOSE_UI:-false}"
+UI_HOST="${UI_HOST:-longhorn.local}"
+INSTALL_NODE_DEPS="${INSTALL_NODE_DEPS:-true}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-600s}"
+UNINSTALL="${UNINSTALL:-false}"
+
+# -------- Pretty logging -----------------------------------------------------
+log()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
+warn() { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*" >&2; }
+err()  { printf '\033[1;31m[ERR ]\033[0m  %s\n' "$*" >&2; }
+die()  { err "$*"; exit 1; }
+
+# -------- Prerequisite checks ------------------------------------------------
+check_prereqs() {
+    log "Checking prerequisites…"
+    command -v kubectl >/dev/null 2>&1 || die "kubectl not found in PATH."
+    command -v helm    >/dev/null 2>&1 || die "helm not found in PATH (need v3+)."
+
+    # Helm must be v3+
+    local helm_major
+    helm_major="$(helm version --short | sed -E 's/^v([0-9]+).*/\1/')"
+    [[ "${helm_major}" -ge 3 ]] || die "Helm v3+ is required (found v${helm_major})."
+
+    # Cluster must be reachable
+    kubectl cluster-info >/dev/null 2>&1 || die "Cannot reach Kubernetes cluster (check KUBECONFIG)."
+
+    # Kubernetes >= 1.21 is recommended for recent Longhorn
+    local k8s_minor
+    k8s_minor="$(kubectl version -o json 2>/dev/null \
+        | sed -nE 's/.*"serverVersion".*"minor": *"([0-9]+).*/\1/p' | head -n1)"
+    if [[ -n "${k8s_minor}" && "${k8s_minor}" -lt 21 ]]; then
+        warn "Detected Kubernetes minor v1.${k8s_minor}; Longhorn ${LONGHORN_VERSION} expects 1.21+."
+    fi
+
+    log "Prerequisites OK."
+}
+
+# -------- Node dependency installation ---------------------------------------
+# Longhorn needs open-iscsi (and nfs-common for RWX/backups) on every node.
+# We deploy a transient DaemonSet that runs once per node, installs the
+# packages on the host via chroot, then exits. The DS is removed afterwards.
+install_node_dependencies() {
+    [[ "${INSTALL_NODE_DEPS}" == "true" ]] || { log "Skipping node-deps install (INSTALL_NODE_DEPS=false)."; return; }
+
+    log "Installing node dependencies (open-iscsi, nfs-common) via DaemonSet…"
+    kubectl apply -f - <<'YAML'
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: longhorn-node-prep
+  namespace: kube-system
+  labels: { app: longhorn-node-prep }
+spec:
+  selector: { matchLabels: { app: longhorn-node-prep } }
+  template:
+    metadata:
+      labels: { app: longhorn-node-prep }
+    spec:
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: prep
+          image: alpine:3.20
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # nsenter into the host's mount/PID namespace and install pkgs
+              nsenter --target 1 --mount --uts --ipc --net --pid -- sh -c '
+                set -e
+                if   command -v apt-get >/dev/null; then
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update -y
+                  apt-get install -y open-iscsi nfs-common util-linux
+                  systemctl enable --now iscsid || true
+                elif command -v dnf >/dev/null; then
+                  dnf install -y iscsi-initiator-utils nfs-utils util-linux
+                  systemctl enable --now iscsid || true
+                elif command -v yum >/dev/null; then
+                  yum install -y iscsi-initiator-utils nfs-utils util-linux
+                  systemctl enable --now iscsid || true
+                elif command -v zypper >/dev/null; then
+                  zypper -n install open-iscsi nfs-client util-linux
+                  systemctl enable --now iscsid || true
+                else
+                  echo "Unsupported package manager on this node; install open-iscsi + nfs client manually." >&2
+                  exit 1
+                fi
+              '
+              echo "Node prep complete on $(hostname); sleeping forever (DS will be deleted)."
+              sleep infinity
+YAML
+
+    log "Waiting for node-prep DaemonSet to become ready on all nodes…"
+    kubectl -n kube-system rollout status ds/longhorn-node-prep --timeout="${WAIT_TIMEOUT}"
+
+    log "Removing transient node-prep DaemonSet."
+    kubectl -n kube-system delete ds/longhorn-node-prep --wait=true
+}
+
+# -------- Longhorn environment check ----------------------------------------
+run_env_check() {
+    log "Running Longhorn environment_check.sh against the cluster…"
+    local script_url="https://raw.githubusercontent.com/longhorn/longhorn/v${LONGHORN_VERSION}/scripts/environment_check.sh"
+    if curl -fsSL "${script_url}" -o /tmp/longhorn-env-check.sh 2>/dev/null; then
+        bash /tmp/longhorn-env-check.sh || warn "environment_check.sh reported issues; review the output above."
+        rm -f /tmp/longhorn-env-check.sh
+    else
+        warn "Could not download environment_check.sh; skipping (install will continue)."
+    fi
+}
+
+# -------- Helm install -------------------------------------------------------
+install_longhorn() {
+    log "Adding Helm repo '${HELM_REPO_NAME}' → ${HELM_REPO_URL}"
+    helm repo add "${HELM_REPO_NAME}" "${HELM_REPO_URL}" >/dev/null 2>&1 || true
+    helm repo update "${HELM_REPO_NAME}" >/dev/null
+
+    log "Creating namespace ${LONGHORN_NAMESPACE} (if absent)."
+    kubectl get ns "${LONGHORN_NAMESPACE}" >/dev/null 2>&1 \
+        || kubectl create ns "${LONGHORN_NAMESPACE}"
+
+    log "Installing/upgrading Longhorn ${LONGHORN_VERSION}…"
+    helm upgrade --install longhorn "${HELM_REPO_NAME}/longhorn" \
+        --namespace "${LONGHORN_NAMESPACE}" \
+        --version "${LONGHORN_VERSION}" \
+        --set persistence.defaultClass="${MAKE_DEFAULT_SC}" \
+        --set persistence.defaultClassReplicaCount=3 \
+        --set defaultSettings.defaultDataPath="/var/lib/longhorn" \
+        --set defaultSettings.createDefaultDiskLabeledNodes=true \
+        --wait --timeout "${WAIT_TIMEOUT}"
+}
+
+# -------- Verification -------------------------------------------------------
+verify_install() {
+    log "Waiting for Longhorn workloads to become Ready…"
+    kubectl -n "${LONGHORN_NAMESPACE}" rollout status deploy/longhorn-driver-deployer --timeout="${WAIT_TIMEOUT}" || true
+    kubectl -n "${LONGHORN_NAMESPACE}" rollout status deploy/longhorn-ui              --timeout="${WAIT_TIMEOUT}" || true
+
+    # All pods Ready
+    kubectl -n "${LONGHORN_NAMESPACE}" wait --for=condition=Ready pods --all \
+        --timeout="${WAIT_TIMEOUT}" || warn "Some pods are not Ready yet; check 'kubectl -n ${LONGHORN_NAMESPACE} get pods'."
+
+    log "Longhorn StorageClasses:"
+    kubectl get sc | grep -E 'NAME|longhorn' || true
+
+    log "Longhorn pods:"
+    kubectl -n "${LONGHORN_NAMESPACE}" get pods -o wide
+}
+
+# -------- Optional: expose UI via Ingress -----------------------------------
+expose_ui() {
+    [[ "${EXPOSE_UI}" == "true" ]] || return
+    log "Creating Ingress for Longhorn UI at host '${UI_HOST}'."
+    kubectl apply -f - <<YAML
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: longhorn-ui
+  namespace: ${LONGHORN_NAMESPACE}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10000m"
+spec:
+  rules:
+    - host: ${UI_HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: longhorn-frontend
+                port: { number: 80 }
+YAML
+    log "UI will be reachable at http://${UI_HOST}/ once DNS is pointed at your ingress controller."
+}
+
+# -------- Uninstall path -----------------------------------------------------
+uninstall_longhorn() {
+    log "Uninstalling Longhorn from namespace ${LONGHORN_NAMESPACE}…"
+    # Allow deletion of the system
+    kubectl -n "${LONGHORN_NAMESPACE}" patch -p '{"value":"true"}' --type=merge \
+        lhs deleting-confirmation-flag 2>/dev/null || true
+
+    helm uninstall longhorn -n "${LONGHORN_NAMESPACE}" || true
+
+    # Run the official cleanup job
+    kubectl create -f "https://raw.githubusercontent.com/longhorn/longhorn/v${LONGHORN_VERSION}/uninstall/uninstall.yaml" || true
+    log "Waiting up to 5 min for the cleanup job to finish…"
+    kubectl -n "${LONGHORN_NAMESPACE}" wait --for=condition=complete job/longhorn-uninstall --timeout=300s || true
+
+    kubectl delete -f "https://raw.githubusercontent.com/longhorn/longhorn/v${LONGHORN_VERSION}/deploy/longhorn.yaml" --ignore-not-found || true
+    kubectl delete ns "${LONGHORN_NAMESPACE}" --ignore-not-found
+    log "Uninstall finished."
+    exit 0
+}
+
+# -------- Main ---------------------------------------------------------------
+main() {
+    log "Longhorn installer — version=${LONGHORN_VERSION}, namespace=${LONGHORN_NAMESPACE}"
+
+    [[ "${UNINSTALL}" == "true" ]] && uninstall_longhorn
+
+    check_prereqs
+    install_node_dependencies
+    run_env_check
+    install_longhorn
+    verify_install
+    expose_ui
+
+    cat <<EOF
+
+============================================================
+  Longhorn ${LONGHORN_VERSION} is installed in '${LONGHORN_NAMESPACE}'.
+
+  Access the UI locally with:
+    kubectl -n ${LONGHORN_NAMESPACE} port-forward svc/longhorn-frontend 8080:80
+    open http://localhost:8080
+
+  Default StorageClass set as default: ${MAKE_DEFAULT_SC}
+
+  Test it with a PVC:
+    cat <<'PVC' | kubectl apply -f -
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata: { name: test-longhorn }
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: longhorn
+      resources: { requests: { storage: 1Gi } }
+    PVC
+
+  To uninstall:
+    UNINSTALL=true ./install-longhorn.sh
+============================================================
+EOF
+}
+
+main "$@"

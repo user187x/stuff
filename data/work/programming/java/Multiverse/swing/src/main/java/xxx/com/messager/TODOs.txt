@@ -1,0 +1,38 @@
+Encryption Updates :
+
+- The background of each 'Peer' entry in the 'Peer list' will be uniquely colored. Each Peer will have a different randomly selected, shade of Gray that will be automatically assigned on session connection. The color variation will be a gradient scale from white to black.
+
+- Each automated color selection should discernible enough to different no matter how randomly generated.
+
+- Direct message don't work properly. Currently when action is performed they broadcast to all connected
+
+- Update the logic for when Encrypting is active, make this flush any previous key and re-prompt for a new passkey when reselected. Update the UI to immediately check if the encryption key works.
+
+- If the passkey fails alert both Host and Client with a message and immediately pop up a dialogue for the Client with an "Incorrect Passkey" dialogue.
+
+- The dialogue will offer the ability to re-enter a new password or press a quit button.
+
+
+
+Peer List Updates :
+
+- Host/Client should not show up in its own 'Peers List'
+
+- Display Peer's IP to the right of the Peer's name
+
+- Display smaller sized text timestamp in the format "h:mm a" underneath Users Name. Time time should be the time they connected to the session.
+
+- Display an animation squares (typing.gif) to left of the Peer's name when currently typing
+
+- Host and host only should have the ability to evict Peer from it's session.
+
+- When hosting and additional context menu item named "Evict" with be added to the right click action of the Peer list.
+
+- Add total messages received count
+
+
+Discovered Hosts Updates :
+
+- Add 🔒 to Discovered host if secured
+
+

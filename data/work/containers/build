@@ -1,0 +1,10 @@
+#!/bin/bash
+
+SCRIPT="container"
+VERSION="1.0.0"
+
+podman build -f "${SCRIPT}" -t "${SCRIPT}":"${VERSION}" .
+
+podman login
+
+podman push oci://harbor.local/

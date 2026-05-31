@@ -1,0 +1,54 @@
+replicaCount: 2
+
+image:
+  repository: auth-shim
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Traefik ForwardAuth middleware configuration
+traefik:
+  enabled: true
+  # Namespace where the Traefik Middleware CR should be created.
+  # Leave blank to use the chart's release namespace.
+  middlewareNamespace: ""
+  middlewareName: auth-shim-forward-auth
+  # Headers Traefik will copy from our reply onto the original
+  # request before forwarding it to the upstream service.
+  authResponseHeaders:
+    - X-Auth-Shim
+    - X-Auth-Correlation
+    - X-User-Id
+    - X-User-Role
+    - X-Tenant-Id
+  # Pass the original request headers through to us
+  trustForwardHeader: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# External validation Configuration
+validator:
+  url: "https://auth-api.local/verify"
+  # 'kubectl create secret generic validator-tls-secret --from-file=tls.crt=/path/to/ca.crt'
+  tlsSecretName: "validator-tls-secret"

@@ -1,0 +1,284 @@
+#!/bin/bash
+
+# ==============================================================================
+# Zero-to-Hero: Self-Contained cert-manager + External Secrets + Pebble EAB
+# ==============================================================================
+set -e
+
+echo "🚀 Starting setup for self-contained ACME test environment..."
+
+# ------------------------------------------------------------------------------
+# 1. Prerequisites Check
+# ------------------------------------------------------------------------------
+for cmd in minikube kubectl helm openssl; do
+ if ! command -v $cmd &>/dev/null; then
+  echo "❌ Error: $cmd is required but not installed."
+  exit 1
+ fi
+done
+
+# ------------------------------------------------------------------------------
+# 2. Minikube Cluster Setup
+# ------------------------------------------------------------------------------
+echo "📦 Starting Minikube cluster..."
+minikube start --driver=docker
+# Wait for the cluster to be completely responsive
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
+
+# ------------------------------------------------------------------------------
+# 3. Cryptographic Asset & EAB Generation
+# ------------------------------------------------------------------------------
+echo "🔐 Generating Certificates and EAB HMAC Key..."
+mkdir -p certs && cd certs
+
+# Generate EAB KID and 32-byte HMAC Key (Base64Url without padding)
+export EAB_KID="kid-zero-trust"
+export EAB_HMAC=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
+
+# Generate Root CA for Pebble
+openssl genrsa -out root-ca.key 4096
+openssl req -new -x509 -days 365 -key root-ca.key -out root-ca.crt -subj "/CN=Pebble Test Root CA"
+
+# OpenSSL config for Pebble Server SANs
+cat >openssl-pebble.cnf <<EOF
+[req]
+req_extensions = v3_req
+distinguished_name = req_distinguished_name
+[req_distinguished_name]
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = acme-pebble.pebble-system.svc.cluster.local
+DNS.2 = acme-pebble.pebble-system.svc
+EOF
+
+# Generate Pebble Server Certificate signed by Root CA
+openssl genrsa -out pebble.key 2048
+openssl req -new -key pebble.key -out pebble.csr -subj "/CN=acme-pebble.pebble-system.svc.cluster.local" -config openssl-pebble.cnf
+openssl x509 -req -in pebble.csr -CA root-ca.crt -CAkey root-ca.key -CAcreateserial -out pebble.crt -days 365 -extensions v3_req -extfile openssl-pebble.cnf
+
+# Prepare base64 versions for Kubernetes manifests
+B64_ROOT_CA=$(base64 -w0 root-ca.crt || base64 root-ca.crt) # MacOS compat
+B64_PEBBLE_CRT=$(base64 -w0 pebble.crt || base64 pebble.crt)
+B64_PEBBLE_KEY=$(base64 -w0 pebble.key || base64 pebble.key)
+cd ..
+
+# ------------------------------------------------------------------------------
+# 4. Install Core Operators (cert-manager & ESO)
+# ------------------------------------------------------------------------------
+echo "⚙️ Installing cert-manager..."
+helm repo add jetstack https://charts.jetstack.io --force-update
+helm install cert-manager jetstack/cert-manager \
+ --namespace cert-manager \
+ --create-namespace \
+ --set crds.enabled=true \
+ --wait
+
+echo "⚙️ Installing external-secrets-operator..."
+helm repo add external-secrets https://charts.external-secrets.io --force-update
+helm install external-secrets external-secrets/external-secrets \
+ --namespace external-secrets \
+ --create-namespace \
+ --set installCRDs=true \
+ --wait
+
+# ------------------------------------------------------------------------------
+# 5. Build and Install local Helm Chart for acme-pebble
+# ------------------------------------------------------------------------------
+echo "🏗️ Creating local Helm chart for acme-pebble..."
+mkdir -p acme-pebble/templates
+
+cat >acme-pebble/Chart.yaml <<EOF
+apiVersion: v2
+name: acme-pebble
+description: A Helm chart for Pebble ACME server
+type: application
+version: 0.1.0
+EOF
+
+cat >acme-pebble/templates/secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pebble-tls
+  namespace: pebble-system
+type: kubernetes.io/tls
+data:
+  tls.crt: ${B64_PEBBLE_CRT}
+  tls.key: ${B64_PEBBLE_KEY}
+EOF
+
+cat >acme-pebble/templates/configmap.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pebble-config
+  namespace: pebble-system
+data:
+  pebble-config.json: |
+    {
+      "pebble": {
+        "listenAddress": "0.0.0.0:14000",
+        "managementListenAddress": "0.0.0.0:15000",
+        "certificate": "/certs/tls.crt",
+        "privateKey": "/certs/tls.key",
+        "httpPort": 5002,
+        "tlsPort": 5001,
+        "externalAccountBindingRequired": true,
+        "externalAccountMACKeys": {
+          "${EAB_KID}": "${EAB_HMAC}"
+        }
+      }
+    }
+EOF
+
+cat >acme-pebble/templates/deployment.yaml <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acme-pebble
+  namespace: pebble-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: acme-pebble
+  template:
+    metadata:
+      labels:
+        app: acme-pebble
+    spec:
+      containers:
+      - name: pebble
+        image: ghcr.io/letsencrypt/pebble:v2.9.0
+        command: ["pebble", "-config", "/config/pebble-config.json"]
+        ports:
+        - containerPort: 14000
+        - containerPort: 15000
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+          readOnly: true
+        - name: certs-volume
+          mountPath: /certs
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: pebble-config
+      - name: certs-volume
+        secret:
+          secretName: pebble-tls
+EOF
+
+cat >acme-pebble/templates/service.yaml <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: acme-pebble
+  namespace: pebble-system
+spec:
+  selector:
+    app: acme-pebble
+  ports:
+    - name: acme
+      port: 14000
+      targetPort: 14000
+    - name: management
+      port: 15000
+      targetPort: 15000
+EOF
+
+echo "🚀 Deploying acme-pebble via Helm..."
+kubectl create namespace pebble-system --dry-run=client -o yaml | kubectl apply -f -
+helm install acme-pebble ./acme-pebble --namespace pebble-system --wait
+
+# ------------------------------------------------------------------------------
+# 6. Configure External Secrets to manage the EAB key
+# ------------------------------------------------------------------------------
+echo "🔑 Setting up External Secrets Fake Provider for self-contained testing..."
+cat <<EOF | kubectl apply -f -
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: test-fake-store
+spec:
+  provider:
+    fake:
+      data:
+        - key: my-eab-hmac
+          valueMap:
+            key: "${EAB_HMAC}"
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: pebble-eab-secret
+  namespace: cert-manager
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: test-fake-store
+    kind: ClusterSecretStore
+  target:
+    name: pebble-eab-secret-target
+    creationPolicy: Owner
+  data:
+    - secretKey: secret
+      remoteRef:
+        key: my-eab-hmac
+        property: key
+EOF
+
+# Give ESO a moment to generate the native Kubernetes Secret
+sleep 5
+
+# ------------------------------------------------------------------------------
+# 7. Configure cert-manager ClusterIssuer & Test Issuance
+# ------------------------------------------------------------------------------
+echo "📜 Creating ClusterIssuer with custom caBundle & EAB..."
+cat <<EOF | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: pebble-eab-issuer
+spec:
+  acme:
+    server: https://acme-pebble.pebble-system.svc.cluster.local:14000/dir
+    caBundle: ${B64_ROOT_CA}
+    privateKeySecretRef:
+      name: pebble-issuer-account-key
+    externalAccountBinding:
+      keyID: "${EAB_KID}"
+      keySecretRef:
+        name: pebble-eab-secret-target
+        key: secret
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+EOF
+
+# Wait for ClusterIssuer to be ready
+echo "⏳ Waiting for ClusterIssuer to become Ready..."
+sleep 10
+kubectl wait --for=condition=Ready clusterissuer/pebble-eab-issuer --timeout=60s
+
+echo "✅ Success! The test environment is fully deployed and self-contained."
+echo "You can now request a certificate to test it by applying a manifest like this:"
+echo "
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-cert
+  namespace: default
+spec:
+  secretName: test-cert-tls
+  issuerRef:
+    name: pebble-eab-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - example.com
+"

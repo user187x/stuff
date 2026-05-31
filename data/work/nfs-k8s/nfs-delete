@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#
+# Delete a file or directory from the NFS shared volume via an
+# ephemeral busybox pod.
+#
+# Usage:
+#   ./nfs-rm.sh <path> [-r] [-f]
+#
+# Examples:
+#   ./nfs-rm.sh /index.html        # delete a file (asks for confirmation)
+#   ./nfs-rm.sh /assets -r         # recursive delete of a directory
+#   ./nfs-rm.sh /index.html -f     # skip confirmation
+#
+# Flags:
+#   -r, --recursive  Required when target is a directory
+#   -f, --force      Skip confirmation prompt
+#
+# Env overrides:
+#   NAMESPACE  Namespace where the PVC lives (default: nfs-demo)
+#   PVC        PVC name (default: nfs-shared-pvc)
+
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PVC="${PVC:-nfs-shared-pvc}"
+TARGET=""
+RECURSIVE=false
+FORCE=false
+
+for arg in "$@"; do
+ case "$arg" in
+ -r | --recursive) RECURSIVE=true ;;
+ -f | --force) FORCE=true ;;
+ -h | --help)
+  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+  ;;
+ -*)
+  echo "Unknown flag: $arg"
+  exit 1
+  ;;
+ *) TARGET="$arg" ;;
+ esac
+done
+
+if [[ -z "$TARGET" ]]; then
+ echo "Usage: $0 <path> [-r] [-f]"
+ exit 1
+fi
+
+# Normalize path
+[[ "$TARGET" != /* ]] && TARGET="/$TARGET"
+
+# Refuse to delete the volume root
+if [[ "$TARGET" == "/" ]]; then
+ echo "Refusing to delete the NFS volume root."
+ exit 1
+fi
+
+POD="nfs-rm-$$"
+cleanup() { kubectl delete pod -n "$NAMESPACE" "$POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+echo "==> Launching ephemeral pod '$POD' in '$NAMESPACE'..."
+kubectl run "$POD" -n "$NAMESPACE" --restart=Never --image=busybox \
+ --overrides="{
+        \"spec\": {
+            \"containers\": [{
+                \"name\": \"$POD\",
+                \"image\": \"busybox\",
+                \"command\": [\"sleep\", \"3600\"],
+                \"volumeMounts\": [{\"name\": \"shared\", \"mountPath\": \"/data\"}]
+            }],
+            \"volumes\": [{
+                \"name\": \"shared\",
+                \"persistentVolumeClaim\": {\"claimName\": \"$PVC\"}
+            }]
+        }
+    }" >/dev/null
+
+kubectl wait -n "$NAMESPACE" --for=condition=ready "pod/$POD" --timeout=60s >/dev/null
+
+# Confirm the target exists
+if ! kubectl exec -n "$NAMESPACE" "$POD" -- test -e "/data$TARGET"; then
+ echo "Error: '/data$TARGET' does not exist on the NFS volume."
+ exit 1
+fi
+
+# Require -r for directories
+IS_DIR=false
+if kubectl exec -n "$NAMESPACE" "$POD" -- test -d "/data$TARGET"; then
+ IS_DIR=true
+ if [[ "$RECURSIVE" == "false" ]]; then
+  echo "Error: '$TARGET' is a directory. Use -r to delete recursively."
+  exit 1
+ fi
+fi
+
+# Preview what will be deleted
+echo ""
+if [[ "$IS_DIR" == "true" ]]; then
+ echo "About to recursively delete directory: $TARGET"
+ kubectl exec -n "$NAMESPACE" "$POD" -- ls -la "/data$TARGET" 2>/dev/null | head -20
+else
+ echo "About to delete file: $TARGET"
+ kubectl exec -n "$NAMESPACE" "$POD" -- ls -la "/data$TARGET"
+fi
+echo ""
+
+# Ask for confirmation unless --force
+if [[ "$FORCE" == "false" ]]; then
+ read -r -p "Continue? [y/N] " confirm
+ if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+  echo "Aborted."
+  exit 0
+ fi
+fi
+
+echo "==> Deleting /data$TARGET ..."
+if [[ "$RECURSIVE" == "true" ]]; then
+ kubectl exec -n "$NAMESPACE" "$POD" -- rm -rf "/data$TARGET"
+else
+ kubectl exec -n "$NAMESPACE" "$POD" -- rm "/data$TARGET"
+fi
+
+echo "==> Done."

@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Identify the current context
+CUR_CONTEXT=$(kubectl config current-context 2>/dev/null)
+
+# Set 'default' if no context is found
+CUR_CONTEXT="${CUR_CONTEXT:-default}"
+
+# Obtain system configuration directory
+SYSTEM_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+# Define K9S expected config directory
+K9S_CONFIG_DIR="$SYSTEM_CONFIG_DIR/k9s"
+
+# Ensure path exists
+mkdir -p "$K9S_CONFIG_DIR"
+
+# Create the config.yaml file
+cat <<EOF > "$K9S_CONFIG_DIR/config.yaml"
+k9s:
+  refreshRate: 2
+  maxRequestsPerSecond: 15
+  logger:
+    tail: 100
+    buffer: 5000
+    sinceSeconds: 600
+    fullScreen: false
+    textWrap: false
+    showTime: false
+  clusters:
+    $CUR_CONTEXT:
+      namespace:
+        active: all
+      view:
+        active: pods
+  thresholds:
+    cpu:
+      critical: 90
+      warn: 70
+    memory:
+      critical: 90
+      warn: 70
+EOF
+
+echo "✅ K9s configuration created at $K9S_CONFIG_DIR/config.yaml for the current context: $CUR_CONTEXT"

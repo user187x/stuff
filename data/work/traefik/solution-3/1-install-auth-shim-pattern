@@ -1,0 +1,228 @@
+#!/bin/bash
+set -e
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+# The namespace where the "Shim" (the Python code) will live.
+SHIM_NAMESPACE="traefik-addons"
+
+# The namespace where your Application (ArgoCD) lives.
+# NOTE: Traefik Middlewares must usually exist in the same namespace as the IngressRoute.
+APP_NAMESPACE="argocd"
+
+# The Middleware Name (you will reference this in your IngressRoute).
+MIDDLEWARE_NAME="dynamic-user-auth"
+
+# The External Service Base URL (The script appends the DN to this).
+TARGET_URL_BASE="http://checktherealguy.com/dn/"
+
+# ==============================================================================
+# 0. PRE-FLIGHT CHECKS
+# ==============================================================================
+echo "🚀 Starting Zero-to-Hero Auth Shim Deployment..."
+
+if ! command -v kubectl &> /dev/null; then
+    echo "❌ Error: kubectl is not installed or not in PATH."
+    exit 1
+fi
+
+echo "   Target URL Base: $TARGET_URL_BASE"
+echo "   Shim Namespace:  $SHIM_NAMESPACE"
+echo "   App Namespace:   $APP_NAMESPACE"
+
+# ==============================================================================
+# 1. GENERATE PYTHON SERVER CODE
+# ==============================================================================
+# We embed the python script directly into a variable to inject into the ConfigMap later.
+# This avoids needing a separate file.
+
+read -r -d '' PYTHON_SCRIPT << EOPYTHON
+from flask import Flask, request, Response
+import requests
+import os
+import sys
+
+app = Flask(__name__)
+
+# Config
+TARGET_URL_BASE = os.environ.get('TARGET_URL_BASE', '')
+
+@app.route('/verify', methods=['GET'])
+def verify():
+    # 1. Get DN from Traefik headers
+    # Note: Ensure your ingress or client is actually sending 'X-User-DN'
+    user_dn = request.headers.get('X-User-DN')
+
+    print(f"Incoming Request for DN: {user_dn}", file=sys.stderr)
+
+    if not user_dn:
+        return Response("Missing X-User-DN Header", status=401)
+
+    # 2. Construct Dynamic URL
+    # Removes trailing slash from base if present to avoid double slashes
+    base = TARGET_URL_BASE.rstrip('/')
+    external_url = f"{base}/{user_dn}"
+    
+    print(f"Checking external auth: {external_url}", file=sys.stderr)
+
+    try:
+        # 3. Call External Service
+        # We set a short timeout to prevent hanging the ingress
+        resp = requests.get(external_url, timeout=3)
+
+        # 4. Logic: Only 200 OK is allowed
+        if resp.status_code == 200:
+            # Success!
+            # We can extract data from the external response to enrich the downstream request
+            # Example: passing a 'Role' header if the external API returns JSON
+            enrichment_headers = {
+                'X-Auth-Status': 'Verified',
+                'X-User-DN': user_dn 
+            }
+            
+            # Try to grab a role from JSON if it exists
+            try:
+                data = resp.json()
+                if 'role' in data:
+                    enrichment_headers['X-Enriched-Role'] = data['role']
+            except:
+                pass
+
+            return Response("OK", status=200, headers=enrichment_headers)
+        
+        else:
+            # Access Denied
+            print(f"External check failed with status: {resp.status_code}", file=sys.stderr)
+            return Response("Access Denied by External Check", status=403)
+
+    except Exception as e:
+        print(f"Exception during auth check: {e}", file=sys.stderr)
+        return Response("Auth Service Error", status=500)
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=8000)
+EOPYTHON
+
+# ==============================================================================
+# 2. GENERATE KUBERNETES MANIFESTS
+# ==============================================================================
+echo "📦 Generating Kubernetes Manifests..."
+
+cat <<EOF > auth-shim-deployment.yaml
+---
+# 1. Namespace for the Shim
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $SHIM_NAMESPACE
+---
+# 2. ConfigMap containing the Python Code
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-shim-code
+  namespace: $SHIM_NAMESPACE
+data:
+  server.py: |
+$(echo "$PYTHON_SCRIPT" | sed 's/^/    /')
+---
+# 3. Service to expose the Shim
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-shim-svc
+  namespace: $SHIM_NAMESPACE
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  selector:
+    app: auth-shim
+---
+# 4. Deployment to run the Shim
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-shim
+  namespace: $SHIM_NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-shim
+  template:
+    metadata:
+      labels:
+        app: auth-shim
+    spec:
+      containers:
+        - name: shim
+          image: python:3.9-slim
+          # We install dependencies at runtime to keep this "no-build"
+          command: ["/bin/sh", "-c"]
+          args:
+            - pip install flask requests && python /app/server.py
+          env:
+            - name: TARGET_URL_BASE
+              value: "$TARGET_URL_BASE"
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: code-volume
+              mountPath: /app
+      volumes:
+        - name: code-volume
+          configMap:
+            name: auth-shim-code
+---
+# 5. Traefik Middleware
+# This is applied to the APP namespace ($APP_NAMESPACE) so the IngressRoute can see it.
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: $MIDDLEWARE_NAME
+  namespace: $APP_NAMESPACE
+spec:
+  forwardAuth:
+    # Full DNS name of the service in the shim namespace
+    address: "http://auth-shim-svc.$SHIM_NAMESPACE.svc.cluster.local/verify"
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Status"
+      - "X-Enriched-Role"
+      - "X-User-DN"
+EOF
+
+# ==============================================================================
+# 3. APPLY MANIFESTS
+# ==============================================================================
+echo "🚀 Applying configurations to Cluster..."
+kubectl apply -f auth-shim-deployment.yaml
+
+# ==============================================================================
+# 4. CLEANUP & INSTRUCTIONS
+# ==============================================================================
+rm auth-shim-deployment.yaml
+echo ""
+echo "✅ Deployment Complete!"
+echo "----------------------------------------------------------------"
+echo "The Auth Shim is running in namespace: $SHIM_NAMESPACE"
+echo "The Middleware '$MIDDLEWARE_NAME' has been created in namespace: $APP_NAMESPACE"
+echo ""
+echo "👉 FINAL STEP: Update your ArgoCD IngressRoute."
+echo "   Run the command below to edit your route:"
+echo "   kubectl edit ingressroute argocd-route -n $APP_NAMESPACE"
+echo ""
+echo "   Add the middleware to the routes section:"
+echo "   spec:"
+echo "     routes:"
+echo "       - match: Host(\`argocd.acme.feed.org\`)"
+echo "         kind: Rule"
+echo "         middlewares:"
+echo "           - name: $MIDDLEWARE_NAME  <-- ADD THIS LINE"
+echo "         services:"
+echo "           - name: argocd-server"
+echo "             port: 80"
+echo "----------------------------------------------------------------"

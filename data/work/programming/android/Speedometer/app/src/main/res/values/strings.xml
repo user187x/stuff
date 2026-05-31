@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Speedometer</string>
+    <string name="accuracy">Magnetic Field Accuracy:</string>
+    <string name="animated_spinner">Animated Spinner</string>
+    <string name="keep_screen_on">Keep Screen On</string>
+    <string name="gps_signal">GPS Signal:</string>
+    <string name="elevation">Elevation:</string>
+    <string name="coordinates">Coordinates:</string>
+    <string name="satellites">Satellites:</string>
+    <string name="magnetic_field">Magnetic Field:</string>
+    <string name="set_waypoint">Set Waypoint</string>
+    <string name="high">High</string>
+    <string name="medium">Medium</string>
+    <string name="low">Low</string>
+    <string name="unreliable">Unreliable</string>
+    <string name="flight_mode">Flight Mode</string>
+</resources>

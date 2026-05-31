@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+This file is required by the WallpaperService metadata.
+It can be used to link to a settings activity for the wallpaper.
+For this simple app, it's mostly a placeholder but is required for the
+service to be properly registered.
+-->
+<wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+    android:thumbnail="@mipmap/ic_launcher"
+    android:description="@string/wallpaper_service_label"
+    />

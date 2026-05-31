@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">BaЯGirl</string>
+    <string name="bar_girl">Bar Girl</string>
+    <string name="app_icon">App Icon</string>
+    <string name="report_inactive">Report Inactive</string>
+    <string name="refresh">Refresh</string>
+    <string name="high_five">High Five</string>
+    <string name="smashed">SMASHED</string>
+    <string name="prev">PREVIOUS</string>
+    <string name="next">NEXT</string>
+    <string name="add_photo">Add Photo</string>
+    <string name="view_gallery">View Gallery</string>
+    <string name="average_review">Average Review</string>
+    <string name="warning">Warning</string>
+    <string name="active">Active</string>
+    <string name="previous_profile">Previous Profile</string>
+    <string name="next_profile">Next Profile</string>
+    <string name="edit_profile">Edit Profile</string>
+    <string name="edit_button">Edit Button</string>
+    <string name="nick_name">Nick Name</string>
+    <string name="name">Name</string>
+    <string name="status">Status</string>
+    <string name="last_known_active">Last Known Active</string>
+</resources>

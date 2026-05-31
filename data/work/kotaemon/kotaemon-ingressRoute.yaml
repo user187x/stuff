@@ -1,0 +1,14 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kotaemon-route
+  namespace: default
+spec:
+  entryPoints:
+    - web             # Usually 'web' (port 80) or 'websecure' (port 443)
+  routes:
+    - match: Host(`kotaemon.local`) # The domain you want to use
+      kind: Rule
+      services:
+        - name: kotaemon-service
+          port: 80

@@ -1,0 +1,75 @@
+#!/bin/bash
+
+################################################
+# ALIASES                                      #
+################################################
+
+SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Shared timestamp format for both eza and ls
+DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
+
+# ==========================================
+# System Tool Aliases (with eza fallback)
+# ==========================================
+if command -v eza >/dev/null 2>&1; then
+ # eza is installed - use modern equivalents
+ EZA_FLAGS="--color=always --icons=always --group-directories-first"
+ alias ls="eza ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias ll="eza -al --header ${EZA_FLAGS} ${DATE_FORMAT}"
+ #alias lls="ll | fzf --ansi | awk '{print $8}'"
+ alias lls='$(echo -e "\e[92m $(ll | fzf --ansi | awk  "{print $8}") \e[0m")'
+ alias la="eza -a ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias l="eza -F ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias dir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias vdir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
+else
+ # eza is not found - fallback to standard GNU coreutils
+ alias ls="ls --color=always ${DATE_FORMAT}"
+ alias ll='ls -alF --color=always'
+ alias la='ls -A --color=always'
+ alias l='ls -CF --color=always'
+ alias dir='dir --color=always'
+ alias vdir='vdir --color=always'
+fi
+
+alias fd='fdfind'
+
+alias grep='grep --color=always'
+alias fgrep='fgrep --color=always'
+alias egrep='egrep --color=always'
+alias tree='tree -C'
+
+# ==========================================
+# Dev-Tool Aliases
+# ==========================================
+
+alias t="tmux"
+alias edit="gnome-text-editor"
+alias mk="minikube"
+
+# Dynamically alias whichever bat variant exists
+for _bat_cmd in bat batcat; do
+ if command -v "$_bat_cmd" >/dev/null 2>&1; then
+  alias bat="$_bat_cmd --style=full"
+  break
+ fi
+done
+unset _bat_cmd
+
+# ==========================================
+# Kubernetes Aliases
+# ==========================================
+alias k='kubecolor'
+alias v="vim"
+alias tf='terraform'
+alias k9s='k9s -A -c pods --headless'
+alias kubectl="kubecolor"
+alias pods="kubectl get pods -A"
+alias current-context="kubectl config current-context"
+alias show-contexts="kubectl config get-contexts"
+
+# ==========================================
+# Git Aliases
+# ==========================================
+alias gr='cd $(git rev-parse --show-toplevel)'

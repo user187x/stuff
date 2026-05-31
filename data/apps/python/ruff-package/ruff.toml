@@ -1,0 +1,13 @@
+# only indent one space
+indent-width = 1
+
+# keep the cache directories there
+cache-dir = "~/.cache/ruff"
+
+[lint.isort]
+lines-after-imports = 1
+
+[format]
+quote-style = "single"
+indent-style = "space"
+line-ending = "auto"

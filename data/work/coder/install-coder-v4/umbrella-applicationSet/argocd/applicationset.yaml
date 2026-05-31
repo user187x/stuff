@@ -1,0 +1,142 @@
+# =============================================================================
+# Coder stack ApplicationSet
+#
+# One ApplicationSet, two generators:
+#   1. `list`        → static envs:  prod, staging, dev
+#   2. `scmProvider` → preview envs: one Application per branch matching
+#                      `^preview.*` (deployed to the dev cluster)
+#
+# Each generator carries its own `template` override that gets deep-merged with
+# the top-level template. Shared bits (project, syncPolicy, ignoreDifferences)
+# live in the top-level template.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: coder-stack
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - list:
+        elements:
+          - env: prod
+            cluster: https://prod.k8s.example.com      # CHANGE ME (or use cluster name)
+            targetRevision: main
+          - env: staging
+            cluster: https://staging.k8s.example.com   # CHANGE ME
+            targetRevision: staging
+          - env: dev
+            cluster: https://dev.k8s.example.com       # CHANGE ME
+            targetRevision: develop
+      template:
+        metadata:
+          name: 'coder-{{ .env }}'
+          labels:
+            coder.com/environment: '{{ .env }}'
+        spec:
+          sources:
+            - repoURL: https://github.com/your-org/your-repo.git   # CHANGE ME
+              targetRevision: '{{ .targetRevision }}'
+              path: coder-umbrella
+              helm:
+                releaseName: coder
+                valueFiles:
+                  - values.yaml
+                  - '$values/environments/{{ .env }}/values.yaml'
+            - repoURL: https://github.com/your-org/your-repo.git   # CHANGE ME
+              targetRevision: '{{ .targetRevision }}'
+              ref: values
+          destination:
+            server: '{{ .cluster }}'
+            namespace: coder
+
+    - scmProvider:
+        github:
+          organization: your-org                       # CHANGE ME
+          allBranches: true
+          tokenRef:
+            secretName: github-token                   # see argocd/github-token-secret.example.yaml
+            key: token
+        filters:
+          # Both conditions inside one filter object are AND'd.
+          - repositoryMatch: '^your-repo$'             # CHANGE ME — limit to one repo
+            branchMatch: '^preview.*'                  # branches prefixed with "preview"
+      template:
+        metadata:
+          # `branchNormalized` lowercases and replaces non-alphanumerics with `-`.
+          # e.g. branch "preview/feat-X" → branchNormalized "preview-feat-x"
+          name: 'coder-preview-{{ .branchNormalized }}'
+          labels:
+            coder.com/environment: preview
+            coder.com/preview-branch: '{{ .branchNormalized }}'
+            coder.com/preview-branch-raw: '{{ .branch }}'
+        spec:
+          sources:
+            - repoURL: https://github.com/your-org/your-repo.git   # CHANGE ME
+              targetRevision: '{{ .branch }}'
+              path: coder-umbrella
+              helm:
+                releaseName: coder
+                valueFiles:
+                  - values.yaml
+                  - '$values/environments/preview/values.yaml'
+                # Branch-specific overrides. Helm replaces (does not merge)
+                # arrays, so the full env list is redefined here.
+                valuesObject:
+                  coder:
+                    coder:
+                      env:
+                        - name: CODER_PG_CONNECTION_URL
+                          valueFrom:
+                            secretKeyRef:
+                              name: coder-pg-app
+                              key: uri
+                        - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+                          value: "false"
+                        - name: CODER_ACCESS_URL
+                          value: 'https://{{ .branchNormalized }}.preview.coder.example.com'  # CHANGE ME
+            - repoURL: https://github.com/your-org/your-repo.git   # CHANGE ME
+              targetRevision: '{{ .branch }}'
+              ref: values
+          destination:
+            # All previews → dev cluster.
+            server: https://dev.k8s.example.com         # CHANGE ME
+            namespace: 'coder-preview-{{ .branchNormalized }}'
+
+  template:
+    metadata:
+      name: placeholder            # always overridden in per-generator templates
+    spec:
+      project: default
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true   # avoids "no matches for kind Cluster" on first CNPG sync
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+      ignoreDifferences:
+        # CNPG operator continuously updates Cluster.status — don't fight it.
+        - group: postgresql.cnpg.io
+          kind: Cluster
+          jsonPointers:
+            - /status
+        # Operator owns its webhook caBundle.
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions:
+            - '.webhooks[].clientConfig.caBundle'
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions:
+            - '.webhooks[].clientConfig.caBundle'

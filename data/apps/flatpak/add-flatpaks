@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Install Mission Center
+if ! flatpak list 2>/dev/null | grep -q "io.missioncenter.MissionCenter"; then
+ echo "Installing MissionCenter..."
+ flatpak install flathub io.missioncenter.MissionCenter -y
+fi
+
+# Install Sticky Notes
+if ! flatpak list 2>/dev/null | grep -q "com.vixalien.sticky"; then
+ echo "Installing Sticky Notes..."
+ flatpak install flathub com.vixalien.sticky -y
+fi

@@ -1,0 +1,180 @@
+#!/bin/bash
+
+export RED='\e[1;91m'
+export GREEN='\e[1;92m'
+export YELLOW='\e[1;93m'
+export BLUE='\e[1;94m'
+export GRAY='\e[3;90m'
+export END='\e[0m'
+export HIGH_WHITE=$'\e[1;97m'
+export LIGHT_GRAY=$'\e[0;37m'
+
+export INFO=" (${HIGH_WHITE}i${END}) "
+export ERROR=" (${RED}!${END}) "
+export FAIL=" (${RED}X${END}) "
+export WARN=" (${YELLOW}⚠${END}) "
+export SUCCESS=" (${GREEN}✓${END}) "
+
+# Set system config location
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "${CONFIG_HOME}" &>/dev/null
+
+CACHE_HOME="${XDG_DATA_HOME:-$HOME/.cache}"
+mkdir -p "${CACHE_HOME}" &>/dev/null
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+mkdir -p "${DATA_HOME}" &>/dev/null
+
+BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
+mkdir -p "${BIN_HOME}" &>/dev/null
+
+export XDG_CONFIG_HOME="${CONFIG_HOME}"
+export XDG_CACHE_HOME="${CACHE_HOME}"
+export XDG_DATA_HOME="${DATA_HOME}"
+export XDG_BIN_HOME="${BIN_HOME}"
+
+# Set default editor for system services
+export EDITOR=vim
+export KUBE_EDITOR=vim
+export SYSTEMD_EDITOR=vim
+export VIMINIT="set nocp | source ${CONFIG_HOME}/vim/vimrc"
+
+# Set default file viewr
+export VISUAL=bat
+
+# Set K9s NodeShell Active
+export K9S_FEATURE_GATE_NODE_SHELL=true
+export K9S_CONFIG_DIR="${CONFIG_HOME}/k9s"
+
+# Bash history control
+export HISTCONTROL=ignoreboth
+export HISTSIZE=10000
+
+# Set less history to save location
+export LESSHISTFILE="${CONFIG_HOME}/.less_history"
+export HISTFILE="${CONFIG_HOME}/.bash_history"
+
+# Set fzf search to select multiple with spacebar
+export FZF_DEFAULT_OPTS="--bind 'space:toggle-in'"
+
+shopt -s histappend
+# Check the window size after each command
+shopt -s checkwinsize
+
+###########################################
+#        Shell Configuruation             #
+###########################################
+
+# make less more friendly for non-text input
+[ -x /usr/bin/lesspipe ] &&
+ eval "$(SHELL=/bin/sh lesspipe)"
+
+############################################
+#           TERMINAL FUNCTIONS             #
+############################################
+
+function prompt_string_one {
+
+ local EXIT_CODE=$?
+ local SUCCESS=0
+
+ local RED="\e[38;5;196m"
+ local GREEN="\e[1;38;5;46m"
+ local END="\e[0m"
+
+ if [[ "$EXIT_CODE" -eq "$SUCCESS" ]]; then
+  PS1="\[${GREEN}\] ➤  \[${END}\]"
+ else
+  PS1="\[${RED}\] ➤💥  \[${END}\]"
+ fi
+}
+
+# Bash terminal prompt session
+export PS1='\[${GREEN}\] ➤  \[${END}\]'
+
+# Execute the dynamic prompt update
+export PROMPT_COMMAND=prompt_string_one
+
+############################################
+#       CONFIGURATION & HOOKS              #
+############################################
+
+# Terminal Sound Fx
+function terminal_soundFx {
+
+ local action="$1"
+
+ # Check if argument count is 0
+ if [[ "$#" -eq 0 && -n "$PS1" ]]; then
+  echo -e "${GRAY}(!) SoundFx: No action specified${END}"
+  return 1
+ fi
+
+ declare -A actions
+ actions["open"]="$HOME/.local/share/audio/info.mp3"
+ actions["close"]="$HOME/.local/share/audio/megaman_teleport.wav"
+
+ # 3. Check if the action exists in the map
+ if [[ -z "${actions[$action]}" ]]; then
+  echo -e "${GRAY}(!) SoundFx: Action Unknown '$action'${END}"
+  return 1
+ fi
+
+ local sound_file="${actions[$action]}"
+
+ # Check if file exists (AND check for mpv)
+ if [[ ! -f "$sound_file" ]]; then
+  return 1
+ fi
+
+ # Check for mpv command
+ if ! command -v mpv >/dev/null; then
+  return 1
+ fi
+
+ # Play Sound without GUI and detach cleanly to prevent defunct processes
+ mpv --no-video "$sound_file" &>/dev/null &
+ disown $!
+}
+
+# Play Open Sound
+terminal_soundFx open
+
+# Trap Close Sound
+trap 'terminal_soundFx close' EXIT
+
+# try attempt resources
+function try-attempt {
+
+ # initialize fuck command
+ eval $(thefuck --alias) 2>/dev/null
+
+ # add color to outputs if qrc is isntalled
+ if command -v grc >/dev/null; then
+
+  netstat() { grc sudo netstat "$@"; }
+  diff() { grc diff "$@"; }
+  ping() { grc ping "$@"; }
+  head() { grc head "$@"; }
+  tail() { grc tail "$@"; }
+  mount() { grc mount "$@"; }
+  ps() { grc sudo ps "$@"; }
+
+ fi
+}
+
+try-attempt
+
+# Add directory to PATH
+export PATH="${BIN_HOME}:$PATH"
+
+# Path to dev.environment directory
+export DEV_HOME="/home/xxx/dev.environment"
+# path to dev defined reource /home/xxx/.bash_aliases
+source /home/xxx/.bash_aliases
+# path to dev defined reource /home/xxx/.bash_functions
+source /home/xxx/.bash_functions
+# path to dev defined reource /home/xxx/.bash_completions
+source /home/xxx/.bash_completions
+# path to local only bash aliases
+source /home/xxx/.bash_local

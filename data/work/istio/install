@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+#
+# install-istio-minikube.sh
+# Zero-to-hero Istio install on a local Minikube cluster.
+#
+# What it does:
+#   1. Verifies prerequisites (minikube, kubectl, helm)
+#   2. Starts Minikube with enough resources (if not already running)
+#   3. Adds the Istio Helm repo
+#   4. Installs istio-base, istiod, and the ingress gateway
+#   5. Enables sidecar injection on the default namespace
+#   6. Deploys the httpbin sample app to confirm sidecar injection works
+#   7. Prints a summary of the cluster state
+#
+# Usage:
+#   chmod +x install-istio-minikube.sh
+#   ./install-istio-minikube.sh
+#
+# To tear everything down afterwards:
+#   ./install-istio-minikube.sh --uninstall
+
+set -euo pipefail
+
+# ---------- Config ----------
+MINIKUBE_CPUS="${MINIKUBE_CPUS:-4}"
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-8192}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-docker}"
+ISTIO_NAMESPACE="istio-system"
+INGRESS_NAMESPACE="istio-ingress"
+SAMPLE_NAMESPACE="default"
+
+# ---------- Pretty printing ----------
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+NC=$'\033[0m' # No Color
+
+info() { printf "%s\n" "${BLUE}==>${NC} $*"; }
+ok() { printf "%s\n" "${GREEN}✓${NC}  $*"; }
+warn() { printf "%s\n" "${YELLOW}!${NC}  $*"; }
+err() { printf "%s\n" "${RED}✗${NC}  $*" >&2; }
+die() {
+ err "$*"
+ exit 1
+}
+
+# ---------- Prerequisite checks ----------
+check_prereqs() {
+ info "Checking prerequisites..."
+ for cmd in minikube kubectl helm; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+   die "$cmd is not installed or not in PATH. Please install it and re-run."
+  fi
+  ok "$cmd found: $(command -v "$cmd")"
+ done
+}
+
+# ---------- Minikube ----------
+start_minikube() {
+ info "Checking Minikube status..."
+ if minikube status >/dev/null 2>&1; then
+  ok "Minikube is already running."
+ else
+  info "Starting Minikube (cpus=${MINIKUBE_CPUS}, memory=${MINIKUBE_MEMORY}MB, driver=${MINIKUBE_DRIVER})..."
+  minikube start \
+   --cpus="${MINIKUBE_CPUS}" \
+   --memory="${MINIKUBE_MEMORY}" \
+   --driver="${MINIKUBE_DRIVER}"
+  ok "Minikube started."
+ fi
+}
+
+# ---------- Helm repo ----------
+setup_helm_repo() {
+ info "Adding Istio Helm repo..."
+ helm repo add istio https://istio-release.storage.googleapis.com/charts >/dev/null 2>&1 || true
+ helm repo update >/dev/null
+ ok "Istio Helm repo ready."
+}
+
+# ---------- Helpers ----------
+ensure_namespace() {
+ local ns="$1"
+ if ! kubectl get namespace "$ns" >/dev/null 2>&1; then
+  kubectl create namespace "$ns" >/dev/null
+  ok "Created namespace: $ns"
+ else
+  ok "Namespace already exists: $ns"
+ fi
+}
+
+helm_install_or_upgrade() {
+ local release="$1"
+ local chart="$2"
+ local namespace="$3"
+ shift 3
+ local extra_args=("$@")
+
+ if helm status "$release" -n "$namespace" >/dev/null 2>&1; then
+  info "Upgrading release '$release' in '$namespace'..."
+  helm upgrade "$release" "$chart" -n "$namespace" --wait "${extra_args[@]}"
+ else
+  info "Installing release '$release' from chart '$chart' in '$namespace'..."
+  helm install "$release" "$chart" -n "$namespace" --wait "${extra_args[@]}"
+ fi
+ ok "Release '$release' is ready."
+}
+
+# ---------- Istio install ----------
+install_istio() {
+ ensure_namespace "$ISTIO_NAMESPACE"
+ helm_install_or_upgrade istio-base istio/base "$ISTIO_NAMESPACE" --set defaultRevision=default
+ helm_install_or_upgrade istiod istio/istiod "$ISTIO_NAMESPACE"
+
+ ensure_namespace "$INGRESS_NAMESPACE"
+ helm_install_or_upgrade istio-ingress istio/gateway "$INGRESS_NAMESPACE"
+}
+
+# ---------- Sample app ----------
+deploy_sample_app() {
+ info "Enabling sidecar injection on '$SAMPLE_NAMESPACE' namespace..."
+ kubectl label namespace "$SAMPLE_NAMESPACE" istio-injection=enabled --overwrite >/dev/null
+ ok "Label 'istio-injection=enabled' applied to '$SAMPLE_NAMESPACE'."
+
+ info "Deploying httpbin sample app..."
+ kubectl apply -n "$SAMPLE_NAMESPACE" \
+  -f https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml >/dev/null
+ ok "httpbin manifest applied."
+
+ info "Waiting for httpbin pod to become ready (this also confirms sidecar injection)..."
+ kubectl wait --for=condition=ready pod \
+  -l app=httpbin \
+  -n "$SAMPLE_NAMESPACE" \
+  --timeout=180s
+ ok "httpbin is up with the Envoy sidecar injected."
+}
+
+# ---------- Summary ----------
+print_summary() {
+ echo
+ info "Cluster summary:"
+ echo
+ printf "%s\n" "${YELLOW}--- Pods in ${ISTIO_NAMESPACE} ---${NC}"
+ kubectl get pods -n "$ISTIO_NAMESPACE"
+ echo
+ printf "%s\n" "${YELLOW}--- Pods in ${INGRESS_NAMESPACE} ---${NC}"
+ kubectl get pods -n "$INGRESS_NAMESPACE"
+ echo
+ printf "%s\n" "${YELLOW}--- httpbin in ${SAMPLE_NAMESPACE} (look for 2/2 READY) ---${NC}"
+ kubectl get pods -n "$SAMPLE_NAMESPACE" -l app=httpbin
+ echo
+ printf "%s\n" "${YELLOW}--- Helm releases ---${NC}"
+ helm ls -A | grep -E 'NAME|istio' || true
+ echo
+ ok "Istio is installed and running on Minikube. 🎉"
+ echo
+ echo "Next steps:"
+ echo "  - Run 'minikube tunnel' in another terminal so the ingress gateway gets an external IP."
+ echo "  - Explore: kubectl get svc -n ${INGRESS_NAMESPACE}"
+ echo "  - Tear down with: $0 --uninstall"
+}
+
+# ---------- Uninstall ----------
+uninstall() {
+ warn "Uninstalling Istio and cleaning up namespaces..."
+ helm uninstall istio-ingress -n "$INGRESS_NAMESPACE" 2>/dev/null || true
+ helm uninstall istiod -n "$ISTIO_NAMESPACE" 2>/dev/null || true
+ helm uninstall istio-base -n "$ISTIO_NAMESPACE" 2>/dev/null || true
+
+ kubectl delete -n "$SAMPLE_NAMESPACE" \
+  -f https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml \
+  --ignore-not-found=true 2>/dev/null || true
+ kubectl label namespace "$SAMPLE_NAMESPACE" istio-injection- 2>/dev/null || true
+
+ kubectl delete namespace "$INGRESS_NAMESPACE" --ignore-not-found=true
+ kubectl delete namespace "$ISTIO_NAMESPACE" --ignore-not-found=true
+
+ ok "Uninstall complete."
+}
+
+# ---------- Main ----------
+main() {
+ if [[ "${1:-}" == "--uninstall" ]]; then
+  uninstall
+  exit 0
+ fi
+
+ check_prereqs
+ start_minikube
+ setup_helm_repo
+ install_istio
+ deploy_sample_app
+ print_summary
+}
+
+main "$@"

@@ -1,0 +1,9 @@
+Add spell checking
+
+Add Java code formatting
+
+Add copy and clipboard copy button
+
+Add orchestration support
+
+Add system memory and cpu

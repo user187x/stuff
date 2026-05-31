@@ -1,0 +1,14 @@
+#!/bin/bash
+
+MINIKUBE_IP=$(minikube ip)
+
+helm upgrade --install gitlab gitlab/gitlab \
+  --namespace gitlab \
+  --reuse-values \
+  --set global.hosts.https=false \
+  --set global.hosts.domain=${MINIKUBE_IP}.nip.io \
+  --set global.hosts.externalIP=${MINIKUBE_IP} \
+  --set global.hosts.gitlab.name=gitlab.${MINIKUBE_IP}.nip.io \
+  --set global.externalUrl=http://gitlab.${MINIKUBE_IP}.nip.io \
+  --set gitlab.webservice.extraEnv.GITLAB_HTTPS=false \
+  --set gitlab.webservice.extraEnv.SSL_CERTIFICATE_FILE=""

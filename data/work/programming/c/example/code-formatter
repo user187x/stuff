@@ -1,0 +1,8 @@
+#!/bin/bash
+
+SOURCE_PATH="code/"
+
+echo "Formatting code..."
+clang-format -i -style=Google "${SOURCE_PATH}/main.c"
+
+echo "Format complete!"

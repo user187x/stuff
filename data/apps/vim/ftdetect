@@ -1,0 +1,2 @@
+au BufRead,BufNewFile *.script set filetype=javascript
+au BufRead,BufNewFile *.plymouth set filetype=dosini

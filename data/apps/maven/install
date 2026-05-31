@@ -1,0 +1,67 @@
+#!/bin/bash
+
+set -e
+
+echo "🚀 Running Maven installation script"
+
+echo "📦 Installing necessary dependencies..."
+sudo apt-get update
+sudo apt-get install -y curl wget tar xmlstarlet
+
+echo "🔍 Discovering the latest Maven version..."
+# Fetch the latest release version from Maven's central metadata
+MAVEN_VERSION=$(curl -s https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml | grep '<release>' | sed -e 's/.*<release>\(.*\)<\/release>.*/\1/')
+
+if [ -z "$MAVEN_VERSION" ]; then
+ echo "❌ Failed to fetch the latest Maven version. Exiting."
+ exit 1
+fi
+
+echo "✨ Latest Maven version discovered: ${MAVEN_VERSION}"
+
+DOWNLOAD_URL="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+TMP_ARCHIVE="/tmp/maven.tar.gz"
+
+echo "⬇️ Downloading Apache Maven ${MAVEN_VERSION}..."
+wget -qO "${TMP_ARCHIVE}" "${DOWNLOAD_URL}"
+
+echo "📂 Extracting Maven to /opt..."
+# Remove older extraction if it exists to ensure a clean slate
+sudo rm -rf "/opt/apache-maven-${MAVEN_VERSION}"
+sudo tar -xzf "${TMP_ARCHIVE}" -C /opt
+
+echo "🔗 Creating symlink at /opt/maven..."
+# Remove the existing symlink if it exists
+if [ -L "/opt/maven" ]; then
+ sudo rm /opt/maven
+fi
+sudo ln -s "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven
+
+echo "📝 Configuring environment variables in ~/.bashrc..."
+BASHRC_FILE="${HOME}/.bashrc"
+
+# Check if MAVEN_HOME is already in the file to prevent duplicates
+if grep -q "MAVEN_HOME=" "$BASHRC_FILE"; then
+ echo "⚠️  MAVEN_HOME is already defined in ${BASHRC_FILE}. Skipping append."
+else
+ echo "" >>"$BASHRC_FILE"
+ echo "# Apache Maven Environment Variables" >>"$BASHRC_FILE"
+ echo "export MAVEN_HOME=/opt/maven" >>"$BASHRC_FILE"
+ echo 'export PATH=$MAVEN_HOME/bin:$PATH' >>"$BASHRC_FILE"
+ echo "✅ Added MAVEN_HOME and PATH to ${BASHRC_FILE}"
+fi
+
+echo "🧹 Cleaning up downloaded archive..."
+rm "${TMP_ARCHIVE}"
+
+# Verify the installation setup
+echo ""
+echo "🎉 SUCCESS! Maven ${MAVEN_VERSION} has been installed to /opt/maven."
+echo "--------------------------------------------------------"
+echo "⚠️  IMPORTANT: To start using Maven in your current terminal session, run:"
+echo "    source ~/.bashrc"
+echo ""
+echo "Or run the following command to test it immediately:"
+echo "    /opt/maven/bin/mvn -version"
+echo ""
+echo "You are ready to start building your projects!"

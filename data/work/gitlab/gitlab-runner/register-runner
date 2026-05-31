@@ -1,0 +1,11 @@
+#!/bin/bash
+
+REGISTRATION_TOKEN=""
+GIT_URL=""
+
+sudo gitlab-runner register \
+ --non-interactive \
+ --url "${GIT_URL}" \
+ --token "${REGISTRATION_TOKEN}" \   
+ --executor "shell" \
+ --description "My Bash Runner"

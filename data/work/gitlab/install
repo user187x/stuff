@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Uninstall the broken release
+helm uninstall gitlab -n gitlab >/dev/null 2>&1 || true
+# Wait for all pods to terminate
+kubectl delete namespace gitlab
+kubectl create namespace gitlab
+
+# Capture minikube IP once to avoid subshell timing mismatches mid-command
+MINIKUBE_IP=$(minikube ip)
+
+# Reinstall with the fixed flags
+helm upgrade --install gitlab gitlab/gitlab \
+ --namespace gitlab \
+ --timeout 600s \
+ --set global.hosts.domain=${MINIKUBE_IP}.nip.io \
+ --set global.hosts.externalIP=${MINIKUBE_IP} \
+ --set global.hosts.gitlab.name=gitlab.${MINIKUBE_IP}.nip.io \
+ --set global.externalUrl=http://gitlab.${MINIKUBE_IP}.nip.io \
+ --set global.hosts.https=false \
+ --set global.ingress.class=nginx \
+ --set global.ingress.configureCertmanager=false \
+ --set global.ingress.tls.enabled=false \
+ --set certmanager.enabled=false \
+ --set certmanager-issuer.email=admin@example.com \
+ --set nginx-ingress.enabled=false \
+ --set prometheus.install=false \
+ --set gitlab-runner.install=false \
+ --set registry.enabled=false \
+ --set global.edition=ce \
+ --set gitlab.webservice.extraEnv.GITLAB_HTTPS=false \
+ --set gitlab.webservice.extraEnv.SSL_CERTIFICATE_FILE=""
+
+echo ""
+echo "Waiting for GitLab to be ready..."
+kubectl wait --for=condition=ready pod \
+ -l app=webservice \
+ -n gitlab \
+ --timeout=600s
+
+echo ""
+echo "============================="
+echo "GitLab URL : http://gitlab.${MINIKUBE_IP}.nip.io"
+echo "============================="
+password=$(kubectl get secret gitlab-gitlab-initial-root-password \
+ -n gitlab \
+ -o jsonpath='{.data.password}' | base64 --decode && echo)
+echo "User: root"
+echo "Pass: $password"
+echo "============================="

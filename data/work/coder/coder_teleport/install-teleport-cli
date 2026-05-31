@@ -1,0 +1,9 @@
+#!/bin/bash
+
+curl https://cdn.teleport.dev/install.sh | bash -s 18.7.1
+
+sudo teleport configure -o file \
+    --cluster-name=test.xxx \
+    --public-addr=teleport.test.xxx:443 \
+    --cert-file=/var/lib/teleport/fullchain.pem \
+    --key-file=/var/lib/teleport/privkey.pem

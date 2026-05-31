@@ -1,0 +1,7 @@
+#!/bin/bash
+
+kubectl -n vllm port-forward svc/vllm 8000:8000
+
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"/models/my-model","prompt":"Hello","max_tokens":20}'

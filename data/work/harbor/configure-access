@@ -1,0 +1,26 @@
+#!/bin/bash
+
+echo "Open https://harbor.local, log in as admin / Harbor12345."
+echo "Projects → New Project → name it e.g. charts → Public if you want anonymous pulls"
+
+sudo cp ./harbor-resources/certs/ca.crt /usr/local/share/ca-certificates/harbor-local.crt
+sudo update-ca-certificates
+
+if ! helm registry login harbor.local -u admin -p 'Harbor12345'; then
+ echo "Failure logging into Harbor"
+ exit 1
+fi
+
+echo "Testing creating a Helm Chart..."
+helm create demo
+
+echo "Testing packaging Helm Chart"
+helm package demo
+
+if helm push demo-0.1.0.tgz oci://harbor.local/library; then
+ echo "Successfully pushed Chart..."
+fi
+
+echo "Testing pulling Helm chart..."
+if helm pull oci://harbor.local/library/demo --version 0.1.0; then
+ echo "Successfully pulled Chart..."

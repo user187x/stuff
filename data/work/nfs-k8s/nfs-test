@@ -1,0 +1,24 @@
+#!/bin/bash
+
+app_name="nfs-demo-app"
+
+./grant-nfs-access "$app_name"
+
+# Write from the original namespace
+kubectl exec -n nfs-demo deploy/fileserver -- \
+ sh -c 'echo "shared across namespaces" > /usr/share/nginx/html/test.txt'
+
+# Read it from a pod in the new namespace
+kubectl run -n "$app_name" reader --rm -it --restart=Never \
+ --image=busybox --overrides='
+{
+  "spec": {
+    "containers": [{
+      "name": "reader",
+      "image": "busybox",
+      "command": ["cat", "/data/test.txt"],
+      "volumeMounts": [{"name":"shared","mountPath":"/data"}]
+    }],
+    "volumes": [{"name":"shared","persistentVolumeClaim":{"claimName":"nfs-shared-pvc"}}]
+  }
+}'

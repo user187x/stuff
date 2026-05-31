@@ -1,0 +1,50 @@
+#!/bin/bash
+set -e
+
+NAMESPACE="gitlab"
+# Capture minikube IP to construct the URL, matching your install script
+MINIKUBE_IP=$(minikube ip)
+GITLAB_URL="http://gitlab.${MINIKUBE_IP}.nip.io"
+
+# Define a static, secure registration token of your choosing
+REGISTRATION_TOKEN="minikube-bash-runner-token-777"
+
+echo "========================================="
+echo "1. Waiting for GitLab Toolbox pod..."
+echo "========================================="
+# The toolbox pod is required to run gitlab-rails commands
+kubectl wait --for=condition=ready pod -l app=toolbox -n $NAMESPACE --timeout=300s
+TOOLBOX_POD=$(kubectl get pods -n $NAMESPACE -l app=toolbox -o jsonpath="{.items[0].metadata.name}")
+
+echo ""
+echo "========================================="
+echo "2. Setting Runner Registration Token..."
+echo "========================================="
+# We bypass the API/UI entirely and set the token directly in the database
+kubectl exec -n $NAMESPACE $TOOLBOX_POD -- gitlab-rails runner "ApplicationSetting.current.update!(runners_registration_token: '$REGISTRATION_TOKEN')"
+echo "Token registered successfully!"
+
+echo ""
+echo "========================================="
+echo "3. Deploying GitLab Runner via Helm..."
+echo "========================================="
+# Ensure the GitLab Helm repo is added
+helm repo add gitlab https://charts.gitlab.io >/dev/null 2>&1 || true
+helm repo update
+
+# Since gitlab-runner.install=false was set in the main deployment,
+# we install it as a standalone Helm release in the same namespace.
+helm upgrade --install gitlab-runner gitlab/gitlab-runner \
+ --namespace $NAMESPACE \
+ --set gitlabUrl=$GITLAB_URL \
+ --set runnerRegistrationToken=$REGISTRATION_TOKEN \
+ --set rbac.create=true \
+ --set runners.privileged=true \
+ --set runners.tags="kubernetes,bash"
+
+echo ""
+echo "========================================="
+echo "GitLab Runner successfully deployed!"
+echo "It will automatically register with: $GITLAB_URL"
+echo "Check its status with: kubectl get pods -n $NAMESPACE -l app=gitlab-runner"
+echo "========================================="

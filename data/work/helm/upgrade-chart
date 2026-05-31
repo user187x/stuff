@@ -1,0 +1,40 @@
+#!/bin/bash
+
+REPO_NAME="harbor.local"
+RELEASE_NAME="auth-shim"
+CHART_NAME="auth-shim"
+NAMESPACE="auth-shim"
+
+read -r -p "Update Helm Chart Version or Chart value? (version/value) : " RESPONSE
+
+if [[ "$RESPONSE" == "value" ]]; then
+ read -r -p "Enter attribute to update (ie. 'image.tag') : " ATTRIBUTE
+ read -r -p "Enter attribute value (ie. 'latest') : " VALUE
+
+ # 1. Fetch the currently deployed chart string (e.g., "auth-shim-0.1.0") using yaml output for clean parsing
+ CURRENT_CHART=$(helm list -n "${NAMESPACE}" -f "^${RELEASE_NAME}$" -o yaml | awk '/chart:/ {print $2}')
+
+ # 2. Strip the chart name and trailing hyphen to isolate just the version number (e.g., "0.1.0")
+ CURRENT_VERSION=${CURRENT_CHART#${CHART_NAME}-}
+
+ # Fallback in case the release doesn't exist yet
+ if [[ -z "$CURRENT_VERSION" ]]; then
+  echo "Could not find an existing release for ${RELEASE_NAME}. Exiting."
+  exit 1
+ fi
+
+ echo "Upgrading attribute only... re-using previous values and maintaining version ${CURRENT_VERSION}"
+ helm upgrade "${RELEASE_NAME}" "${REPO_NAME}/${CHART_NAME}" \ 
+ --version "${CURRENT_VERSION}" \ 
+ --namespace "${NAMESPACE}" \ 
+ --set "${ATTRIBUTE}=${VALUE}" \ 
+ --reuse-values
+
+else
+ read -r -p "Enter new version to update to : " CHART_VERSION
+ echo "Upgrading Helm Chart to version ${CHART_VERSION}"
+
+ helm upgrade "${RELEASE_NAME}" "${REPO_NAME}/${CHART_NAME}" \ 
+ --version "${CHART_VERSION}" \
+  --namespace "${NAMESPACE}"
+fi

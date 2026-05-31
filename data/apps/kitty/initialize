@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Dynamically get the directory where this script is located
+KITTY_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Define paths based on your custom installation
+KITTY_BIN="${KITTY_HOME}/bin/kitty"
+KITTEN_BIN="${KITTY_HOME}/bin/kitten"
+BIN_HOME="${HOME}/.local/bin"
+APP_DIR="${HOME}/.local/share/applications"
+
+###########################################################
+#            INITIALIZE KITTY TERMINAL
+###########################################################
+
+echo "Initializing Kitty Terminal...."
+echo
+
+echo "Removing any existing cache for kitty..."
+rm -rf ~/.cache/kitty &>/dev/null
+
+echo "Creating bin directory at ${BIN_HOME}..."
+mkdir -p "${BIN_HOME}"
+
+echo "Symlinking binaries..."
+ln -sf "${KITTY_BIN}" "${BIN_HOME}/kitty"
+ln -sf "${KITTEN_BIN}" "${BIN_HOME}/kitten"
+
+###########################################################
+#            CREATE KITTY DESKTOP FILE
+###########################################################
+
+echo "Setting up Kitty desktop integration..."
+
+# 1. Ensure local applications directory exists and copy .desktop files
+mkdir -p "${APP_DIR}"
+cp "${KITTY_HOME}/share/applications/kitty.desktop" "${APP_DIR}/"
+cp "${KITTY_HOME}/share/applications/kitty-open.desktop" "${APP_DIR}/"
+
+# 2. Update the paths to the kitty icon in the desktop files
+ICON_PATH="${KITTY_HOME}/share/icons/hicolor/256x256/apps/kitty.png"
+sed -i "s|Icon=kitty|Icon=${ICON_PATH}|g" "${APP_DIR}/kitty"*.desktop
+
+# 3. Update Exec and TryExec paths
+sed -i "s|^TryExec=kitty|TryExec=${KITTY_BIN}|g" "${APP_DIR}/kitty"*.desktop
+EXEC_CMD="${KITTY_BIN} --config ${KITTY_HOME}/conf/kitty.conf"
+sed -i "s|^Exec=kitty|Exec=${EXEC_CMD}|g" "${APP_DIR}/kitty"*.desktop
+
+# 4. Make xdg-terminal-exec (and compatible desktop environments) use kitty
+mkdir -p ~/.config
+echo 'kitty.desktop' >~/.config/xdg-terminals.list
+
+echo "Desktop entries created and paths updated successfully!"
+
+###########################################################
+#            LAUNCH KITTY
+###########################################################
+
+# Execute using the absolute path in the background (&) so the script can finish
+echo "Launching Kitty..."
+"${KITTY_BIN}" --config "${KITTY_HOME}/conf/kitty.conf" &

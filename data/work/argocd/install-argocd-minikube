@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  install-argocd-minikube.sh
+#  Zero-to-hero: installs ArgoCD on a running Minikube cluster
+# =============================================================================
+set -euo pipefail
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+
+log()     { echo -e "${CYAN}${BOLD}[INFO]${RESET}  $*"; }
+success() { echo -e "${GREEN}${BOLD}[OK]${RESET}    $*"; }
+warn()    { echo -e "${YELLOW}${BOLD}[WARN]${RESET}  $*"; }
+error()   { echo -e "${RED}${BOLD}[ERROR]${RESET} $*" >&2; exit 1; }
+banner()  { echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════════════${RESET}"; \
+            echo -e "${BOLD}${CYAN}  $*${RESET}"; \
+            echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════${RESET}\n"; }
+
+# ── Config (override via env vars) ───────────────────────────────────────────
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+ARGOCD_VERSION="${ARGOCD_VERSION:-stable}"          # e.g. "v2.11.0" or "stable"
+ARGOCD_PORT="${ARGOCD_PORT:-8080}"                   # local port for port-forward
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-180s}"
+
+# ── Helper: require a binary ─────────────────────────────────────────────────
+require() {
+  command -v "$1" &>/dev/null || error "'$1' not found in PATH. Please install it first."
+}
+
+# ── Helper: spinner while a command runs ─────────────────────────────────────
+spin() {
+  local msg="$1"; shift
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local log_file="/tmp/argocd_install_log_$$"
+
+  # Run command in background; redirect both streams to a temp log
+  "$@" >"$log_file" 2>&1 &
+  local pid=$!
+  local i=0
+  local rc=0
+
+  # Spin while the background job is alive
+  # NOTE: i=$((i+1)) is used instead of ((i++)) because in bash, ((0)) has
+  # exit-code 1 (arithmetic false), which would trigger `set -e` on the first
+  # iteration and kill the script.
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r${CYAN}${frames[$((i % 10))]}${RESET}  %s" "$msg"
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  # Collect the real exit code (set -e is suspended around `wait` via `||`)
+  wait "$pid" || rc=$?
+
+  if [[ $rc -eq 0 ]]; then
+    printf "\r${GREEN}✔${RESET}  %s\n" "$msg"
+  else
+    printf "\r${RED}✘${RESET}  %s\n" "$msg"
+    echo -e "${RED}--- command output ---${RESET}"
+    cat "$log_file"
+    echo -e "${RED}--- end of output ---${RESET}"
+    rm -f "$log_file"
+    exit 1
+  fi
+  rm -f "$log_file"
+}
+
+# =============================================================================
+#  STEP 0 — Preflight checks
+# =============================================================================
+banner "Step 0 · Preflight checks"
+
+require kubectl
+require minikube
+require curl
+
+log "Verifying Minikube is running..."
+minikube status --format='{{.Host}}' 2>/dev/null | grep -q "Running" \
+  || error "Minikube is not running. Start it with: minikube start"
+success "Minikube is up."
+
+log "Verifying kubectl can reach the cluster..."
+kubectl cluster-info --request-timeout=10s &>/dev/null \
+  || error "kubectl cannot reach the cluster. Check your kubeconfig."
+success "kubectl is connected."
+
+# =============================================================================
+#  STEP 1 — Create namespace
+# =============================================================================
+banner "Step 1 · Create namespace '${ARGOCD_NAMESPACE}'"
+
+if kubectl get namespace "${ARGOCD_NAMESPACE}" &>/dev/null; then
+  warn "Namespace '${ARGOCD_NAMESPACE}' already exists — skipping creation."
+else
+  kubectl create namespace "${ARGOCD_NAMESPACE}"
+  success "Namespace '${ARGOCD_NAMESPACE}' created."
+fi
+
+# =============================================================================
+#  STEP 2 — Install ArgoCD manifests
+# =============================================================================
+banner "Step 2 · Apply ArgoCD manifests (${ARGOCD_VERSION})"
+
+MANIFEST_URL="https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+log "Source: ${MANIFEST_URL}"
+
+spin "Applying ArgoCD install manifest (server-side)..." \
+  kubectl apply -n "${ARGOCD_NAMESPACE}" -f "${MANIFEST_URL}" --server-side --force-conflicts
+
+success "Manifests applied."
+
+# =============================================================================
+#  STEP 3 — Wait for all pods to be Ready
+# =============================================================================
+banner "Step 3 · Wait for ArgoCD pods to become Ready (timeout: ${WAIT_TIMEOUT})"
+
+DEPLOYMENTS=(
+  argocd-server
+  argocd-repo-server
+  argocd-application-controller
+  argocd-applicationset-controller
+  argocd-notifications-controller
+  argocd-dex-server
+  argocd-redis
+)
+
+for deploy in "${DEPLOYMENTS[@]}"; do
+  # Some versions ship certain components; skip if absent
+  if kubectl get deployment "${deploy}" -n "${ARGOCD_NAMESPACE}" &>/dev/null; then
+    spin "Waiting for deployment/${deploy}..." \
+      kubectl rollout status deployment/"${deploy}" \
+        -n "${ARGOCD_NAMESPACE}" --timeout="${WAIT_TIMEOUT}"
+  elif kubectl get statefulset "${deploy}" -n "${ARGOCD_NAMESPACE}" &>/dev/null; then
+    spin "Waiting for statefulset/${deploy}..." \
+      kubectl rollout status statefulset/"${deploy}" \
+        -n "${ARGOCD_NAMESPACE}" --timeout="${WAIT_TIMEOUT}"
+  else
+    warn "Resource '${deploy}' not found — skipping (may not exist in this version)."
+  fi
+done
+
+success "All ArgoCD components are running."
+
+# =============================================================================
+#  STEP 4 — Patch argocd-server service to NodePort (Minikube-friendly)
+# =============================================================================
+banner "Step 4 · Expose argocd-server via NodePort"
+
+log "Patching argocd-server service type → NodePort..."
+kubectl patch svc argocd-server \
+  -n "${ARGOCD_NAMESPACE}" \
+  -p '{"spec":{"type":"NodePort"}}' \
+  &>/dev/null
+
+success "Service patched to NodePort."
+
+MINIKUBE_IP=$(minikube ip)
+NODE_PORT=$(kubectl get svc argocd-server \
+  -n "${ARGOCD_NAMESPACE}" \
+  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+
+success "ArgoCD UI reachable at: https://${MINIKUBE_IP}:${NODE_PORT}"
+
+# =============================================================================
+#  STEP 5 — Install argocd CLI (if absent)
+# =============================================================================
+banner "Step 5 · Install ArgoCD CLI"
+
+if command -v argocd &>/dev/null; then
+  INSTALLED_CLI=$(argocd version --client --short 2>/dev/null | head -1)
+  warn "argocd CLI already installed: ${INSTALLED_CLI} — skipping."
+else
+  OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+  ARCH=$(uname -m)
+  [[ "$ARCH" == "x86_64" ]] && ARCH="amd64"
+  [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && ARCH="arm64"
+
+  CLI_URL="https://github.com/argoproj/argo-cd/releases/${ARGOCD_VERSION}/download/argocd-${OS}-${ARCH}"
+  log "Downloading argocd CLI from: ${CLI_URL}"
+
+  spin "Downloading argocd CLI..." \
+    curl -sSL -o /tmp/argocd "${CLI_URL}"
+
+  chmod +x /tmp/argocd
+
+  if [[ -w /usr/local/bin ]]; then
+    mv /tmp/argocd /usr/local/bin/argocd
+    success "argocd CLI installed to /usr/local/bin/argocd"
+  else
+    warn "/usr/local/bin is not writable. Installing to ~/bin instead."
+    mkdir -p "$HOME/bin"
+    mv /tmp/argocd "$HOME/bin/argocd"
+    export PATH="$HOME/bin:$PATH"
+    success "argocd CLI installed to ~/bin/argocd (add ~/bin to your PATH)"
+  fi
+fi
+
+# =============================================================================
+#  STEP 6 — Retrieve initial admin password
+# =============================================================================
+banner "Step 6 · Retrieve initial admin password"
+
+log "Waiting for the admin secret to be populated..."
+for i in $(seq 1 30); do
+  PASS=$(kubectl get secret argocd-initial-admin-secret \
+    -n "${ARGOCD_NAMESPACE}" \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode 2>/dev/null || true)
+  [[ -n "$PASS" ]] && break
+  sleep 3
+done
+
+[[ -n "$PASS" ]] || error "Could not retrieve initial admin password. Check: kubectl get secret -n ${ARGOCD_NAMESPACE}"
+
+success "Initial admin password retrieved."
+
+# =============================================================================
+#  STEP 7 — Log in with the CLI & change default password prompt
+# =============================================================================
+banner "Step 7 · ArgoCD CLI login"
+
+log "Logging in to ArgoCD at ${MINIKUBE_IP}:${NODE_PORT}..."
+argocd login "${MINIKUBE_IP}:${NODE_PORT}" \
+  --username admin \
+  --password "${PASS}" \
+  --insecure \
+  --grpc-web 2>/dev/null && success "CLI logged in successfully." \
+  || warn "CLI login failed (non-fatal). You can log in manually — see summary below."
+
+# =============================================================================
+#  STEP 8 — Optional: start port-forward in background
+# =============================================================================
+banner "Step 8 · Start localhost port-forward (optional)"
+
+log "Starting port-forward: localhost:${ARGOCD_PORT} → argocd-server:443"
+log "(Running in background; kill with: pkill -f 'kubectl port-forward.*argocd-server')"
+
+kubectl port-forward svc/argocd-server \
+  -n "${ARGOCD_NAMESPACE}" \
+  "${ARGOCD_PORT}:443" \
+  &>/tmp/argocd_pf.log &
+
+PF_PID=$!
+sleep 2
+
+if kill -0 "${PF_PID}" 2>/dev/null; then
+  success "Port-forward running (PID ${PF_PID}). Access UI at: https://localhost:${ARGOCD_PORT}"
+else
+  warn "Port-forward failed to start (port ${ARGOCD_PORT} may already be in use). Use NodePort instead."
+fi
+
+# =============================================================================
+#  Summary
+# =============================================================================
+banner "🎉  Installation Complete!"
+echo -e "  ${BOLD}Namespace:${RESET}       ${ARGOCD_NAMESPACE}"
+echo -e "  ${BOLD}NodePort URL:${RESET}    ${CYAN}https://${MINIKUBE_IP}:${NODE_PORT}${RESET}"
+echo -e "  ${BOLD}Localhost URL:${RESET}   ${CYAN}https://localhost:${ARGOCD_PORT}${RESET}  (port-forward)"
+echo -e "  ${BOLD}Username:${RESET}        admin"
+echo -e "  ${BOLD}Password:${RESET}        ${YELLOW}${PASS}${RESET}"
+echo ""
+echo -e "  ${YELLOW}${BOLD}⚠  Change the default password immediately:${RESET}"
+echo -e "  argocd account update-password --account admin \\"
+echo -e "    --current-password '${PASS}' \\"
+echo -e "    --new-password '<your-new-password>'"
+echo ""
+echo -e "  ${BOLD}Useful commands:${RESET}"
+echo -e "  kubectl get pods -n ${ARGOCD_NAMESPACE}          # pod status"
+echo -e "  argocd app list                                   # list apps"
+echo -e "  argocd cluster list                               # list clusters"
+echo -e "  minikube service argocd-server -n ${ARGOCD_NAMESPACE} --url  # NodePort URL"
+echo ""

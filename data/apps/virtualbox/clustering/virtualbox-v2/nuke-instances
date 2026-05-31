@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Define the exact name of the VM you want to keep
+KEEP_VM="Ubuntu-26"
+
+echo "Fetching protected networks for: $KEEP_VM..."
+# Find host-only networks attached to the protected VM so we don't accidentally delete them
+PROTECTED_NETS=$(VBoxManage showvminfo "$KEEP_VM" --machinereadable 2>/dev/null | grep "^hostonlyadapter" | cut -d '"' -f 2 | sort -u)
+
+echo "Fetching list of VirtualBox VMs..."
+VM_LIST=$(VBoxManage list vms)
+
+if [[ -z "$VM_LIST" ]]; then
+ echo "No VMs found in VirtualBox."
+ exit 0
+fi
+
+# String to hold all host-only networks we might want to delete
+NETS_TO_REVIEW=""
+
+# Read the VM list (using <<< to avoid subshell variable scoping issues)
+while read -r line; do
+
+ # Extract the VM name (grabs everything between the first set of double quotes)
+ VM_NAME=$(echo "$line" | sed -E 's/^"([^"]+)".*/\1/')
+
+ # Extract the UUID (grabs the curly braces and everything inside)
+ VM_UUID=$(echo "$line" | grep -o '{.*}')
+
+ # Check if this is our protected VM
+ if [[ "$VM_NAME" == "$KEEP_VM" ]]; then
+  echo "Skipping protected VM: $VM_NAME"
+  continue
+ fi
+
+ echo "----------------------------------------"
+ echo "Processing VM: $VM_NAME $VM_UUID"
+
+ # Capture any host-only adapters used by this VM BEFORE unregistering it
+ VM_NETS=$(VBoxManage showvminfo "$VM_UUID" --machinereadable 2>/dev/null | grep "^hostonlyadapter" | cut -d '"' -f 2)
+ NETS_TO_REVIEW="$NETS_TO_REVIEW $VM_NETS"
+
+ # Get the current state of the VM to determine if a poweroff is necessary
+ VM_STATE=$(VBoxManage showvminfo "$VM_UUID" --machinereadable 2>/dev/null | grep "^VMState=" | cut -d '"' -f 2)
+
+ # If the VM is active, force a power off
+ if [[ "$VM_STATE" == "running" || "$VM_STATE" == "paused" ]]; then
+  echo "  [+] Powering off $VM_NAME..."
+  VBoxManage controlvm "$VM_UUID" poweroff 2>/dev/null
+
+  # Give VirtualBox a few seconds to fully release the lock on the VM files
+  sleep 2
+ else
+  echo "  [=] VM is not running. No poweroff needed."
+ fi
+
+ # Unregister the VM from VirtualBox
+ echo "  [+] Unregistering $VM_NAME..."
+ VBoxManage unregistervm "$VM_UUID" 2>/dev/null
+
+done <<<"$VM_LIST"
+
+echo "----------------------------------------"
+echo "Reviewing host-only networks for cleanup..."
+
+# Get a unique list of networks gathered from the deleted VMs
+UNIQUE_NETS=$(echo "$NETS_TO_REVIEW" | tr ' ' '\n' | sort -u | grep -v '^$')
+
+if [[ -z "$UNIQUE_NETS" ]]; then
+ echo "No associated host-only networks found to clean up."
+else
+ # Loop through the networks we found
+ for net in $UNIQUE_NETS; do
+  # Check if this network is being used by the protected VM
+  if echo "$PROTECTED_NETS" | grep -q "^${net}$"; then
+   echo "  [=] Skipping network '$net' (currently in use by $KEEP_VM)"
+  else
+   echo "  [+] Destroying network '$net'..."
+   VBoxManage dhcpserver remove --ifname "$net" 2>/dev/null || true
+   VBoxManage hostonlyif remove "$net" 2>/dev/null || true
+  fi
+ done
+fi
+
+echo "----------------------------------------"
+echo "Operation complete."

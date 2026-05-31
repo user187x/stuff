@@ -1,0 +1,46 @@
+#!/bin/bash
+
+echo "================================================="
+echo " VirtualBox VM Auto-Startup Script               "
+echo "================================================="
+
+# 1. Verify VBoxManage is installed
+if ! command -v VBoxManage &>/dev/null; then
+ echo "Error: VBoxManage could not be found."
+ exit 1
+fi
+
+# 2. Auto-discover all registered VMs
+# This grabs the names of every VM registered to the current user
+mapfile -t ALL_VMS < <(VBoxManage list vms | awk -F'"' '{print $2}')
+
+if [ ${#ALL_VMS[@]} -eq 0 ]; then
+ echo "No VirtualBox VMs found on this host."
+ exit 0
+fi
+
+echo "Found ${#ALL_VMS[@]} VM(s). Checking states and starting..."
+echo "================================================="
+
+# 3. Loop through and start powered-off VMs
+for VM in "${ALL_VMS[@]}"; do
+ STATE=$(VBoxManage showvminfo "$VM" --machinereadable | grep "^VMState=" | cut -d '"' -f 2)
+
+ if [ "$STATE" == "running" ]; then
+  echo "[$VM]: Already running. Skipping."
+ else
+  echo "[$VM]: Starting in headless mode..."
+  # Start the VM in the background
+  if VBoxManage startvm "$VM" --type headless >/dev/null 2>&1; then
+   echo "   [Success] VM is booting."
+  else
+   echo "   [Failed] Could not start VM."
+  fi
+
+  # A brief 2-second pause between startups prevents slamming the host's CPU and Disk IO
+  sleep 2
+ fi
+done
+
+echo "================================================="
+echo "Startup sequence complete!"

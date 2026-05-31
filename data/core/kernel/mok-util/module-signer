@@ -1,0 +1,50 @@
+#!/bin/bash
+
+##########################################
+#
+# SIGNS KERNEL MODULES
+#
+##########################################
+
+# fail & bail
+set -e
+
+# ensure elevated privileges
+sudo -v
+
+TARGET_DIR="/root/module-signing"
+
+# Defined for readability (Mirrors the authorizer script)
+SIGNER="xxx"
+CERT_KEY="${SIGNER}.key"
+CERT_PUB="${SIGNER}.pub"
+
+# Path to the kernel's sign-file script
+SIGN_SCRIPT="/usr/src/linux-headers-$(uname -r)/scripts/sign-file"
+
+# Full paths to the trusted signing certificates
+FULL_CERT_KEY="${TARGET_DIR}/${CERT_KEY}"
+FULL_CERT_PUB="${TARGET_DIR}/${CERT_PUB}"
+
+# Ensure certs are located where directed
+if [ ! -f "$FULL_CERT_KEY" ] || [ ! -f "$FULL_CERT_PUB" ]; then
+ echo "Error: Signing keys not found!"
+ echo "Please ensure both '$CERT_KEY' and '$CERT_PUB' exist in '$TARGET_DIR'."
+ exit 1
+fi
+
+# Base directory for dynamic modules
+MODULE_DIR="/lib/modules/$(uname -r)/updates/dkms"
+
+# Find .ko files in the module directory and pipe to fzf to let the user select one
+SELECTED_MODULE=$(find "$MODULE_DIR" -name "*.ko" 2>/dev/null | fzf --ansi --prompt 'Select module to sign: ')
+
+# Exit safely if the user cancels fzf without making a selection
+if [ -z "$SELECTED_MODULE" ]; then
+ echo "No module selected. Exiting."
+ exit 0
+fi
+
+# Sign the selected module
+echo "Signing module: $SELECTED_MODULE"
+sudo "$SIGN_SCRIPT" sha256 "$FULL_CERT_KEY" "$FULL_CERT_PUB" "$SELECTED_MODULE"

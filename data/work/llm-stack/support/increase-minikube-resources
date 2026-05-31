@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Define the driver
+DRIVER="docker"
+
+echo "🔍 Checking system resources..."
+
+# Get total physical memory in MB
+TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
+
+echo "💻 Total Host RAM: ${TOTAL_RAM}MB"
+
+# Safety Check: If RAM is less than 8GB, LLMs will likely struggle regardless
+if [ "$TOTAL_RAM" -lt 8192 ]; then
+ echo "⚠️ Warning: You have less than 8GB of RAM. Large LLMs may crash your host."
+fi
+
+echo "🚀 Starting Minikube in 'Unbounded' mode..."
+
+# Set the config so it persists across restarts
+minikube config set driver $DRIVER
+minikube config set memory max
+minikube config set cpus max
+
+# Start the cluster
+# --keep-context ensures your kubectl stays pointed at the right place
+minikube start --driver=$DRIVER --memory=max --cpus=max
+
+echo "---"
+echo "✅ Minikube is now using the Docker driver in dynamic mode."
+echo "📢 Note: The 'node' will report the full host memory, but Docker will"
+echo "   only consume what the active LLM processes actually use."

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo "Updating Chart dependencies"
+helm dependency update umbrella-cnpg/
+
+echo "Packing the Helm chart"
+helm package umbrella-cnpg/
+
+echo "Pushing the chart to Harbor"
+helm push coder-umbrella-0.2.0.tgz oci://harbor.local/library

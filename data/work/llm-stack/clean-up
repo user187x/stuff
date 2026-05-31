@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# 1. Uninstall only the vllm-stack release
+helm uninstall vllm-stack -n llm-ops
+
+# 2. Delete the PVC and PV so the script can recreate them cleanly
+kubectl delete pvc llm-models-pvc -n llm-ops
+kubectl delete pv llm-models-pv
+
+# 3. Wait for PV to fully release (takes a few seconds)
+kubectl wait --for=delete pv/llm-models-pv --timeout=30s 2>/dev/null || true
+
+# 4. Make the new script executable and run it
+chmod +x install-llm-stack
+./install-llm-stack

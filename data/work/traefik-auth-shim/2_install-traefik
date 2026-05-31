@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# =============================================================================
+# End-to-end install: Traefik + Auth-Shim
+#
+# Prerequisites:
+#   - kubectl pointed at the target cluster
+#   - helm 3.x
+#   - Built and pushed the auth-shim image to a registry your cluster can pull
+#     (replace `auth-shim:1.0.0` in helm/auth-shim/values.yaml accordingly)
+#   - Server certificate (server.crt) + private key (server.key) signed by your
+#     private CA, plus the CA bundle (ca.crt) in the current directory.
+# =============================================================================
+set -euo pipefail
+
+namespace="traefik-auth"
+
+# -----------------------------------------------------------------------------
+# 1. Namespaces
+# -----------------------------------------------------------------------------
+kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f -
+#kubectl create namespace auth-shim --dry-run=client -o yaml | kubectl apply -f -
+
+# -----------------------------------------------------------------------------
+# 2. Private-CA TLS secrets in the traefik namespace
+#
+# NOTE: Kubernetes resource names must be DNS-1123 (lowercase, digits, hyphens).
+# Underscores are not permitted, so the secret asked for as
+# `traefik_ingress_tls` is created here as `traefik-ingress-tls`.
+# -----------------------------------------------------------------------------
+
+# (a) Server cert + key — this is what Traefik presents to clients on :443
+kubectl -n "$namespace" create secret tls traefik-ingress-tls \
+ --cert=server.crt \
+ --key=server.key \
+ --dry-run=client -o yaml | kubectl apply -f -
+
+# (b) Private CA bundle — Traefik uses this as the root-of-trust for outbound
+# TLS to backends that also present certs from your private CA.
+kubectl -n "$namespace" create secret generic traefik-private-ca \
+ --from-file=ca.crt=ca.crt \
+ --dry-run=client -o yaml | kubectl apply -f -
+
+# -----------------------------------------------------------------------------
+# 3. Install Traefik
+# -----------------------------------------------------------------------------
+if ! helm repo list | grep -q "traefik"; then
+ helm repo add traefik https://traefik.github.io/charts
+ helm repo update
+fi
+
+helm upgrade --install traefik-auth traefik/traefik \
+ --namespace "$namespace" \
+ --values helm/traefik-values.yaml \
+ --wait
+
+# Apply the default TLSStore so Traefik uses traefik-ingress-tls
+# for any HTTPS route that doesn't override it.
+kubectl apply -f helm/tlsstore.yaml
+
+echo "Traefik Installed to the cluster!"

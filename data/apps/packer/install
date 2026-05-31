@@ -1,0 +1,320 @@
+#!/bin/bash
+
+# ==========================================
+# SPINNER ENGINE
+# ==========================================
+_SPINNER_PID=""
+
+_spinner_loop() {
+ local style=$1
+ local msg=$2
+ local delay
+ local -a frames
+ local -a colors
+
+ case "$style" in
+  braille)
+   delay=0.08
+   [[ -z "$msg" ]] && msg="Initializing Core..."
+   frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+   colors=("\033[38;5;33m" "\033[38;5;39m" "\033[38;5;45m" "\033[38;5;51m" "\033[38;5;50m" "\033[38;5;49m" "\033[38;5;48m" "\033[38;5;46m" "\033[38;5;48m" "\033[38;5;49m" "\033[38;5;50m" "\033[38;5;51m" "\033[38;5;45m" "\033[38;5;39m")
+   ;;
+  wave)
+   delay=0.05
+   [[ -z "$msg" ]] && msg="Uploading Data..."
+   frames=(" " "▂" "▃" "▄" "▅" "▆" "▇" "█" "▇" "▆" "▅" "▄" "▃" " ")
+   colors=("\033[38;5;33m" "\033[38;5;39m" "\033[38;5;45m" "\033[38;5;51m" "\033[38;5;50m" "\033[38;5;49m" "\033[38;5;48m" "\033[38;5;46m" "\033[38;5;48m" "\033[38;5;49m" "\033[38;5;50m" "\033[38;5;51m" "\033[38;5;45m" "\033[38;5;39m")
+   ;;
+  pulse)
+   delay=0.2
+   [[ -z "$msg" ]] && msg=""
+   frames=("Loading   " "Loading.  " "Loading.. " "Loading...")
+   colors=("\033[1;37m")
+   ;;
+ esac
+
+ tput civis # Hide cursor
+ trap 'tput cnorm; printf "\r\033[K"; exit 0' TERM INT
+
+ local i=0
+ while true; do
+  local frame_idx=$((i % ${#frames[@]}))
+  local color_idx=$((i % ${#colors[@]}))
+  local frame="${frames[$frame_idx]}"
+  local current_color="${colors[$color_idx]}"
+
+  printf "\r${current_color}%s\033[0m %s" "$frame" "$msg"
+  sleep "$delay"
+  ((i++))
+ done
+}
+
+spinner() {
+ local action=$1
+ local msg=$2
+
+ if [[ "$action" == "stop" ]]; then
+  if [[ -n "$_SPINNER_PID" ]]; then
+   kill "$_SPINNER_PID" 2>/dev/null
+   wait "$_SPINNER_PID" 2>/dev/null
+   _SPINNER_PID=""
+   printf "\r\033[K"
+   tput cnorm
+  fi
+  return 0
+ fi
+
+ if [[ -n "$_SPINNER_PID" ]]; then
+  spinner stop
+ fi
+
+ if [[ "$action" =~ ^(braille|wave|pulse)$ ]]; then
+  _spinner_loop "$action" "$msg" &
+  _SPINNER_PID=$!
+ else
+  echo "Invalid option. Choose: braille, wave, pulse, or stop" >&2
+  return 1
+ fi
+}
+
+# ==========================================
+# DEFENSIVE DEPENDENCY MANAGEMENT
+# ==========================================
+install_dependencies() {
+ local MISSING_DEPS=0
+ if ! command -v whiptail &>/dev/null; then MISSING_DEPS=1; fi
+ if ! command -v packer &>/dev/null; then MISSING_DEPS=1; fi
+ if ! command -v docker &>/dev/null; then MISSING_DEPS=1; fi
+
+ if [ $MISSING_DEPS -eq 0 ]; then return 0; fi
+
+ read -p "Dependencies (whiptail, packer, or docker) are missing. Attempt to install them automatically? (Requires sudo, Debian/Ubuntu) [y/N]: " PROCEED
+ if [[ ! "$PROCEED" =~ ^[Yy]$ ]]; then exit 1; fi
+
+ # Prime sudo cache so the password prompt doesn't collide with the spinner
+ sudo -v
+
+ spinner wave "Installing dependencies..."
+
+ sudo apt-get update -qq >/dev/null 2>&1
+ if ! command -v whiptail &>/dev/null; then sudo apt-get install -y whiptail >/dev/null 2>&1; fi
+ if ! command -v docker &>/dev/null; then
+  sudo apt-get install -y docker.io >/dev/null 2>&1
+  sudo systemctl start docker && sudo systemctl enable docker >/dev/null 2>&1
+ fi
+ if ! command -v packer &>/dev/null; then
+  sudo apt-get install -y software-properties-common curl wget >/dev/null 2>&1
+  wget -qO- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
+  sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y packer >/dev/null 2>&1
+ fi
+
+ spinner stop
+}
+
+install_dependencies
+
+# ==========================================
+# MAIN APPLICATION
+# ==========================================
+
+# 1. Welcome Screen
+whiptail --title "Packer Image Builder" --msgbox "Welcome to the Interactive Packer Image Builder!\n\nThis wizard will help you configure, provision, and build a custom Docker image using HashiCorp Packer." 10 60
+
+# 2. Prompt for Image Name
+IMAGE_NAME=$(whiptail --title "Image Name" --inputbox "Enter a name for your output image (e.g., my-dev-env):" 8 50 "my-custom-image" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ] || [ -z "$IMAGE_NAME" ]; then exit 1; fi
+
+# 3. Prompt for Base OS
+while true; do
+ BASE_OS=$(whiptail --title "Base Operating System" --menu "Choose a base Docker image to build upon:" 14 60 4 \
+  "ubuntu:22.04" "Ubuntu 22.04 LTS" \
+  "debian:12" "Debian 12" \
+  "alpine:latest" "Alpine Linux" \
+  "custom" "Enter a custom Docker image name" 3>&1 1>&2 2>&3)
+
+ if [ $? -ne 0 ]; then exit 1; fi
+
+ if [ "$BASE_OS" == "custom" ]; then
+  BASE_OS=$(whiptail --title "Custom Base Image" --inputbox "Enter a valid Docker image (e.g., debian:bullseye-slim, kalilinux/kali-rolling):" 8 60 3>&1 1>&2 2>&3)
+  if [ $? -ne 0 ] || [ -z "$BASE_OS" ]; then continue; fi
+
+  # Verify custom image using spinner
+  spinner wave "Contacting Docker registry to verify '$BASE_OS'..."
+  if docker pull -q "$BASE_OS" >/dev/null 2>&1; then
+   spinner stop
+   break
+  else
+   spinner stop
+   whiptail --title "Error" --msgbox "Verification failed! The image '$BASE_OS' does not exist locally or on the remote registry, or you lack permissions." 9 60
+  fi
+ else
+  break
+ fi
+done
+
+# 4. Prompt for Base Tools (Checklist)
+TOOLS=$(whiptail --title "Standard Software Provisioning" --checklist \
+ "Select standard tools to pre-install:" 15 50 5 \
+ "git" "Git version control" OFF \
+ "curl" "Curl command line tool" ON \
+ "wget" "Wget downloader" OFF \
+ "python3" "Python 3" OFF \
+ "htop" "Interactive process viewer" OFF 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ]; then exit 1; fi
+
+# ==========================================
+# SMART AD-HOC TOOL ADDITION
+# ==========================================
+ADDITIONAL_TOOLS=""
+
+spinner pulse "Starting temporary $BASE_OS container to detect package manager..."
+
+CONTAINER_ID=$(docker run -d --rm $BASE_OS sleep 3600)
+
+if docker exec $CONTAINER_ID command -v apt-get >/dev/null 2>&1; then
+ PKG_MGR="apt"
+ docker exec $CONTAINER_ID apt-get update -qq >/dev/null 2>&1
+elif docker exec $CONTAINER_ID command -v apk >/dev/null 2>&1; then
+ PKG_MGR="apk"
+ docker exec $CONTAINER_ID apk update -q >/dev/null 2>&1
+else
+ PKG_MGR="none"
+fi
+
+spinner stop
+
+if [ "$PKG_MGR" == "none" ]; then
+ docker kill $CONTAINER_ID >/dev/null 2>&1
+ whiptail --title "Warning" --msgbox "The selected image '$BASE_OS' does not use 'apt' or 'apk'.\n\nAd-hoc tool validation will be skipped." 10 60
+fi
+
+# The Validation Loop
+if [ "$PKG_MGR" != "none" ]; then
+ while true; do
+  NEW_TOOL=$(whiptail --title "Add Custom Tool" --inputbox "Enter a package name to add to the image (or leave blank to continue to the build phase):\n\nCurrent custom tools:$ADDITIONAL_TOOLS" 12 60 3>&1 1>&2 2>&3)
+
+  if [ $? -ne 0 ] || [ -z "$NEW_TOOL" ]; then break; fi
+
+  CLEAN_TOOL=$(echo "$NEW_TOOL" | tr -cd 'a-zA-Z0-9\-\.\+')
+
+  spinner braille "Checking native $BASE_OS repositories for '$CLEAN_TOOL'..."
+
+  if [ "$PKG_MGR" == "apk" ]; then
+   EXACT_MATCH=$(docker exec $CONTAINER_ID apk search -q -e "$CLEAN_TOOL")
+  else
+   EXACT_MATCH=$(docker exec $CONTAINER_ID apt-cache show "$CLEAN_TOOL" 2>/dev/null | grep -m1 '^Package: ' | awk '{print $2}')
+  fi
+
+  spinner stop
+
+  if [ -n "$EXACT_MATCH" ]; then
+   whiptail --title "Success" --msgbox "Verified! '$CLEAN_TOOL' exists in the $BASE_OS repository and has been staged." 8 50
+   ADDITIONAL_TOOLS="$ADDITIONAL_TOOLS $CLEAN_TOOL"
+  else
+   spinner braille "Searching for similar packages..."
+   SUGGESTIONS=()
+   if [ "$PKG_MGR" == "apk" ]; then
+    for pkg in $(docker exec $CONTAINER_ID apk search -q "$CLEAN_TOOL" | head -n 10); do
+     SUGGESTIONS+=("$pkg" "Alpine Package")
+    done
+   else
+    while read -r line; do
+     pkg_name=$(echo "$line" | awk '{print $1}')
+     pkg_desc=$(echo "$line" | cut -d' ' -f2- | tr -d '"' | cut -c 1-40)
+     SUGGESTIONS+=("$pkg_name" "$pkg_desc")
+    done < <(docker exec $CONTAINER_ID apt-cache search "$CLEAN_TOOL" | head -n 10)
+   fi
+   spinner stop
+
+   if [ ${#SUGGESTIONS[@]} -eq 0 ]; then
+    whiptail --title "Not Found" --msgbox "Package '$CLEAN_TOOL' could not be found, and no similarly named packages were discovered in $BASE_OS." 8 60
+   else
+    CHOSEN_SIMILAR=$(whiptail --title "Not Found - Did you mean?" --menu "Exact package '$CLEAN_TOOL' was not found.\n\nSelect a similar package below to add it, or Cancel to try another:" 18 70 8 "${SUGGESTIONS[@]}" 3>&1 1>&2 2>&3)
+
+    if [ $? -eq 0 ] && [ -n "$CHOSEN_SIMILAR" ]; then
+     ADDITIONAL_TOOLS="$ADDITIONAL_TOOLS $CHOSEN_SIMILAR"
+     whiptail --title "Added" --msgbox "'$CHOSEN_SIMILAR' has been added to your build list." 8 50
+    fi
+   fi
+  fi
+ done
+
+ spinner braille "Terminating background verification container..."
+ docker kill $CONTAINER_ID >/dev/null 2>&1
+ spinner stop
+fi
+
+# ==========================================
+# CODE GENERATION & BUILD
+# ==========================================
+SETUP_SCRIPT="provision.sh"
+echo "#!/bin/sh" >$SETUP_SCRIPT
+
+BASE_CLEAN_TOOLS=$(echo $TOOLS | tr -d '"')
+ALL_TOOLS="$BASE_CLEAN_TOOLS $ADDITIONAL_TOOLS"
+
+if [ "$PKG_MGR" == "apk" ]; then
+ echo "apk update" >>$SETUP_SCRIPT
+ if [ -n "$ALL_TOOLS" ] && [ "$ALL_TOOLS" != " " ]; then echo "apk add --no-cache $ALL_TOOLS" >>$SETUP_SCRIPT; fi
+elif [ "$PKG_MGR" == "apt" ]; then
+ echo "apt-get update" >>$SETUP_SCRIPT
+ if [ -n "$ALL_TOOLS" ] && [ "$ALL_TOOLS" != " " ]; then echo "DEBIAN_FRONTEND=noninteractive apt-get install -y $ALL_TOOLS" >>$SETUP_SCRIPT; fi
+else
+ echo "# Please manually insert provisioning steps for your custom base OS." >>$SETUP_SCRIPT
+fi
+
+chmod +x $SETUP_SCRIPT
+
+PACKER_FILE="build.pkr.hcl"
+SAFE_SOURCE_NAME=$(echo "$IMAGE_NAME" | tr '-' '_')
+
+cat <<EOF >$PACKER_FILE
+packer {
+  required_plugins {
+    docker = {
+      version = ">= 1.0.8"
+      source  = "github.com/hashicorp/docker"
+    }
+  }
+}
+
+source "docker" "${SAFE_SOURCE_NAME}" {
+  image  = "${BASE_OS}"
+  commit = true
+}
+
+build {
+  name = "custom-image-build"
+  sources = [
+    "source.docker.${SAFE_SOURCE_NAME}"
+  ]
+
+  provisioner "shell" {
+    script = "./${SETUP_SCRIPT}"
+  }
+
+  post-processor "docker-tag" {
+    repository = "${IMAGE_NAME}"
+    tags       = ["latest"]
+  }
+}
+EOF
+
+if whiptail --title "Ready to Build" --yesno "Success! Generated files:\n- $PACKER_FILE\n- $SETUP_SCRIPT\n\nBase Image: $BASE_OS\nPackages: $ALL_TOOLS\n\nDo you want to run 'packer init' and 'packer build' right now?" 15 70; then
+ clear
+
+ spinner wave "Initializing Packer..."
+ packer init $PACKER_FILE >/dev/null 2>&1
+ spinner stop
+
+ echo -e "Building image with Packer...\n"
+ packer build $PACKER_FILE
+
+ echo -e "\nBuild complete! You can view your new image by running: docker images"
+else
+ clear
+ echo "Files generated successfully. You can review them and run Packer manually:"
+ echo "  1. packer init $PACKER_FILE"
+ echo "  2. packer build $PACKER_FILE"
+fi

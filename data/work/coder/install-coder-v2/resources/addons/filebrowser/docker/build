@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# exit immediately
+set -e
+
+environment="minikube"
+image_name="coder-filebrowser"
+image_tag="latest"
+
+function process-args {
+
+ local args=$(getopt -o e:t:n: -l environment:image_name:image_tag: -- "$@")
+
+ eval set -- "$args"
+ while true; do
+
+  case "$1" in
+  -e | --environment)
+   if [[ "$2" == "minikube" || "$2" == "k8" ]]; then
+    environment="$2"
+    shift 2
+   else
+    echo "Error: Environment must be either 'minikube' or 'k8'." >&2
+    return 1
+   fi
+   ;;
+  -t | --tag)
+    image_tag="$2"
+    shift 2
+   ;;
+  -n | --image-name)
+    image_name="$2"
+    shift 2
+   ;;
+  --)
+   shift
+   break
+   ;;
+  *)
+   echo "Error: Invalid argument parsed." >&2
+   return 1
+   ;;
+  esac
+
+ done
+
+ echo "Environment set to: $environment"
+}
+
+if [[ "$environment" == "minikube" ]]; then
+ echo "Building image for Minikube use..."
+ minikube image build -t "$image_name":"$image_tag" .
+else
+ echo "Building image: $image_name:$image_tag"
+ docker image build -t "$image_name":"$image_tag" .
+fi

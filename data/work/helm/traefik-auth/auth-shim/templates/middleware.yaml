@@ -1,0 +1,27 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Values.traefik.middlewareName }}
+  namespace: {{ default .Release.Namespace .Values.traefik.middlewareNamespace }}
+  labels:
+    app.kubernetes.io/name: auth-shim
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  passTLSClientCert:
+    pem: true # Populates X-Forward-Tls-Client-Cert
+    info:
+      subject:
+        commonName: true
+        organization: true
+  forwardAuth:
+    # Cluster-internal address of the auth-shim Service.
+    # Traefik will GET this URL for every request that matches a route
+    # which references this Middleware.
+    address: http://{{ .Release.Name }}-auth-shim.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/auth
+    trustForwardHeader: {{ .Values.traefik.trustForwardHeader }}
+    authResponseHeaders:
+      {{- range .Values.traefik.authResponseHeaders }}
+      - {{ . | quote }}
+      {{- end }}
+{{- end }}

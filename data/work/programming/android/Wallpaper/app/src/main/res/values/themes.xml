@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    Base application theme.
+    Using Theme.Material3.DayNight allows the app to automatically adapt to the
+    system's light or dark mode. It also enables dynamic coloring on Android 12+
+    where the app's color palette is derived from the user's wallpaper.
+    -->
+    <style name="Theme.Wallpaper" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Customize your theme here. -->
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/material_dynamic_primary_40</item>
+        <item name="colorPrimaryVariant">@color/material_dynamic_primary_70</item>
+        <item name="colorOnPrimary">@color/material_dynamic_primary_100</item>
+        <!-- Secondary brand color. -->
+        <item name="colorSecondary">@color/material_dynamic_secondary_40</item>
+        <item name="colorSecondaryVariant">@color/material_dynamic_secondary_70</item>
+        <item name="colorOnSecondary">@color/material_dynamic_secondary_100</item>
+        <!-- Status bar color. -->
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+    </style>
+</resources>

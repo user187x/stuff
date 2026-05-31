@@ -1,0 +1,14 @@
+#!/bin/bash
+
+cat << EOF >> /etc/systemd/system/plymouth-wait-for-animation.service
+[Unit]
+Description=Waits for Plymouth animation to finish
+Before=plymouth-quit.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sleep <duration_of_your_animation>
+
+[Install]
+WantedBy=plymouth-start.service
+EOF

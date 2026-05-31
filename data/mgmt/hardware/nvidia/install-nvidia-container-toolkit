@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -e
+
+sudo apt-get update
+
+sudo apt-get install -y --no-install-recommends \
+ ca-certificates \
+ curl \
+ gnupg2
+
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg &&
+ curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
+ sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' |
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+sudo apt-get update
+
+NVIDIA_TOOLKIT_VERSION=$(curl -sL https://api.github.com/repos/NVIDIA/nvidia-container-toolkit/releases/latest | grep '"tag_name":' | cut -d '"' -f 4 | tr -d 'v')
+export $NVIDIA_TOOLKIT_VERSION
+
+sudo apt-get install -y \
+ nvidia-container-toolkit=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+ nvidia-container-toolkit-base=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+ libnvidia-container-tools=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+ libnvidia-container1=${NVIDIA_CONTAINER_TOOLKIT_VERSION}
+
+echo "Configuring docker for use with GPU"
+sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker

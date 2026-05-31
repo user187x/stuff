@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+# Dynamically find the hooks directory based on git config
+HOOKS_DIR=$(git rev-parse --show-toplevel)/$(git config core.hooksPath)
+SCRIPT_PATH="$HOOKS_DIR/splitter-combiner"
+
+echo "Merge detected. Scanning for split files..."
+
+find . -type d -name "*-parts" ! -path "*/\.git/*" | while read -r dir_name; do
+ clean_target="${dir_name%/}"
+ parent_dir=$(dirname "$clean_target")
+
+ # 1. Run the centralized script to combine the files automatically
+ "$SCRIPT_PATH" --combine "$clean_target"
+
+ # 2. Create a symlink beside the parts directory for developer convenience
+ SYMLINK_PATH="$parent_dir/combine-utility"
+
+ # Use absolute path for the target to ensure the symlink never breaks
+ ln -sf "$SCRIPT_PATH" "$SYMLINK_PATH"
+
+ echo "🔗 Created symlink: '$SYMLINK_PATH' -> To run manually: ./$SYMLINK_PATH --combine $clean_target"
+done
+
+exit 0

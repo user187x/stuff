@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Add the NVIDIA Helm repository
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+
+helm repo update
+
+# Install the GPU Operator into its own namespace
+helm install gpu-operator nvidia/gpu-operator \
+ --namespace gpu-operator \
+ --create-namespace \
+ --set driver.enabled=true \
+ --set toolkit.enabled=true \
+ --set devicePlugin.enabled=true \
+ --set dcgmExporter.enabled=true
+
+gpu_node_name="minikube"
+
+gpus_node_count=$(kubectl get nodes -o json | jq '.items[].status.allocatable["nvidia.com/gpu"]')
+if (( gpu_node_count -ne 0 )); then
+ echo "No GPU Nodes available"
+fi
+
+echo "Checking for GPU node... this should return: nvidia.com/gpu: 1"
+kubectl describe node "$gpu_node_name" | grep -A 5 "Allocatable"
+
+if [[ "$?" == 0 ]]; then
+ echo "GPU node found!"
+else
+ echo "GPU node not found!"
+ exit 1
+fi
+
+gpu_pod_name="gpu-test"
+gpu_pod_namespace="gpu-operator"
+gpu_pod_image="nvidia/cuda:12.4.1-base-ubuntu22.04"
+
+# Run a quick test pod to confirm nvidia-smi works inside a container
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $gpu_pod_name
+  namespace: $gpu_pod_namespace
+spec:
+  restartPolicy: Never
+  containers:
+  - name: nvidia-smi
+    image: "$gpu_pod_image"
+    command: ["nvidia-smi"]
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+EOF
+
+echo "Waiting for pod to be ready"
+#kubectl wait --for=condition=Ready pod/"$gpu_pod_name" --timeout=60s -n "$gpu_pod_namespace"
+kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/"$gpu_pod_name" --timeout=60s -n "$gpu_pod_namespace"
+
+echo "Cleaning up test pod for verification"
+kubectl delete pod -n "$gpu_pod_namespace" "$gpu_pod_name"

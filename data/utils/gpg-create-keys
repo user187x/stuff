@@ -1,0 +1,36 @@
+#!/bin/bash
+
+EMAIL="xxx@xxx.com"
+PRIVATE_KEY="$HOME/.ssh/id_rsa"
+PUBLIC_KEY="$HOME/.ssh/id_rsa.pub"
+
+echo "Starting SSH key generation..."
+
+expect <<EOF
+# Set the email variable based on your input
+set email "xxx@xxx.com"
+# Disable timeout just in case generation takes time
+set timeout -1
+# Spawn the ssh-keygen command
+spawn ssh-keygen -t rsa -b 4096 -C $EMAIL
+# Look for the file name prompt and send a blank return to accept the default (~/.ssh/id_rsa)
+expect "Enter file in which to save the key"
+send "\r"
+# Look for the passphrase prompt and send an empty response (no passphrase)
+expect "Enter passphrase (empty for no passphrase):"
+send "\r"
+# Confirm the empty passphrase
+expect "Enter same passphrase again:"
+send "\r"
+# Wait for the command to finish executing
+expect eof
+EOF
+
+if [[ -f "$PRIVATE_KEY" && -f "$PUBLIC_KEY" ]]; then
+ echo "✅ Success! Keys were found in the default location:"
+ echo "   - $PRIVATE_KEY"
+ echo "   - $PUBLIC_KEY"
+else
+ echo "❌ Error: Could not find the generated keys in $HOME/.ssh/"
+ exit 1
+fi

@@ -1,0 +1,64 @@
+#!/bin/bash
+
+echo "================================================="
+echo " VirtualBox VM Graceful Shutdown Script          "
+echo "================================================="
+
+# 1. Verify VBoxManage is installed
+if ! command -v VBoxManage &>/dev/null; then
+ echo "Error: VBoxManage could not be found."
+ exit 1
+fi
+
+read -p "Enter the base name of your VMs to shutdown (e.g., k8s-node): " BASE_NAME
+
+# 2. Get all VMs matching the base name
+mapfile -t VM_LIST < <(VBoxManage list vms | grep "\"$BASE_NAME-[0-9]*\"" | awk -F'"' '{print $2}')
+
+if [ ${#VM_LIST[@]} -eq 0 ]; then
+ echo "Error: No VMs found matching base name: $BASE_NAME"
+ exit 1
+fi
+
+echo ""
+echo "Sending ACPI power signals to VMs..."
+echo "================================================="
+
+# Array to keep track of VMs we actually sent a signal to
+declare -a STOPPING_VMS
+
+# 3. Send the shutdown signal to running VMs
+for VM in "${VM_LIST[@]}"; do
+ STATE=$(VBoxManage showvminfo "$VM" --machinereadable | grep "^VMState=" | cut -d '"' -f 2)
+
+ if [ "$STATE" == "running" ]; then
+  echo "[$VM]: Sending graceful shutdown signal..."
+  VBoxManage controlvm "$VM" acpipowerbutton
+  STOPPING_VMS+=("$VM")
+ else
+  echo "[$VM]: Already offline (State: $STATE)."
+ fi
+done
+
+# 4. Wait for the VMs to fully power off
+if [ ${#STOPPING_VMS[@]} -gt 0 ]; then
+ echo ""
+ echo "Waiting for VMs to completely power off..."
+
+ for VM in "${STOPPING_VMS[@]}"; do
+  printf "Waiting on %s..." "$VM"
+
+  while true; do
+   STATE=$(VBoxManage showvminfo "$VM" --machinereadable | grep "^VMState=" | cut -d '"' -f 2)
+   if [ "$STATE" != "running" ]; then
+    echo " [Powered Off]"
+    break
+   fi
+   # Wait 2 seconds before checking again
+   sleep 2
+  done
+ done
+fi
+
+echo "================================================="
+echo "Shutdown complete."

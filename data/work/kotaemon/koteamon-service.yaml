@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kotaemon-service
+  namespace: default  # Change if your pod is in a different namespace
+spec:
+  selector:
+    app: kotaemon     # MUST match the labels on your existing Pod
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80        # The port the Service exposes internally
+      targetPort: 7860 # The actual port your App is running on
+  type: ClusterIP

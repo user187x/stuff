@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    This file defines the color palette for the application's dark theme.
+    These colors will be used when the device is in Dark Mode.
+    -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!--
+    Placeholder colors for Material Dynamic Color attributes for the Dark Theme.
+    -->
+    <!-- Dark Theme Primary Colors -->
+    <color name="material_dynamic_primary_40">#D0BCFF</color> <!-- Primary -->
+    <color name="material_dynamic_primary_70">#4F378B</color> <!-- Primary Variant -->
+    <color name="material_dynamic_primary_100">#381E72</color> <!-- On Primary -->
+
+    <!-- Dark Theme Secondary Colors -->
+    <color name="material_dynamic_secondary_40">#CCC2DC</color> <!-- Secondary -->
+    <color name="material_dynamic_secondary_70">#4A4458</color> <!-- Secondary Variant -->
+    <color name="material_dynamic_secondary_100">#332D41</color> <!-- On Secondary -->
+
+</resources>

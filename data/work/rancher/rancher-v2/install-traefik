@@ -1,0 +1,71 @@
+#!/bin/bash
+set -e
+
+# --- Configuration ---
+NAMESPACE="traefik"
+RELEASE_NAME="traefik"
+
+# --- Colors ---
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo -e "${BLUE}🚀 Installing Traefik...${NC}"
+
+# 1. Cleanup Everything (Robust)
+echo -e "${BLUE}🧹 Cleaning up old installation...${NC}"
+helm uninstall $RELEASE_NAME -n $NAMESPACE 2>/dev/null || true
+kubectl delete service traefik-dashboard-manual -n $NAMESPACE 2>/dev/null || true
+kubectl delete ns $NAMESPACE 2>/dev/null || true
+
+echo -e "${BLUE}⏳ Waiting for namespace '$NAMESPACE' to fully terminate...${NC}"
+# Loop until the namespace is actually gone
+while kubectl get ns $NAMESPACE >/dev/null 2>&1; do
+ echo -n "."
+ sleep 2
+done
+echo -e "\n${GREEN}✔ Namespace deleted.${NC}"
+
+# 2. Install Traefik
+echo -e "${BLUE}📦 Installing Traefik (Helm)...${NC}"
+helm repo add traefik https://helm.traefik.io/traefik --force-update >/dev/null 2>&1
+helm repo update >/dev/null 2>&1
+
+helm install $RELEASE_NAME traefik/traefik \
+ --namespace $NAMESPACE \
+ --create-namespace \
+ --set api.dashboard=true \
+ --set api.insecure=true \
+ --wait \
+ --timeout 3m
+
+echo -e "${GREEN}✅ Traefik Pod is Running.${NC}"
+
+# 3. THE FIX: Correct Ports
+# We expose Service Port 9000 -> Container Target Port 8080
+echo -e "${BLUE}🔨 Manually exposing Dashboard Service...${NC}"
+kubectl expose deployment traefik \
+ --namespace $NAMESPACE \
+ --name=traefik-dashboard-manual \
+ --type=NodePort \
+ --port=9000 \
+ --target-port=8080
+
+# 4. Get the Minikube URL
+echo -e "${BLUE}🔍 Retrieving URL...${NC}"
+SERVICE_URL=$(minikube service traefik-dashboard-manual -n $NAMESPACE --url)
+
+if [ -z "$SERVICE_URL" ]; then
+ echo -e "${RED}❌ Minikube failed to give a URL. Is 'minikube tunnel' running?${NC}"
+ exit 1
+fi
+
+# Traefik dashboard requires the trailing slash
+FINAL_URL="${SERVICE_URL}/dashboard/"
+
+echo -e "${GREEN}🎉 SUCCESS. URL: $FINAL_URL${NC}"
+
+# 5. Open Browser
+echo -e "${BLUE}🚀 Launching...${NC}"
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then xdg-open "$FINAL_URL"; elif [[ "$OSTYPE" == "darwin"* ]]; then open "$FINAL_URL"; elif [[ "$OSTYPE" == "msys" ]]; then start "$FINAL_URL"; fi

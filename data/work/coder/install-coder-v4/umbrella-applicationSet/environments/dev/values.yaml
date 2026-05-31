@@ -1,0 +1,50 @@
+# =============================================================================
+# environments/dev/values.yaml — overrides for DEV
+# =============================================================================
+
+cloudnative-pg:
+  enabled: false                     # operator installed cluster-wide
+
+postgres:
+  enabled: true
+  name: coder-pg
+  instances: 1
+  database: coder
+  owner: coder
+
+  storage:
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+coder:
+  coder:
+    env:
+      - name: CODER_PG_CONNECTION_URL
+        valueFrom:
+          secretKeyRef:
+            name: coder-pg-app
+            key: uri
+      # Dev deliberately leaves the built-in GitHub OAuth provider on for
+      # easy login. Don't do this in prod.
+      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+        value: "true"
+      - name: CODER_ACCESS_URL
+        value: "https://dev.coder.example.com"          # CHANGE ME
+
+    replicaCount: 1
+
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+    service:
+      type: LoadBalancer

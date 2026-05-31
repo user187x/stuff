@@ -1,0 +1,18 @@
+#!/bin/bash
+
+nvidia_enabled=0
+
+if command -v nvcc >/dev/null 2>&1; then
+ echo "Nvidia container toolkit installed"
+ nvidia_enabled=1
+fi
+
+if ((nvidia_enabled)); then
+ # Nividia Container toolkit
+ minikube start \
+  --driver docker \
+  --cpus=max \
+  --memory=max \
+  --container-runtime docker \
+  --gpus all
+fi

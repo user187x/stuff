@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    tools:context=".MainActivity">
+
+    <!-- Card view to contain the audio visualizer -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/visualizerCard"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_margin="16dp"
+        app:cardElevation="4dp"
+        app:cardCornerRadius="12dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/controlsCard">
+
+        <!-- Third-party library for audio visualization -->
+        <com.chibde.visualizer.BarVisualizer
+            android:id="@+id/barVisualizer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:av_color="?attr/colorPrimary"
+            app:av_density="0.5"
+            app:av_speech_recognizer_enabled="false"
+            app:av_width="4dp" />
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Card view for playback controls -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/controlsCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:cardElevation="4dp"
+        app:cardCornerRadius="12dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp">
+
+            <!-- Displays the name of the currently loaded audio file -->
+            <TextView
+                android:id="@+id/fileNameTextView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Select an audio file"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textAlignment="center"
+                android:layout_marginBottom="8dp"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent" />
+
+            <!-- Seek bar for audio scrubbing -->
+            <com.google.android.material.slider.Slider
+                android:id="@+id/seekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:valueFrom="0.0"
+                android:valueTo="100.0"
+                android:stepSize="1.0"
+                app:layout_constraintTop_toBottomOf="@id/fileNameTextView"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent" />
+
+            <!-- Container for playback control buttons -->
+            <LinearLayout
+                android:id="@+id/buttonLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp"
+                app:layout_constraintTop_toBottomOf="@id/seekBar"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+                <!-- Eject/Open File Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/ejectButton"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="16dp"
+                    app:icon="@drawable/ic_eject"
+                    app:iconSize="32dp" />
+
+                <!-- Play/Pause Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/playPauseButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:icon="@drawable/ic_play"
+                    app:iconSize="48dp"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.LargeComponent" />
+
+            </LinearLayout>
+
+            <!-- Icon for the volume control -->
+            <ImageView
+                android:id="@+id/volumeIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginTop="24dp"
+                android:layout_marginEnd="8dp"
+                app:srcCompat="@drawable/ic_volume"
+                app:layout_constraintTop_toBottomOf="@id/buttonLayout"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"/>
+
+            <!-- Slider for volume control -->
+            <com.google.android.material.slider.Slider
+                android:id="@+id/volumeSlider"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:value="0.5"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:stepSize="0.05"
+                app:layout_constraintTop_toTopOf="@id/volumeIcon"
+                app:layout_constraintBottom_toBottomOf="@id/volumeIcon"
+                app:layout_constraintStart_toEndOf="@id/volumeIcon"
+                app:layout_constraintEnd_toEndOf="parent" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,0 +1,31 @@
+
+
+coder-umbrella/
+├── Chart.yaml                      # Unchanged
+├── values.yaml                     # Environment-specific (managed per branch)
+├── .helmignore                     # Unchanged
+├── templates/
+│   ├── _helpers.tpl                # Unchanged
+│   └── postgres-cluster.yaml       # Unchanged
+└── argocd/
+    └── applicationset.yaml         # NEW: Replaces application.yaml
+
+
+Because the ApplicationSet dynamically targets the {{.branch}} for its targetRevision, ArgoCD will automatically read the values.yaml file as it exists on that specific branch.  
+
+This means you do not need to rename your values.yaml file. Instead, you manage configuration through your Git flow:  
+
+In the prod branch: values.yaml should have postgres.instances: 3 and your production CODER_ACCESS_URL.
+
+In the dev branch: values.yaml can have postgres.instances: 1 to save resources.
+
+In a preview-feature-x branch: ArgoCD will pull the exact code and values.yaml you are currently testing on that branch and spin it up in the coder-preview-feature-x namespace on the dev cluster.
+
+4. Deploying the ApplicationSet
+Once you have pushed these changes to your Git repository, you only need to apply the ApplicationSet once manually to the cluster where ArgoCD is installed:
+
+```bash
+kubectl apply -f coder-umbrella/argocd/applicationset.yaml
+```
+
+ArgoCD's SCM Provider will immediately scan your repository. If it finds a prod branch, a dev branch, and a preview-ui-fix branch, it will instantly spawn three separate ArgoCD Applications based on the template

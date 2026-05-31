@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+#
+# install-coder — thin orchestrator for self-hosted Coder on Minikube.
+#
+# This script does no real work itself; it sources step modules from lib/
+# and invokes them in order. Kubernetes resources live in manifests/
+# (rendered via envsubst when they have ${VAR} placeholders).
+#
+# Layout:
+#   install-coder           ← you are here
+#   lib/*.sh                ← one module per step (preflight, certs, …)
+#   manifests/*.yaml[.tpl]  ← every resource that used to be a heredoc
+#   filebrowser             ← air-gap binary, hosted in-cluster for workspaces
+#
+# Quick start:
+#   ./install-coder                                  # install with defaults
+#   ./install-coder --domain coder.local --cpus 6    # custom config
+#   ./install-coder --status                         # show running components
+#   ./install-coder --uninstall                      # tear it all down
+#
+# All flags can also be set via env vars: CODER_DOMAIN, CODER_NAMESPACE,
+# MINIKUBE_CPUS, MINIKUBE_MEMORY, MINIKUBE_DRIVER, CERT_DIR, LIB_DIR,
+# MANIFESTS_DIR, FILEBROWSER_BINARY, etc.
+#
+# The script is safe to re-run: every step is idempotent.
+set -Eeuo pipefail
+
+# ─── Locate ourselves ────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export SCRIPT_DIR
+export LIB_DIR="${LIB_DIR:-$SCRIPT_DIR/lib}"
+export MANIFESTS_DIR="${MANIFESTS_DIR:-$SCRIPT_DIR/manifests}"
+
+# Override with --filebrowser-binary or FILEBROWSER_BINARY=/path/to/filebrowser.
+export FILEBROWSER_BINARY="${FILEBROWSER_BINARY:-$SCRIPT_DIR/addons/filebrowser}"
+
+[[ -d "$LIB_DIR" ]]       || { echo "lib dir not found: $LIB_DIR"        >&2; exit 1; }
+[[ -d "$MANIFESTS_DIR" ]] || { echo "manifests dir not found: $MANIFESTS_DIR" >&2; exit 1; }
+
+# ─── Source library modules ──────────────────────────────────────────────────
+# common.sh sets defaults, colors, log helpers, arg parsing, and the ERR trap.
+# It MUST be sourced first; the rest only define functions.
+. "$LIB_DIR/common.sh"
+. "$LIB_DIR/preflight.sh"
+. "$LIB_DIR/minikube.sh"
+. "$LIB_DIR/certs.sh"
+. "$LIB_DIR/secrets.sh"
+. "$LIB_DIR/postgres.sh"
+. "$LIB_DIR/coder.sh"
+. "$LIB_DIR/ingress.sh"
+. "$LIB_DIR/hosts.sh"
+. "$LIB_DIR/health.sh"
+. "$LIB_DIR/ca-trust.sh"
+. "$LIB_DIR/cli.sh"
+. "$LIB_DIR/admin.sh"
+. "$LIB_DIR/filebrowser.sh"
+. "$LIB_DIR/summary.sh"
+. "$LIB_DIR/status.sh"
+. "$LIB_DIR/uninstall.sh"
+
+parse_args "$@"
+
+# ─── Dispatch ────────────────────────────────────────────────────────────────
+case "$ACTION" in
+install)
+    banner
+    preflight
+    ensure_minikube
+    generate_certs
+    apply_secrets
+    apply_postgres
+    install_coder
+    install_ingress
+    update_hosts
+    health_check
+    trust_local_ca
+    install_cli
+    [[ -n "${CLI_PATH:-}" ]] && create_admin
+    install_filebrowser
+    print_summary
+    ;;
+status)    do_status ;;
+uninstall) do_uninstall ;;
+*)         die "Unknown action: $ACTION" ;;
+esac

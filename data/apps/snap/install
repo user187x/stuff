@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Install Snap
+if ! command -v snapd >/dev/null 2>&1; then
+ echo "Installing Snap..."
+ sudo apt install snapd
+else
+ echo "Snap is already installed!"
+ sudo snap refresh 
+fi

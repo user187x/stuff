@@ -1,0 +1,8 @@
+#!/bin/bash
+
+helm repo add external-dns \
+ https://kubernetes-sigs.github.io/external-dns/
+
+helm repo update
+
+helm search repo external-dns/external-dns --versions | head -5

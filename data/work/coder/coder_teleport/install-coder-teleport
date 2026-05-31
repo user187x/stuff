@@ -1,0 +1,121 @@
+#!/bin/bash
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+DOMAIN=${1:-"test.xxx"}
+NAMESPACE="dev-platform"
+SAFE_NAME="${DOMAIN//./-}"
+DB_PASSWORD="coder-db-password"
+
+echo "==================================================="
+echo " 🚀 Deploying Coder & Teleport (Bulletproof Version) "
+echo "==================================================="
+
+# 1. Generate PKI and Secrets using your provided scripts
+echo -e "\n[1/6] Generating PKI and injecting K8s Secrets..."
+./1-create-testable-pki-files "$DOMAIN"
+./3-create-testable-k8-pki-secrets <<< "$DOMAIN
+$NAMESPACE"
+
+# 2. Update Local Hosts
+echo -e "\n[2/6] Updating Local DNS..."
+./2-create-local-host-dns-entry <<< "coder.$DOMAIN
+127.0.0.1"
+./2-create-local-host-dns-entry <<< "teleport.$DOMAIN
+127.0.0.1"
+
+# 3. Add Helm Repositories
+echo -e "\n[3/6] Adding Helm Repos..."
+helm repo add coder-v2 https://helm.coder.com/v2
+helm repo add teleport https://charts.releases.teleport.dev
+helm repo add traefik https://helm.traefik.io/traefik
+helm repo update
+
+# 4. Install Traefik for Ingress Routing
+echo -e "\n[4/6] Installing Traefik Ingress Controller..."
+helm upgrade --install traefik traefik/traefik \
+  --namespace="${NAMESPACE}" \
+  --create-namespace \
+  --set providers.kubernetesIngress.publishedService.enabled=true \
+  --wait
+
+# 5. Deploy Official PostgreSQL & Coder
+echo -e "\n[5/6] Deploying Official PostgreSQL & Coder..."
+cat <<EOF | kubectl apply -n "${NAMESPACE}" -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: coder-db
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app: coder-db
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: coder-db
+spec:
+  selector:
+    matchLabels:
+      app: coder-db
+  serviceName: coder-db
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: coder-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_USER
+              value: coder
+            - name: POSTGRES_PASSWORD
+              value: "${DB_PASSWORD}"
+            - name: POSTGRES_DB
+              value: coder
+EOF
+
+echo "Waiting for PostgreSQL database to spin up..."
+kubectl rollout status statefulset/coder-db -n "${NAMESPACE}" --timeout=90s
+
+# Deploy Coder via values piped from Heredoc (Fixed env array structure)
+cat <<EOF | helm upgrade --install coder coder-v2/coder --namespace "${NAMESPACE}" --values - --wait
+coder:
+  env:
+    - name: CODER_PG_CONNECTION_URL
+      value: "postgres://coder:${DB_PASSWORD}@coder-db.${NAMESPACE}.svc.cluster.local:5432/coder?sslmode=disable"
+    - name: CODER_ACCESS_URL
+      value: "https://coder.${DOMAIN}"
+  tls:
+    secretNames:
+      - "${SAFE_NAME}-wildcard-tls"
+  ingress:
+    enabled: true
+    className: "traefik"
+    host: "coder.${DOMAIN}"
+    tls:
+      enable: true
+      secretName: "${SAFE_NAME}-wildcard-tls"
+EOF
+
+# 6. Deploy Teleport for /admin Oversight via Heredoc
+echo -e "\n[6/6] Deploying Teleport..."
+cat <<EOF | helm upgrade --install teleport teleport/teleport-cluster --namespace "${NAMESPACE}" --values - --wait
+clusterName: "teleport.${DOMAIN}"
+proxyListenerMode: "multiplex"
+highAvailability:
+  replicaCount: 1
+  tls:
+    existingSecretName: "${SAFE_NAME}-wildcard-tls"
+kubeClusterName: "coder-dev-cluster"
+EOF
+
+echo -e "\n==================================================="
+echo " ✅ Platform Deployed Successfully!"
+echo " Coder URL:    https://coder.${DOMAIN}"
+echo " Teleport URL: https://teleport.${DOMAIN}"
+echo "==================================================="

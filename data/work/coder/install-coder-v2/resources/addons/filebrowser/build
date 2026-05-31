@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Passing arguments --environment minikube|k8s
+./docker/build "$@"

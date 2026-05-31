@@ -1,0 +1,23 @@
+repositories:
+  - name: argo-cd
+    url: https://argoproj.github.io/argo-helm
+
+releases:
+  - name: argocd
+    namespace: argocd
+    chart: argo-cd/argo-cd
+    createNamespace: true
+    values:
+      - values.yaml
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: "sh"
+        args: 
+          - "-c"
+          - >
+            kubectl create secret tls argocd-tls-secret
+            --cert="tls.crt" 
+            --key="tls.key"
+            -n argocd
+            --dry-run=client -o yaml | kubectl apply -f -

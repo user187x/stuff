@@ -1,0 +1,21 @@
+configs:
+  params:
+    # Keeps the internal Argo CD pods running on plain HTTP 
+    # since Traefik is handling the HTTPS decryption
+    server.insecure: "true"
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: "argo.xx"
+    path: "/"
+    pathType: "Prefix"
+    
+    # ----------------------------------------------------
+    # TELL THE CHART TO USE YOUR HOOK'S SECRET
+    # ----------------------------------------------------
+    tls:
+      - secretName: argocd-tls-secret # Must exactly match the name in your hook
+        hosts:
+          - "argo.xxx"

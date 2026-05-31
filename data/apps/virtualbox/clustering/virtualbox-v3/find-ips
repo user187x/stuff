@@ -1,0 +1,66 @@
+#!/bin/bash
+
+echo "================================================="
+echo " VirtualBox VM IP Discovery Script               "
+echo "================================================="
+
+# 1. Verify VBoxManage is installed
+if ! command -v VBoxManage &>/dev/null; then
+ echo "Error: VBoxManage could not be found."
+ exit 1
+fi
+
+read -p "Enter the base name of your VMs (e.g., k8s-node): " BASE_NAME
+
+# 2. Get all VMs matching the base name
+# Parses `VBoxManage list vms` to extract just the exact names
+mapfile -t VM_LIST < <(VBoxManage list vms | grep "\"$BASE_NAME-[0-9]*\"" | awk -F'"' '{print $2}')
+
+if [ ${#VM_LIST[@]} -eq 0 ]; then
+ echo "Error: No VMs found matching base name: $BASE_NAME"
+ exit 1
+fi
+
+echo ""
+echo "Gathering IP addresses..."
+echo "Note: VMs must be RUNNING and fully booted for this to work."
+echo "================================================="
+
+for VM in "${VM_LIST[@]}"; do
+ # 3. Check if VM is running
+ STATE=$(VBoxManage showvminfo "$VM" --machinereadable | grep "^VMState=" | cut -d '"' -f 2)
+
+ if [ "$STATE" != "running" ]; then
+  echo "[$VM]: Offline"
+  continue
+ fi
+
+ # 4. Attempt to get IP via Guest Properties
+ IP_OUTPUT=$(VBoxManage guestproperty get "$VM" "/VirtualBox/GuestInfo/Net/0/V4/IP" 2>/dev/null)
+
+ if echo "$IP_OUTPUT" | grep -q "Value:"; then
+  IP=$(echo "$IP_OUTPUT" | awk '{print $2}')
+  echo "[$VM]: $IP"
+  echo "   -> Connect: ssh username@$IP"
+ else
+  # 5. Fallback: Extract MAC address if Guest Additions aren't communicating
+  echo "[$VM]: IP not reported to VirtualBox."
+
+  MAC=$(VBoxManage showvminfo "$VM" --machinereadable | grep "^macaddress1=" | cut -d '"' -f 2)
+  # Format MAC address with colons (e.g., 080027A1B2C3 -> 08:00:27:A1:B2:C3)
+  FORMATTED_MAC=$(echo "$MAC" | sed 's/../&:/g;s/:$//' | tr '[:upper:]' '[:lower:]')
+
+  echo "   -> Missing VirtualBox Guest Additions or still booting."
+  echo "   -> MAC Address: $FORMATTED_MAC"
+
+  # Check host's ARP table for the MAC address
+  ARP_MATCH=$(arp -a | grep -i "$FORMATTED_MAC" | awk '{print $2}' | tr -d '()')
+  if [ -n "$ARP_MATCH" ]; then
+   echo "   -> Found in host ARP table: $ARP_MATCH"
+   echo "   -> Connect: ssh username@$ARP_MATCH"
+  else
+   echo "   -> Hint: Run 'arp -a' on your host or check your router's DHCP leases."
+  fi
+ fi
+ echo "-------------------------------------------------"
+done

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="PillShapeButton" parent="Widget.Material3.Button">
+        <item name="shapeAppearance">@style/ShapeAppearance.Pill</item>
+    </style>
+    <style name="ShapeAppearance.Pill" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+    <style name="PillShapeButton.Green" parent="PillShapeButton">
+        <item name="android:backgroundTint">#4CAF50</item>
+    </style>
+    <style name="PillShapeButton.Gray" parent="PillShapeButton">
+        <item name="android:backgroundTint">#607D8B</item>
+    </style>
+</resources>

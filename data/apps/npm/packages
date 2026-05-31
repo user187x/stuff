@@ -1,0 +1,4 @@
+#!/bin/bash
+
+sudo npm install -g ruff
+sudo npm install -g @taplo/cli

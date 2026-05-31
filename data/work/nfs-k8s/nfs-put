@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# Copy a local file into the NFS shared volume via an ephemeral busybox pod.
+#
+# Usage:
+#   ./nfs-cp.sh <local-path> <dest-path-on-volume>
+#
+# Examples:
+#   ./nfs-cp.sh ./index.html /index.html
+#   ./nfs-cp.sh ./assets/   /assets        # directories work too
+#
+# Env overrides:
+#   NAMESPACE  Namespace where the PVC lives (default: nfs-demo)
+#   PVC        PVC name (default: nfs-shared-pvc)
+
+set -euo pipefail
+
+LOCAL="${1:-}"
+DEST="${2:-}"
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PVC="${PVC:-nfs-shared-pvc}"
+
+if [[ -z "$LOCAL" || -z "$DEST" ]]; then
+ echo "Usage: $0 <local-path> <dest-path-on-volume>"
+ echo "  e.g. $0 ./index.html /index.html"
+ exit 1
+fi
+
+if [[ ! -e "$LOCAL" ]]; then
+ echo "Local path does not exist: $LOCAL"
+ exit 1
+fi
+
+POD="nfs-cp-$$"
+cleanup() { kubectl delete pod -n "$NAMESPACE" "$POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+echo "==> Launching ephemeral pod '$POD' in '$NAMESPACE'..."
+kubectl run "$POD" -n "$NAMESPACE" --restart=Never --image=busybox \
+ --overrides="{
+        \"spec\": {
+            \"containers\": [{
+                \"name\": \"$POD\",
+                \"image\": \"busybox\",
+                \"command\": [\"sleep\", \"3600\"],
+                \"volumeMounts\": [{\"name\": \"shared\", \"mountPath\": \"/data\"}]
+            }],
+            \"volumes\": [{
+                \"name\": \"shared\",
+                \"persistentVolumeClaim\": {\"claimName\": \"$PVC\"}
+            }]
+        }
+    }" >/dev/null
+
+kubectl wait -n "$NAMESPACE" --for=condition=ready "pod/$POD" --timeout=60s
+
+echo "==> Copying '$LOCAL' -> /data$DEST ..."
+kubectl cp "$LOCAL" "$NAMESPACE/$POD:/data$DEST"
+
+echo "==> Contents of /data$(dirname "$DEST"):"
+kubectl exec -n "$NAMESPACE" "$POD" -- ls -la "/data$(dirname "$DEST")"
+
+echo "==> Done."

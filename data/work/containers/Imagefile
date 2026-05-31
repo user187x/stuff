@@ -1,0 +1,12 @@
+FROM ubuntu:24.04
+
+ARG SCRIPT=container_script
+ARG SCRIPT_DST=/usr/local/bin/
+
+COPY ${SCRIPT} ${SCRIPT_DST}/${SCRIPT}
+
+RUN SKIP_INSTALL= bash ${SCRIPT_DST}/${SCRIPT} || true
+
+CMD ["bash","-lc","${SCRIPT} && tail -F ~/.vnc/*.log"]
+
+EXPOSE 6901

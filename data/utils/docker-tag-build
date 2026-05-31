@@ -1,0 +1,27 @@
+#!/bin/bash
+
+read -r -p "Enter image name: " IMAGE
+read -r -p "Enter image version: " VERSION
+
+echo "Building ${IMAGE}:${VERSION} image..."
+
+read -r -p "Enter path to Dockerfile: " DOCKER_FILE
+BUILD_CONTEXT=$(dirname "${DOCKER_FILE}")
+
+# Swapped podman for docker
+docker build -f "${DOCKER_FILE}" -t "${IMAGE}:${VERSION}" "${BUILD_CONTEXT}"
+
+echo
+echo "Pushing image to repository..."
+echo
+
+read -r -p "Enter repository login username: " USERNAME
+read -r -s -p "Enter repository password: " PASSWORD
+echo
+
+# Piped the password via standard input to prevent Docker's CLI security warning
+echo "${PASSWORD}" | docker login --username "${USERNAME}" --password-stdin
+docker push "${IMAGE}:${VERSION}"
+
+echo
+echo "Complete!"

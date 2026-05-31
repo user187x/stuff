@@ -1,0 +1,32 @@
+#!/bin/bash
+
+echo "Would you like to backup current apps or restore from a file:"
+echo "1. Backup"
+echo "2. Restore"
+read -p "Select an option (1 or 2): " action
+
+if [[ "$action" == "1" ]]; then
+ read -e -r -p "Enter filename to export (default: snap-apps.txt): " filename
+ filename="${filename:-snap-apps.txt}"
+
+ echo "Exporting Snap list to $filename..."
+ # snap list outputs a table; awk skips the header (NR>1) and prints just the first column (app names)
+ snap list | awk 'NR>1 {print $1}' >"$filename"
+ echo "Backup complete!"
+
+elif [[ "$action" == "2" ]]; then
+ read -e -r -p "Enter filename to restore: " filename
+
+ if [[ -f "$filename" ]]; then
+  echo "Installing Snaps from $filename..."
+  # Snaps install globally and usually require sudo. They do not need a -y flag.
+  xargs sudo snap install <"$filename"
+  echo "Restore complete!"
+  echo "(Note: If any packages fail to install, they may require the --classic flag to be installed manually.)"
+ else
+  echo "Error: The file '$filename' does not exist."
+ fi
+
+else
+ echo "Invalid option. Please run the script again and select 1 or 2."
+fi

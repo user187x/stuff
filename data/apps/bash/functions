@@ -1,0 +1,1370 @@
+#!/bin/bash
+
+__FUNCTIONS_INITIALIZED__=1
+
+############################################
+# UTILITY FUNCTIONS
+############################################
+
+# convenience function for installing pkgs
+function get {
+
+ if [[ -z "$1" ]]; then
+  exit 0
+ else
+  sudo apt install "$1"
+ fi
+}
+
+# convinience function for checking packages
+function has {
+
+ if [[ -z "$1" ]]; then
+  echo "Usage: has <package_name>"
+  return 0
+ fi
+
+ if ! command -v fzf &>/dev/null; then
+  echo -e "\e[91mError: 'fzf' is not installed.\e[0m"
+  echo "Install it first by running: sudo apt install fzf"
+  return 1
+ fi
+
+ local matches
+ matches=$(apt-cache search --names-only "$1")
+
+ if [[ -n "$matches" ]]; then
+  echo
+  echo -e "package \e[92m$1\e[0m exists in repository."
+  echo
+  read -r -p "Launch fzf to select and install a package? (y/n) : " answer
+
+  if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
+
+   local selected
+   selected=$(echo "$matches" |
+    sed -E 's/^([^ ]+) (.*)/\x1b[92m\1\x1b[0m \x1b[90m\2\x1b[0m/' |
+    fzf --ansi --prompt="Select package to install (ESC to cancel)> ")
+
+   if [[ -n "$selected" ]]; then
+    local pkg_name
+    pkg_name=$(echo "$selected" | sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' | awk '{print $1}')
+
+    echo
+    echo -e "Installing \e[92m$pkg_name\e[0m..."
+    sudo apt install "$pkg_name"
+   else
+    echo
+    echo -e "\e[90mInstallation cancelled.\e[0m"
+   fi
+  fi
+ else
+  echo -e "\e[91mno dice!\e[0m"
+ fi
+}
+
+function encrypt {
+
+ if [[ ! -e "$1" ]]; then
+  echo "Please provide a file or directory. Aborting..."
+  exit 1
+ fi
+
+ filename=$(basename "$1")
+ 7z a -p -mhe=on -mx=9 "$filename.7z" "$1"
+}
+
+function decrypt {
+
+ if [[ ! -f "$1" ]]; then
+  echo "Please provide a file. Aborting..."
+  exit 1
+ fi
+
+ 7z x "$1"
+}
+
+function now {
+
+ local time_now
+
+ if [[ "$1" == "--watch" ]]; then
+
+  echo -e " ${GREEN}(i)${END} Time will be live (Press ${YELLOW}Ctrl+C${END} to exit)..."
+  sleep 1.5
+
+  clear
+  while true; do
+   local hour=$(TZ='America/New_York' date +'%I:')
+   local min=$(TZ='America/New_York' date +'%M:')
+   local sec=$(TZ='America/New_York' date +'%S')
+   local am_pm=$(TZ='America/New_York' date +'%p')
+
+   echo -ne "\r${GREEN}${hour}${END}${min}${RED}${sec}${END} ${am_pm}"
+   sleep 1
+  done
+ else
+  local hour=$(TZ='America/New_York' date +'%I:')
+  local min=$(TZ='America/New_York' date +'%M:')
+  local sec=$(TZ='America/New_York' date +'%S')
+  local am_pm=$(TZ='America/New_York' date +'%p')
+
+  echo -e "${GREEN}${hour}${END}${min}${RED}${sec}${END} ${am_pm}"
+ fi
+}
+
+function clock {
+
+ if ! command -v toilet >/dev/null || ! command -v watch >/dev/null; then
+  echo -e " ${RED}(!)${END} Dependencies [toilet] and [watch] are required."
+  echo " Install them with: sudo apt install toilet watch -y"
+  return 1
+ fi
+
+ echo -e " ${GREEN}(i)${END} Starting Live Clock (Press ${YELLOW}Ctrl+C${END} to exit)..."
+ sleep 2
+
+ watch -t -n 1 "export TZ='America/New_York'; date +'%I:%M:%S %p' | toilet -f future --filter border:gay"
+}
+
+function format-python {
+
+ # 1. Ensure Python3 is installed via apt
+ if ! command -v python3 &>/dev/null; then
+  echo "python3 not found. Installing via sudo apt..."
+  sudo apt update && sudo apt install -y python3 python3-pip
+ else
+  echo "✓ python3 is installed."
+ fi
+
+ # 2. Ensure pipx is installed via pip
+ if ! command -v pipx &>/dev/null; then
+  echo "pipx not found. Installing via pip..."
+  python3 -m pip install --user pipx
+  python3 -m pipx ensurepath
+  export PATH="$PATH:$HOME/.local/bin"
+ else
+  echo "✓ pipx is installed."
+ fi
+
+ # 3. Ensure ruff is installed via pipx
+ if ! pipx list | grep -q "ruff"; then
+  echo "ruff not found. Installing via pipx..."
+  pipx install --global ruff
+
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+  local ruff_config="$system_cache/ruff"
+
+  mkdir -p "$cache"
+
+  # 3a. Create ruff toml config file
+  {
+   echo 'indent-width = 1'
+   echo 'cache-dir = $ruff_config'
+   echo '[lint.isort]'
+   echo 'lines-after-imports = 1'
+   echo '[format]'
+   echo 'quote-style = "single"'
+   echo 'indent-style = "space"'
+   echo 'line-ending = "auto"'
+
+  } >"${ruff_config}"
+
+ else
+  echo "✓ ruff is installed."
+ fi
+
+ # Validating input source
+ if [[ -f "$1" ]]; then
+  if head -n 1 "$1" | grep -q "python"; then
+   if ruff format "$1"; then
+    echo -e "${SUCCESS} File ${GREEN}$1${END} formatted!"
+   else
+    echo -e "${FAIL} File ${RED}$1${END} formatted!"
+   fi
+  else
+   echo -e "${FAIL} input file must be python"
+   exit 1
+  fi
+ else
+  echo -e "${FAIL} file not found $1"
+  exit 1
+ fi
+}
+
+function clipboard-to-file {
+
+ read -e -r -p "Enter file to paste clipboard contents to: " file
+
+ if [[ ! -f "$file" ]]; then
+  echo "File not found. Terminating"
+ else
+  if xclip -select clipboard -o "$file"; then
+   echo "Contents pasted into file $file successfully"
+  else
+   echo "System clipboard Paste failed"
+  fi
+ fi
+}
+
+function clipboard {
+
+ local buffer
+ buffer=$(mktemp)
+ trap 'rm -f "$buffer"' EXIT
+
+ if [[ $# -gt 0 ]]; then
+
+  # Multiple Files Path
+  local found=0
+
+  for file in "$@"; do
+
+   if [[ -f "$file" ]]; then
+    cat "$file" >>"$buffer"
+
+    # Add a newline between files if multiple are passed
+    [[ $# -gt 1 ]] && echo "" >>"$buffer"
+    found=1
+   else
+    echo -e "${FAIL} File not found: $file"
+   fi
+  done
+
+  if ! ((found)); then
+   return 1
+  fi
+ elif [[ -p /dev/stdin ]]; then
+  # Pipe/Stdin Path
+  cat >"$buffer"
+ else
+  echo -e "${INFO} Usage: ${WHITE}clipboard${END} ${YELLOW}<file1> <file2> ...${END} or ${WHITE}command${END} | ${WHITE}clipboard${END}"
+  return 1
+ fi
+
+ # --- Clipboard Detection & Execution ---
+ local success=false
+
+ # Wayland
+ if [[ -n "$WAYLAND_DISPLAY" ]] && command -v wl-copy >/dev/null; then
+  wl-copy <"$buffer" && success=true
+
+ # X11 (xclip)
+ elif [[ -n "$DISPLAY" ]] && command -v xclip >/dev/null; then
+  xclip -selection clipboard -i "$buffer" && success=true
+
+ # X11 (xsel fallback)
+ elif [[ -n "$DISPLAY" ]] && command -v xsel >/dev/null; then
+  xsel --clipboard --input <"$buffer" && success=true
+ fi
+
+ if [[ "$success" == "true" ]]; then
+  if [[ $# -gt 0 ]]; then
+   echo -e "${GRAY} Contents of ${GREEN}${#} file(s)${END}${GRAY} copied to system clipboard.${END}"
+  else
+   echo -e "${GREEN} Input copied to system clipboard.${END}"
+  fi
+ else
+  echo -e "${FAIL} Could not detect a valid clipboard utility."
+  return 1
+ fi
+}
+
+function network-check {
+
+ if [[ "$#" -gt 0 ]]; then
+  read -p "Enter test URL: " url
+ fi
+
+ local DEFAULT="https://www.google.com"
+ local URL="${DEFAULT:-url}"
+
+ pass=$(curl -s --output /dev/null -o /dev/null -w %{http_code} "$URL" >/dev/null)
+
+ if [[ "$pass" -eq 0 ]]; then
+  echo "Network Connected"
+  return 0
+ else
+  echo "Network Disconnected"
+  return 1
+ fi
+}
+
+function fmt {
+
+ local interactive=false
+ local target=""
+
+ # 1. Parse Arguments
+ if [[ "$1" == "-i" ]]; then
+  interactive=true
+  target="$2"
+ else
+  target="$1"
+ fi
+
+ # 2. Validation
+ if [[ -z "$target" ]]; then
+  echo -e " Usage : ${GREEN}fmt${END} [-i] <file|directory>"
+  return 1
+ fi
+
+ if [[ ! -e "$target" ]]; then
+  echo -e " ${RED}(!)${END} Path not found: $target"
+  return 1
+ fi
+
+ if ! command -v shfmt >/dev/null; then
+  echo -e " ${RED}(!)${END} 'shfmt' is not installed."
+  return 1
+ fi
+
+ # 3. Collect Files
+ local files=()
+ if [[ -f "$target" ]]; then
+  files=("$target")
+ else
+  # Use find to grab all files, then filter by mime-type or extension
+  # This avoids the "File not found" error by ensuring we only iterate existing items
+  while IFS= read -r line; do
+   files+=("$line")
+  done < <(find "$target" -type f \( -name "*.sh" -o ! -name "*.*" \))
+ fi
+
+ # 4. Process Files
+ if [[ ${#files[@]} -eq 0 ]]; then
+  echo -e " ${YELLOW}(i)${END} No shell scripts found in $target"
+  return 0
+ fi
+
+ for file in "${files[@]}"; do
+  # Only process if it's a text file (prevents shfmt from choking on binaries)
+  if file "$file" | grep -qE 'shell script|text'; then
+
+   if [[ "$interactive" == true ]]; then
+    echo -ne " ${YELLOW}?>${END} Format ${GREEN}$(basename "$file")${END}? (y/n): "
+    read -r confirm
+    [[ "$confirm" != [yY] ]] && continue
+   fi
+
+   shfmt -i 1 -w "$file"
+   if [[ $? -eq 0 ]]; then
+    echo -e " ${GRAY}(i) Formatted:${END} ${GREEN}$file${END}"
+   else
+    echo -e " ${RED}(!)${END} Failure formatting: $file"
+   fi
+  fi
+ done
+}
+
+# Depth of terminal sessions
+function terminal-depth {
+
+ # Get the raw tree with PIDs, truncated at the current shell ($$)
+ local tree=$(pstree -p -A -s $$ | head -n 1 | sed "s/($$).*/($$)/")
+
+ if [[ "$1" == "--pid" ]]; then
+  # Format WITH PIDs: Add space before (, switch arrows, clean artifacts
+  echo "$tree" | sed 's/---/ ➤ /g; s/(/ (/g; s/ ➤ -/ ➤ /g; s/tmux: server/tmux/'
+ else
+  # Format WITHOUT PIDs: Remove numbers, switch arrows, clean artifacts
+  echo "$tree" | sed 's/([0-9]*)//g; s/---/ ➤ /g; s/ ➤ -/ ➤ /g; s/tmux: server/tmux/'
+ fi
+}
+
+function fzearch {
+
+ # preview helper method
+ try-with() {
+
+  if [ -d "$1" ]; then
+   ls -F --color=always "$1"
+  else
+   batcat -n --color=always "$1" 2>/dev/null || echo "Binary File: $(file -b "$1")"
+  fi
+ }
+
+ export FZF_DEFAULT_OPTS="--bind 'space:toggle-in'"
+
+ if ! command -v fzf >/dev/null || ! command -v whiptail >/dev/null; then
+  echo "Dependencies [fzf] and [whiptail] are required. Installing now..."
+  sudo apt update && sudo apt install fzf whiptail -y
+  if ! command -v fzf >/dev/null; then return 1; fi
+ fi
+
+ local search_path="."
+ if [[ -d "$1" ]]; then
+  search_path="$1"
+  shift # Remove the path from arguments so "$@" only contains fzf flags
+ fi
+
+ local selected_items
+ selected_items=$(find "$search_path" -maxdepth 3 2>/dev/null |
+  fzf \
+   --border rounded \
+   --popup 90%,90% \
+   --bind 'shift-up:preview-up,shift-down:preview-down' \
+   --style full \
+   --preview 'try-with {}' \
+   --layout reverse \
+   -m "$@")
+
+ [[ -z "$selected_items" ]] && return 0
+
+ mapfile -t selections <<<"$selected_items"
+ local first_selection="${selections[0]}"
+ local absPath=$(realpath "$first_selection")
+ local baseName=$(basename "$first_selection")
+ local count=${#selections[@]}
+
+ local directory
+ if [[ -d "$absPath" ]]; then
+  directory="$absPath"
+ else
+  directory=$(dirname "$absPath")
+ fi
+
+ local extension="${first_selection##*.}"
+ local tool_label="System Default"
+ [[ "$extension" == "mp3" ]] && tool_label="Play Audio"
+ [[ -x /usr/bin/gedit ]] && tool_label="Gedit"
+
+ # 5. Whiptail Menu
+ local menu_title="Fuzzy Action ($count items)"
+ [[ $count -eq 1 ]] && menu_title="Fuzzy Action: $baseName"
+
+ local option
+ option=$(whiptail --title "$menu_title" \
+  --menu "Choose action for $count selected item(s):" 18 80 8 \
+  "View" "Preview first item with bat" \
+  "Edit" "Open all in Vim" \
+  "OpenWith" "Open with $tool_label" \
+  "OpenDir" "Open parent directory" \
+  "GoTo" "CD to parent directory (Single only)" \
+  "Delete" "Remove selected items (Careful!)" \
+  "Exit" "Cancel" \
+  3>&1 1>&2 2>&3)
+
+ case "$option" in
+  "View")
+   bat "${selections[@]}"
+   ;;
+  "Edit")
+   # Opens all selected files in vim buffers
+   if [ -w "$absPath" ]; then
+    vim -p "${selections[@]}"
+   else
+    if [[ ! -w "${selections[@]}" ]]; then
+     sudo vim -p "${selections[@]}"
+    else
+     vim "${selections[@]}"
+    fi
+   fi
+   ;;
+  "OpenWith")
+   for item in "${selections[@]}"; do
+    local full_path=$(realpath "$item")
+    if [[ "$extension" == "mp3" ]]; then
+     mpv --no-video "$full_path" >/dev/null 2>&1 &
+    elif [[ "$tool_label" == "Gedit" ]]; then
+     nohup gedit "$full_path" >/dev/null 2>&1 &
+    else
+     xdg-open "$full_path" >/dev/null 2>&1 &
+    fi
+   done
+   ;;
+  "OpenDir")
+   xdg-open "$directory" >/dev/null 2>&1
+   ;;
+  "GoTo")
+   echo -e "${GRAY}Changing directory to: ${GREEN}$directory${END}"
+   cd "$directory" || return
+   ls -F --color=auto
+   ;;
+  "Delete")
+   if (whiptail --title "Confirm Delete" --yesno "Are you sure you want to delete $count items?" 10 60); then
+    rm -rf "${selections[@]}"
+    echo -e "${RED}Deleted $count items.${END}"
+   fi
+   ;;
+  *)
+   return 0
+   ;;
+ esac
+}
+
+function create-QRcode {
+
+ local text="$1"
+ if [[ -z "$text" ]]; then
+  read -r -p "Text to convert: " text
+ fi
+
+ if [[ -z "$text" ]]; then return; fi
+
+ local export_path
+ read -e -r -p "Save location (leave empty for terminal only): " export_path
+
+ if [[ -n "$export_path" ]]; then
+  local export_dir
+  local export_filename
+
+  if [[ -d "$export_path" ]]; then
+   export_dir="${export_path%/}"
+   export_filename="qr_code"
+  else
+   export_dir=$(dirname "$export_path")
+   export_filename=$(basename "$export_path")
+  fi
+
+  # Generate files
+  echo "Saving to ${export_dir}..."
+  qrencode -m 2 -s 10 -o "${export_dir}/${export_filename}.png" "$text"
+  echo -e "${GREEN}Saved:${END} ${export_dir}/${export_filename}.png"
+ fi
+
+ echo "Terminal Preview:"
+ qrencode -m 2 -s 1 -t UTF8 -l L "$text"
+ echo
+}
+
+function image-to-asci {
+
+ if [[ -f "$1" ]]; then
+  jp2a -i --chars="XxxVO" "$1"
+ else
+  echo "File not found [$1]"
+ fi
+
+}
+
+function convert-image {
+
+ if [[ -f "$1" ]] && [[ -n "$2" ]]; then
+  convert "$1" -quality 100 "$2"
+  echo -e "${GREEN}Converted:${END} $1 -> $2"
+ else
+  echo "Usage: convert-image <input> <output>"
+  return 1
+ fi
+}
+
+function alert {
+
+ local last_exit_status=$?
+ local icon_name="terminal"
+ local msg
+
+ if [ "$last_exit_status" -ne 0 ]; then
+  icon_name="error"
+ fi
+
+ msg=$(history | tail -n1 | sed -e 's/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//')
+ notify-send --urgency=low -i "$icon_name" "Command Complete" "$msg"
+}
+
+############################################
+# SOUND FUNCTIONS
+############################################
+
+function exit_sound {
+
+ local sound_file="/opt/audio/Megamanteleport.wav"
+ if [[ -f "$sound_file" ]] && command -v mpv >/dev/null; then
+  nohup mpv --no-video "$sound_file" >/dev/null 2>&1 &
+  disown
+ fi
+}
+
+################################################
+# SYSTEM FUNCTIONS                             #
+################################################
+
+function update-system {
+
+ local GREEN='\033[0;32m'
+ local RED='\033[0;31m'
+ local END='\033[0m'
+
+ echo "Starting system update..."
+
+ sudo apt update && sudo apt full-upgrade -y &&
+  sudo apt autoremove -y && sudo apt clean
+
+ if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Update Complete!${END}"
+ else
+  echo -e "${RED}An error occurred during the update.${END}"
+ fi
+}
+
+function prettyJson {
+
+ local input="$1"
+ if [[ -f "$input" ]]; then
+  cat "$input" | jq -C . | less -R
+ else
+  echo "$input" | jq '.'
+ fi
+}
+
+function spin {
+
+ local message="$1"
+ local delay=0.2
+ local spinner="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+ local i=0
+ while true; do
+  printf "\r%s \033[36m%s\033[0m" "$message" "${spinner:$((i++ % ${#spinner})):1}"
+  sleep "$delay"
+ done
+}
+export -f spin
+
+function play {
+ if [[ -f "$1" ]]; then
+  mpv --no-video "$1"
+ elif [[ -d "$1" ]]; then
+  local media_files=()
+  while IFS= read -r file; do
+   media_files+=("$file")
+  done < <(find "$1" -type f -iname "*.mp3")
+
+  if [[ "${#media_files[@]}" -ne 0 ]]; then
+   echo "Found ${#media_files[@]} MP3s"
+   mpv "${media_files[@]}"
+  else
+   echo "No MP3s found in directory."
+  fi
+ else
+  echo "Usage : play <filePath|dirPath>"
+ fi
+}
+
+function mp3 { play "$@"; }
+
+function search {
+
+ if [[ -z "$1" ]]; then
+  echo "Usage: search <term>"
+  return 1
+ fi
+
+ local selected_line
+
+ selected_line=$(rg --color=always \
+  --line-number \
+  --no-heading "$1" | fzf --ansi \
+  --delimiter=: \
+  --nth=1,3.. \
+  --preview 'bat --style=numbers --color=always {1} --highlight-line {2} || cat {1}')
+
+ local file_path
+ file_path=$(echo "$selected_line" | cut -d: -f1)
+
+ if [[ -n "$file_path" ]]; then
+  echo "Selected file : $file_path"
+  if [[ ! -w "$file_path" ]]; then
+   sudo vim "$file_path"
+  else
+   vim "$file_path"
+  fi
+ fi
+}
+
+#function list-fonts {
+#
+# local filter
+# local enabled="false"
+#
+# # List all avaialable filsters
+# local x=$(toilet --filter list)
+# local y=$(echo "$x" | awk '{print $1}')
+# local z=$(echo "$y" | xargs -I {} bash -c 'f="{}"; echo "${f%?}"')
+# local filters=$(echo "$z" | sed '1d')
+#
+# # if user entered input
+# if [[ ! -z "$1" ]]; then
+#  filter="$1"
+#  for filter in "${filters[@]}"; do
+#   if [[ "$filter" == "$input" ]]; then
+#    enabled="true"
+#    break
+#   fi
+#  done
+# fi
+#
+# if [[ "$enabled" != "true" ]]; then
+#  echo "$filters"
+#  read -r -p "Choose available filter: " input
+#  filter="$input"
+#  enabled="true"
+# fi
+#
+# counter=0
+# for f in /usr/share/figlet/*.[tf]lf; do
+#  ((counter++))
+#  font_name=$(basename "${f%.*}")
+#
+#  if [[ "$enabled" == "true" ]]; then
+#   toilet -f $font_name --filter "$filter" "Example"
+#  else
+#   toilet -f $font_name --gay "Example"
+#  fi
+#
+#  echo -e "\e[90mFont :\e[92m$font_name\e[0m"
+#  modulo=$((counter % 5))
+#  if [[ "$modulo" -eq 0 ]]; then
+#   read -r -p "Press any button to continue (or X to exit) " input
+#   if [[ "$input" =~ ^[xX]$ ]]; then
+#    return 0
+#   fi
+#  fi
+# done
+#}
+#export -f list-fonts
+
+function pki-details {
+
+ local save_mode=false
+
+ # Helper to get visible width (strips ANSI codes)
+ _vwidth() {
+  local str=$1
+  echo -e "$str" | sed 's/\x1b\[[0-9;]*m//g' | wc -c
+ }
+
+ _pki_format() {
+  local file="$1"
+  [[ ! -s "$file" ]] && return 0
+
+  local type="Unknown" cn="N/A" issued="N/A" expiry="N/A" days_left="N/A" issuer="N/A" sha256="N/A" md5="N/A" color="${BLUE}"
+  local protected="${GREEN}No${END}"
+  local abs_path=$(readlink -f "$file" 2>/dev/null || echo "$file")
+  local filename=$(basename "$file")
+
+  # 1. Content Detection
+  if grep -q "BEGIN PKCS12" "$file" 2>/dev/null || [[ "$file" == *.p12 ]] || [[ "$file" == *.pfx ]]; then
+   type="P12 Container"
+   color="${YELLOW}"
+   if ! openssl pkcs12 -in "$file" -nokeys -passin pass:'' 2>/dev/null >/dev/null; then protected="${RED}Yes (Encrypted)${END}"; fi
+   cn=$(openssl pkcs12 -in "$file" -nokeys -passin pass:'' 2>/dev/null | openssl x509 -noout -subject -nameopt RFC2253 2>/dev/null | sed 's/.*CN=\([^,]*\).*/\1/')
+   expiry=$(openssl pkcs12 -in "$file" -nokeys -passin pass:'' 2>/dev/null | openssl x509 -noout -dates 2>/dev/null | grep "notAfter" | cut -d= -f2)
+   sha256=$(openssl pkcs12 -in "$file" -nokeys -passin pass:'' 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+   md5=$(openssl pkcs12 -in "$file" -nokeys -passin pass:'' 2>/dev/null | openssl x509 -noout -fingerprint -md5 2>/dev/null | cut -d= -f2)
+  elif grep -q "CERTIFICATE REQUEST" "$file" 2>/dev/null; then
+   type="CSR"
+   color="${GRAY}"
+   cn=$(openssl req -in "$file" -noout -subject -nameopt RFC2253 2>/dev/null | sed 's/.*CN=\([^,]*\).*/\1/')
+  elif grep -q "BEGIN CERTIFICATE" "$file" 2>/dev/null; then
+   local count=$(grep -c "BEGIN CERTIFICATE" "$file")
+   if [[ $count -gt 1 ]]; then
+    type="CA Bundle ($count)"
+    cn="Multiple Certificates"
+    issued="Multiple"
+    expiry="Multiple"
+    issuer="Multiple"
+    days_left="Multiple"
+    sha256="Multiple"
+    md5="Multiple"
+   else
+    type="Certificate"
+    cn=$(openssl x509 -in "$file" -noout -subject -nameopt RFC2253 2>/dev/null | sed 's/.*CN=\([^,]*\).*/\1/')
+    issued=$(openssl x509 -in "$file" -noout -dates 2>/dev/null | grep "notBefore" | cut -d= -f2)
+    expiry=$(openssl x509 -in "$file" -noout -dates 2>/dev/null | grep "notAfter" | cut -d= -f2)
+    issuer=$(openssl x509 -in "$file" -noout -issuer -nameopt RFC2253 2>/dev/null | sed 's/.*CN=\([^,]*\).*/\1/')
+    sha256=$(openssl x509 -in "$file" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+    md5=$(openssl x509 -in "$file" -noout -fingerprint -md5 2>/dev/null | cut -d= -f2)
+   fi
+  elif grep -q "PRIVATE KEY" "$file" 2>/dev/null; then
+   type="Private Key"
+   color="${RED}"
+   cn="[SECRET]"
+   if grep -qE "ENCRYPTED|Proc-Type: 4,ENCRYPTED" "$file"; then protected="${RED}Yes (Encrypted)${END}"; fi
+  elif grep -q "BEGIN PUBLIC KEY" "$file" 2>/dev/null; then
+   type="Public Key"
+   color="${GREEN}"
+  else return 0; fi
+
+  # 2. Date Logic
+  if [[ -n "$expiry" && "$expiry" != "N/A" && "$expiry" != "Multiple" ]]; then
+   local exp_s=$(date -d "$expiry" +%s 2>/dev/null)
+   if [[ -n "$exp_s" ]]; then
+    local now=$(date +%s)
+    local diff=$(((exp_s - now) / 86400))
+    if [[ $diff -lt 0 ]]; then
+     days_left="${RED}EXPIRED (${diff#-} days ago)${END}"
+    elif [[ $diff -lt 30 ]]; then
+     days_left="${YELLOW}$diff days (URGENT)${END}"
+    else days_left="${GREEN}$diff days${END}"; fi
+   fi
+  fi
+
+  # 3. Build Content Rows (Store in Array)
+  local rows=()
+  rows+=(" Type            : $type")
+  rows+=(" Protected       : $protected")
+  rows+=(" CN              : ${cn:-N/A}")
+  [[ "$issuer" != "N/A" ]] && rows+=(" Issuer          : $issuer")
+  [[ "$issued" != "N/A" ]] && rows+=(" Issued          : $issued")
+  [[ "$expiry" != "N/A" ]] && rows+=(" Expires         : $expiry")
+  [[ "$days_left" != "N/A" ]] && rows+=(" Remaining       : $days_left")
+  [[ "$sha256" != "N/A" ]] && rows+=(" SHA256          : $sha256")
+  [[ "$md5" != "N/A" ]] && rows+=(" MD5             : $md5")
+  rows+=(" File Path       : $abs_path")
+
+  # 3b. Detail individual certs if CA Bundle
+  if [[ "$type" == "CA Bundle "* ]]; then
+   local c=1
+   local cert_buf=""
+   local in_cert=false
+   while IFS= read -r line; do
+    if [[ "$line" == *"BEGIN CERTIFICATE"* ]]; then
+     in_cert=true
+     cert_buf="$line"$'\n'
+    elif [[ "$line" == *"END CERTIFICATE"* ]]; then
+     cert_buf+="$line"$'\n'
+     local sub=$(printf "%s" "$cert_buf" | openssl x509 -noout -subject -nameopt RFC2253 2>/dev/null | sed -E 's/^subject=//; s/.*CN=([^,]*).*/\1/')
+     local iss=$(printf "%s" "$cert_buf" | openssl x509 -noout -issuer -nameopt RFC2253 2>/dev/null | sed -E 's/^issuer=//; s/.*CN=([^,]*).*/\1/')
+     local notBefore=$(printf "%s" "$cert_buf" | openssl x509 -noout -dates 2>/dev/null | grep "notBefore" | cut -d= -f2)
+     local notAfter=$(printf "%s" "$cert_buf" | openssl x509 -noout -dates 2>/dev/null | grep "notAfter" | cut -d= -f2)
+     local sha256_fp=$(printf "%s" "$cert_buf" | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+     local md5_fp=$(printf "%s" "$cert_buf" | openssl x509 -noout -fingerprint -md5 2>/dev/null | cut -d= -f2)
+     local d_left="N/A"
+
+     if [[ -n "$notAfter" ]]; then
+      local exp_s=$(date -d "$notAfter" +%s 2>/dev/null)
+      if [[ -n "$exp_s" ]]; then
+       local now=$(date +%s)
+       local diff=$(((exp_s - now) / 86400))
+       if [[ $diff -lt 0 ]]; then
+        d_left="${RED}EXPIRED (${diff#-} days ago)${END}"
+       elif [[ $diff -lt 30 ]]; then
+        d_left="${YELLOW}$diff days (URGENT)${END}"
+       else d_left="${GREEN}$diff days${END}"; fi
+      fi
+     fi
+
+     rows+=(" --------------------------------------------------")
+     rows+=(" [Entry $c]")
+     rows+=("   Subject       : ${sub:-N/A}")
+     rows+=("   Issuer        : ${iss:-N/A}")
+     rows+=("   Issued        : ${notBefore:-N/A}")
+     rows+=("   Expires       : ${notAfter:-N/A}")
+     rows+=("   Remaining     : ${d_left:-N/A}")
+     rows+=("   SHA256        : ${sha256_fp:-N/A}")
+     rows+=("   MD5           : ${md5_fp:-N/A}")
+
+     ((c++))
+     in_cert=false
+     cert_buf=""
+    elif $in_cert; then
+     cert_buf+="$line"$'\n'
+    fi
+   done <"$file"
+  fi
+
+  # 4. Calculate Box Width
+  local max_w=50
+  for r in "${rows[@]}"; do
+   local w=$(_vwidth "$r")
+   [[ $w -gt $max_w ]] && max_w=$w
+  done
+  max_w=$((max_w + 2))
+
+  # 5. Draw
+  local dash=$(printf '─%.0s' $(seq 1 $max_w))
+  printf "${color}┌%s┐${END}\n" "$dash"
+
+  # Center Header
+  local h_pad=$(((max_w - ${#filename}) / 2))
+  printf "${color}│${END}%*s%s%*s${color}│${END}\n" "$h_pad" "" "$filename" "$((max_w - h_pad - ${#filename}))" ""
+
+  printf "${color}├%s┤${END}\n" "$dash"
+
+  # Rows with precise trailing space calculation
+  for r in "${rows[@]}"; do
+   local cur_w=$(_vwidth "$r")
+   local gap=$((max_w - cur_w))
+   printf "%b%*s ${color}│${END}\n" "$r" "$gap" ""
+  done
+
+  printf "${color}└%s┘${END}\n\n" "$dash"
+ }
+
+ # --- Argument & Paging Logic ---
+ if [[ "$1" == "-s" || "$1" == "--save" ]]; then
+  save_mode=true
+  shift
+ fi
+
+ _pki_run() {
+  case "$1" in
+   "--verify")
+    local f1="$2" f2="$3"
+    local m1=$(openssl x509 -noout -modulus -in "$f1" 2>/dev/null || openssl rsa -noout -modulus -in "$f1" 2>/dev/null || openssl req -noout -modulus -in "$f1" 2>/dev/null)
+    local m2=$(openssl x509 -noout -modulus -in "$f2" 2>/dev/null || openssl rsa -noout -modulus -in "$f2" 2>/dev/null || openssl req -noout -modulus -in "$f2" 2>/dev/null)
+    [[ "$m1" == "$m2" && -n "$m1" ]] && printf "${GREEN}MATCH!${END}\n" || printf "${RED}MISMATCH${END}\n"
+    ;;
+   *)
+    local tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
+    for arg in "$@"; do
+     if [[ "$arg" =~ ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$ ]]; then
+      echo | openssl s_client -connect "${arg}:443" -servername "$arg" 2>/dev/null | openssl x509 >"$tmp"
+      [[ -s "$tmp" ]] && _pki_format "$tmp"
+     elif [[ -d "$arg" ]]; then
+      find "$arg" -type f -not -empty | while read f; do _pki_format "$f"; done
+     elif [[ -f "$arg" ]]; then _pki_format "$arg"; fi
+    done
+    ;;
+  esac
+ }
+
+ _pki_run "$@" | less -R -F -X
+}
+
+function pki-analyze {
+
+ TARGET_DIR="${1:-.}"
+
+ echo "📂 Analyzing directory: $TARGET_DIR"
+ cd "$TARGET_DIR" || {
+  echo "❌ Directory not found!"
+  exit 1
+ }
+
+ echo ""
+ echo "🔍 Verifying PKI Cryptographic Relationships (Dynamic Matching)..."
+ echo "-----------------------------------------------"
+
+ # Enable nullglob so empty matches don't break the loop
+ shopt -s nullglob
+
+ # Associative arrays to store modulus hashes
+ declare -A cert_mods key_mods csr_mods
+
+ for f in *.crt *.pem; do
+  mod=$(openssl x509 -noout -modulus -in "$f" 2>/dev/null | sed 's/Modulus=//')
+  [ -n "$mod" ] && cert_mods["$f"]="$mod"
+ done
+ for f in *.key; do
+  mod=$(openssl rsa -noout -modulus -in "$f" 2>/dev/null | sed 's/Modulus=//')
+  [ -n "$mod" ] && key_mods["$f"]="$mod"
+ done
+ for f in *.csr; do
+  mod=$(openssl req -noout -modulus -in "$f" 2>/dev/null | sed 's/Modulus=//')
+  [ -n "$mod" ] && csr_mods["$f"]="$mod"
+ done
+
+ # Match Keys to Certs/CSRs
+ for k in "${!key_mods[@]}"; do
+  k_mod="${key_mods[$k]}"
+  matched=0
+  for c in "${!cert_mods[@]}"; do
+   if [ "${cert_mods[$c]}" == "$k_mod" ]; then
+    echo "✅ Key '$k' matches Certificate '$c'"
+    matched=1
+   fi
+  done
+  for r in "${!csr_mods[@]}"; do
+   if [ "${csr_mods[$r]}" == "$k_mod" ]; then
+    echo "✅ Key '$k' matches CSR '$r'"
+    matched=1
+   fi
+  done
+  if [ $matched -eq 0 ]; then
+   echo "⚠️  Key '$k' has no matching certificate or CSR in this directory."
+  fi
+ done
+
+ echo ""
+ echo "🔗 Verifying Chains of Trust..."
+ echo "-----------------------------------------------"
+
+ # Identify ALL Root CAs vs Issued Certs
+ root_cas=()
+ other_certs=()
+
+ for f in "${!cert_mods[@]}"; do
+  iss=$(openssl x509 -noout -issuer -in "$f" 2>/dev/null | sed -E 's/^issuer=[[:space:]]*//')
+  sub=$(openssl x509 -noout -subject -in "$f" 2>/dev/null | sed -E 's/^subject=[[:space:]]*//')
+
+  if [ "$iss" == "$sub" ] && [ -n "$iss" ]; then
+   root_cas+=("$f")
+  else
+   other_certs+=("$f")
+  fi
+ done
+
+ declare -A displayed_files
+ declare -A ca_issued
+
+ for ca in "${root_cas[@]}"; do
+  echo "Root CA Identified: $ca"
+  for cert in "${other_certs[@]}"; do
+   if openssl verify -CAfile "$ca" "$cert" >/dev/null 2>&1; then
+    echo "  ✅ Validates: $cert"
+    ca_issued["$ca"]+="$cert "
+   fi
+  done
+ done
+
+ echo ""
+ echo "🌳 PKI Directory Hierarchy & Connectivity (Multi-Root Dynamic)"
+ echo "------------------------------------------------------------"
+
+ if [ ${#root_cas[@]} -eq 0 ]; then
+  echo "⚠️  No Root CAs found in directory."
+ fi
+
+ for ca in "${root_cas[@]}"; do
+  ca_cn=$(openssl x509 -noout -subject -in "$ca" 2>/dev/null | sed -n 's/.*CN\s*=\s*\([^,]*\).*/\1/p')
+  [ -z "$ca_cn" ] && ca_cn=$(openssl x509 -noout -subject -in "$ca" 2>/dev/null | sed -E 's/^subject=[[:space:]]*//')
+  [ -z "$ca_cn" ] && ca_cn="Unknown CA ($ca)"
+
+  echo "Root CA: $ca_cn"
+
+  # Gathering files for this CA
+  ca_files=("$ca")
+  ca_mod="${cert_mods[$ca]}"
+
+  for k in "${!key_mods[@]}"; do
+   if [ "${key_mods[$k]}" == "$ca_mod" ]; then
+    ca_files+=("$k")
+   fi
+  done
+
+  ca_base="${ca%.*}"
+  for srl in *.srl; do
+   if [[ "$srl" == "$ca_base"* ]] || [[ "$ca_base" == *"ca"* && "$srl" == *"ca"* ]]; then
+    ca_files+=("$srl")
+   fi
+  done
+
+  for f in "${ca_files[@]}"; do
+   displayed_files["$f"]=1
+   desc=""
+   [[ "$f" == *.crt || "$f" == *.pem ]] && desc="(Public CA Certificate)"
+   [[ "$f" == *.key ]] && desc="(Private CA Key)"
+   [[ "$f" == *.srl ]] && desc="(Serial Number Tracker)"
+   echo "├── $f $desc"
+  done
+
+  issued_arr=(${ca_issued["$ca"]})
+  num_certs=${#issued_arr[@]}
+
+  if [ "$num_certs" -eq 0 ]; then
+   echo "│   └── (No issued certificates found for this CA in directory)"
+  else
+   echo "│"
+   count=0
+   for cert in "${issued_arr[@]}"; do
+    count=$((count + 1))
+    cert_cn=$(openssl x509 -noout -subject -in "$cert" 2>/dev/null | sed -n 's/.*CN\s*=\s*\([^,]*\).*/\1/p')
+    [ -z "$cert_cn" ] && cert_cn="Unknown Entity"
+
+    cert_base="${cert%.*}"
+    if [ "$count" -eq "$num_certs" ]; then
+     node_prefix="└──"
+     child_prefix="    "
+    else
+     node_prefix="├──"
+     child_prefix="│   "
+    fi
+
+    echo "$node_prefix [Issued Entity]: $cert_cn ($cert_base)"
+
+    entity_files=("$cert")
+    cert_mod="${cert_mods[$cert]}"
+
+    for k in "${!key_mods[@]}"; do
+     if [ "${key_mods[$k]}" == "$cert_mod" ]; then
+      entity_files+=("$k")
+      break
+     fi
+    done
+    for r in "${!csr_mods[@]}"; do
+     if [ "${csr_mods[$r]}" == "$cert_mod" ]; then
+      entity_files+=("$r")
+      break
+     fi
+    done
+    for cnf in *.cnf *.ext; do
+     if [[ "$cnf" == "$cert_base"* ]] || grep -qF "$cert_cn" "$cnf" 2>/dev/null; then
+      if [[ ! " ${entity_files[@]} " =~ " ${cnf} " ]]; then
+       entity_files+=("$cnf")
+      fi
+     fi
+    done
+
+    num_files=${#entity_files[@]}
+    f_count=0
+    for f in "${entity_files[@]}"; do
+     displayed_files["$f"]=1
+     f_count=$((f_count + 1))
+     f_prefix="├──"
+     [ "$f_count" -eq "$num_files" ] && f_prefix="└──"
+
+     desc=""
+     [[ "$f" == *.crt || "$f" == *.pem ]] && desc="(Public Certificate)"
+     [[ "$f" == *.key ]] && desc="(Private Key)"
+     [[ "$f" == *.csr ]] && desc="(Certificate Signing Request)"
+     [[ "$f" == *.cnf || "$f" == *.ext ]] && desc="(Config/Extensions)"
+
+     echo "$child_prefix$f_prefix $f $desc"
+    done
+    [ "$count" -lt "$num_certs" ] && echo "│"
+   done
+  fi
+  echo ""
+ done
+
+ # Show unlinked/orphaned files
+ has_orphans=0
+ for f in *.crt *.pem *.key *.csr *.srl *.cnf *.ext; do
+  if [ -z "${displayed_files[$f]}" ] && [ -e "$f" ]; then
+   if [ "$has_orphans" -eq 0 ]; then
+    echo "❓ Unconnected / Orphaned Files"
+    echo "------------------------------------------------------------"
+    has_orphans=1
+   fi
+
+   desc="Unknown"
+   if [[ "$f" == *.pem || "$f" == *.crt ]]; then
+    iss=$(openssl x509 -noout -issuer -in "$f" 2>/dev/null | sed -n 's/.*CN\s*=\s*\([^,]*\).*/\1/p')
+    [ -z "$iss" ] && iss=$(openssl x509 -noout -issuer -in "$f" 2>/dev/null | sed -E 's/^issuer=[[:space:]]*//')
+    desc="Certificate (Issuer: $iss)"
+   elif [[ "$f" == *.key ]]; then
+    desc="Private Key (No matching cert/csr found)"
+   elif [[ "$f" == *.csr ]]; then
+    desc="CSR (No matching key/cert found)"
+   elif [[ "$f" == *.srl || "$f" == *.cnf || "$f" == *.ext ]]; then
+    desc="Supporting File"
+   fi
+
+   echo "├── $f - $desc"
+  fi
+ done
+ [ "$has_orphans" -eq 1 ] && echo ""
+
+ echo "⏳ Certificate Expiration Status"
+ echo "------------------------------------------------------------"
+ # 2592000 seconds = 30 days warning window
+ for cert in "${!cert_mods[@]}"; do
+  end_date=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2)
+
+  if ! openssl x509 -checkend 0 -noout -in "$cert" >/dev/null 2>&1; then
+   echo "❌ EXPIRED: $cert (Expired on: $end_date)"
+  elif ! openssl x509 -checkend 2592000 -noout -in "$cert" >/dev/null 2>&1; then
+   echo "⚠️  EXPIRING SOON (<30 Days): $cert (Expires on: $end_date)"
+  else
+   echo "✅ VALID: $cert (Expires on: $end_date)"
+  fi
+ done
+ echo ""
+
+ # Re-disable nullglob
+ shopt -u nullglob
+}
+
+function minikube-start {
+
+ local DRIVER="docker"
+ local K8_VERSION="stable"
+ local CPUS="4"
+ local MEMORY="4096"
+ local DISK_SIZE="40G"
+
+ local OFFER_LIST=("ingress" "metrics-server" "default-storageclass" "storage-provisioner")
+ local ADDON_LIST=()
+
+ for addon in "${OFFER_LIST[@]}"; do
+  read -r -p "Turn on addon ${GREEN}$addon${END} ? (y/n) : " answer
+  if [[ "$answer" == "y" ]]; then
+   echo -e " Activating addon ${GREEN}$addon...${END}"
+   ADDON_LIST+=("$addon")
+  else
+   echo -e " ${LIGHT_GRAY}Skipping addon $addon...${END}"
+  fi
+ done
+
+ local ADDONS=$(
+  IFS=,
+  echo "${ADDONS_LIST[*]}"
+ )
+
+ minikube config set driver "$DRIVER"
+ echo -e "Setting default driver to ${HIGH_WHITE}$DRIVER${END}"
+
+ minikube config set kubernetes-version "$K8_VERSION"
+ echo -e "Setting kubernetes version to ${HIGH_WHITE}$K8_VERSION${END}"
+
+ minikube config set cpus "$CPUS"
+ echo -e "Setting CPUs ${HIGH_WHTIE}$CPUS${END}"
+
+ minikube config set memory "$MEMORY"
+ echo -e "Setting Memory ${HIGH_WHTIE}$MEMORY${END}"
+
+ minikube config set disk-size "$DISK_SIZE"
+ echo -e "Setting Disk-Size ${HIGH_WHTIE}$DISK_SIZE${END}"
+
+ minikube start --addons="$ADDONS"
+}
+
+function minikube-nuke {
+
+ local nuke_all=0
+
+ if [[ "$1" == "-y" ]]; then
+  echo -e "\e[90m Nuking Minikube/K8 resources with extreme prejudice \e[1;91m☠\e[0m"
+  nuke_all=1
+ fi
+
+ minikube delete --all --purge
+
+ if ((nuke_all)); then
+  rm -rf "$HOME/.minikube" >/dev/null 2>&1
+  rm -rf "$HOME/.kube" >/dev/null 2>&1
+ else
+  read -r -p "Delete ~/.minikube ? (y/n) : " response
+  if [[ "$response" == "y" ]]; then
+   rm -rf "$HOME/.minikube" >/dev/null 2>&1
+  fi
+  read -r -p "Delete ~/.kube ? (y/n) : " response
+  if [[ "$response" == "y" ]]; then
+   rm -rf "$HOME/.kube" >/dev/null 2>&1
+  fi
+ fi
+}
+
+function spliter-combiner {
+
+ local OPTIND=1
+ local action=""
+ local num_parts=""
+ local opt
+
+ # Process arguments using getopts
+ while getopts "s:c" opt; do
+  case "$opt" in
+   s)
+    action="split"
+    num_parts="$OPTARG"
+    ;;
+   c)
+    action="combine"
+    ;;
+   \?)
+    echo "Usage: $0 [-s <N> | -c] <target>"
+    exit 1
+    ;;
+  esac
+ done
+
+ # Shift past the parsed options to get the positional target argument
+ shift $((OPTIND - 1))
+ local target="$1"
+
+ # Validate inputs
+ if [[ -z "$action" || -z "$target" ]]; then
+  echo "Usage:"
+  echo "  $0 -s <N> <file>      (Split file into N parts)"
+  echo "  $0 -c <directory>     (Combine parts in directory)"
+  exit 1
+ fi
+
+ if [[ "$action" == "split" ]]; then
+  if [[ ! -f "$target" ]]; then
+   echo "Error: File '$target' does not exist or is not a regular file."
+   exit 1
+  fi
+
+  if ! [[ "$num_parts" =~ ^[0-9]+$ ]] || ((num_parts < 1)); then
+   echo "Error: -s requires a positive integer (e.g., -s 10)."
+   exit 1
+  fi
+
+  local dir_name="${target}-parts"
+  local base_name="$(basename "$target")"
+
+  mkdir -p "$dir_name"
+
+  echo "Calculating original file checksum..."
+  if command -v pv &>/dev/null; then
+   pv "$target" | sha256sum | awk '{print $1}' >"$dir_name/.checksum"
+  else
+   sha256sum "$target" | awk '{print $1}' >"$dir_name/.checksum"
+  fi
+
+  echo "Splitting '$target' into $num_parts parts..."
+  split -n "$num_parts" -a 4 -d "$target" "$dir_name/${base_name}.part"
+
+  echo "Success! Your split files and integrity data are in: $dir_name"
+
+ elif [[ "$action" == "combine" ]]; then
+  local clean_target="${target%/}"
+
+  if [[ ! -d "$clean_target" ]]; then
+   echo "Error: Directory '$clean_target' does not exist."
+   exit 1
+  fi
+
+  local out_file="${clean_target%-parts}"
+
+  if [[ "$clean_target" == "$out_file" ]]; then
+   out_file="${clean_target}_combined"
+  fi
+
+  if [[ -f "$out_file" ]]; then
+   echo -n "Warning: Output file '$out_file' already exists. Overwrite? (y/n): "
+   read -r confirm
+   if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Aborting."
+    exit 1
+   fi
+  fi
+
+  echo "Combining parts from '$clean_target'..."
+  if command -v pv &>/dev/null; then
+
+   pv "$clean_target"/*.part* >"$out_file"
+  else
+   cat "$clean_target"/*.part* >"$out_file"
+  fi
+
+  if [[ -f "$clean_target/.checksum" ]]; then
+   echo "Verifying file integrity..."
+   local original_hash=$(cat "$clean_target/.checksum")
+   local new_hash
+
+   if command -v pv &>/dev/null; then
+    new_hash=$(pv "$out_file" | sha256sum | awk '{print $1}')
+   else
+    new_hash=$(sha256sum "$out_file" | awk '{print $1}')
+   fi
+
+   if [[ "$original_hash" == "$new_hash" ]]; then
+
+    echo "✅ Integrity check PASSED. File is perfectly restored!"
+    echo "Success! Your combined file is located at: $out_file"
+
+    echo -n "Would you like to delete the parts directory '$clean_target'? (y/n): "
+    read -r cleanup_confirm
+    if [[ "$cleanup_confirm" == "y" || "$cleanup_confirm" == "Y" ]]; then
+
+     rm -rf "$clean_target"
+     echo "🗑️  Parts directory deleted."
+    else
+     echo "📁 Parts directory kept."
+    fi
+   else
+    echo "❌ Error: Integrity check FAILED! The combined file does not match the original."
+    exit 1
+   fi
+  else
+   echo "⚠️ Warning: No .checksum file found. Combined successfully, but integrity could not be verified."
+   echo "Your combined file is located at: $out_file"
+  fi
+ fi
+}

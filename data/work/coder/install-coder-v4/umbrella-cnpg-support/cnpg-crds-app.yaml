@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-crds
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: http://gitlab.192.168.49.2.nip.io/root/coder-umbrella.git   # same repo as coder-stack
+    targetRevision: main
+    path: cnpg-crds
+    directory:
+      recurse: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system   # CRDs are cluster-scoped; namespace is irrelevant
+
+  syncPolicy:
+    automated:
+      prune: false           # NEVER prune CRDs — pruning deletes every Cluster
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - Replace=true         # bypass the 256KB last-applied-configuration limit
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m

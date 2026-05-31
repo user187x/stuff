@@ -1,0 +1,89 @@
+# =============================================================================
+# coder-umbrella values (CloudNativePG variant)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# CloudNativePG operator. Installs CRDs and the controller.
+# Disable this if the operator is already installed cluster-wide by another
+# team (very common — operators are usually shared infrastructure).
+# -----------------------------------------------------------------------------
+cloudnative-pg:
+  enabled: true
+  # Cluster-wide watch is the default. For a namespace-scoped install set:
+  # config:
+  #   clusterWide: false
+  crds:
+    create: true 
+
+# -----------------------------------------------------------------------------
+# Postgres Cluster (CR managed by the operator).
+# CNPG auto-creates a Secret named "<cluster>-app" with keys:
+#   username, password, host, port, dbname, jdbc-uri, uri
+# Coder consumes the `uri` key directly — no manual URL building needed.
+# -----------------------------------------------------------------------------
+postgres:
+  enabled: true
+  name: coder-pg          # → Secret `coder-pg-app` will be created
+  instances: 1            # bump to 3 for HA (1 primary + 2 replicas)
+  imageName: ""           # leave empty for the operator default
+  database: coder
+  owner: coder            # the application user
+
+  storage:
+    size: 10Gi
+    # storageClass: gp3   # uncomment to pin a class
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  # Optional: Postgres parameters tuned for Coder.
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+
+  monitoring:
+    enabled: false        # set true to expose CNPG Prometheus metrics
+
+# -----------------------------------------------------------------------------
+# Coder control plane.
+# `coder.coder.*` is intentional: outer key = sub-chart name, inner = Coder's
+# own top-level "coder" key in its values schema.
+# -----------------------------------------------------------------------------
+coder:
+  enabled: true
+  coder:
+    annotations:
+      argocd.argoproj.io/sync-wave: "2"
+    env:
+      - name: CODER_PG_CONNECTION_URL
+        valueFrom:
+          secretKeyRef:
+            # CNPG creates this secret automatically — name is "<cluster>-app".
+            # If you change postgres.name above, update this too (or use the
+            # tpl helper in templates/coder-db-secret-info.yaml as a guide).
+            name: coder-pg-app
+            key: uri
+
+      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+        value: "false"
+
+      # Required for production:
+      # - name: CODER_ACCESS_URL
+      #   value: "https://coder.example.com"
+
+    service:
+      type: LoadBalancer
+      # AWS NLB:
+      # externalTrafficPolicy: Local
+      # sessionAffinity: None
+      # annotations:
+      #   service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+    # tls:
+    #   secretNames:
+    #     - coder-tls

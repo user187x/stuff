@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Add the middleware to your ArgoCD IngressRoute:
+
+middlewares:
+      - name: enrichment-auth

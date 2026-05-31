@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Additional/Auxilary apps
+apps=("net.nokyan.Resources")
+
+echo "Would you like to backup current apps or restore from a file:"
+echo "1. Backup"
+echo "2. Restore"
+echo "3. Install additional apps"
+read -p "Select an option (1 or 2): " action
+
+if [[ "$action" == "1" ]]; then
+ read -e -r -p "Enter filename to export (default: flatpak-apps.txt): " filename
+ # Removed the literal single quotes from the default fallback value
+ filename="${filename:-flatpak-apps.txt}"
+
+ echo "Exporting Flatpak list to $filename..."
+ flatpak list --app --columns=application >"$filename"
+ echo "Backup complete!"
+elif [[ "$action" == "2" ]]; then
+ read -e -r -p "Enter filename to restore: " filename
+
+ if [[ -f "$filename" ]]; then
+  echo "Installing Flatpaks from $filename..."
+  xargs flatpak install -y <"$filename"
+  echo "Restore complete!"
+ else
+  echo "Error: The file '$filename' does not exist."
+ fi
+elif [[ "$action" == "3" ]]; then
+ for app in "${apps[@]}"; do
+  echo "Installing additional applications $app"
+  flatpak install -y "$app"
+ done
+else
+ echo "Invalid option. Please run the script again and select 1 or 2."
+fi

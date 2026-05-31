@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# Ensure the script is run with root privileges
+if [ "$EUID" -ne 0 ]; then
+ echo "Error: Please run this script as root or with sudo."
+ exit 1
+fi
+
+echo "Starting GitLab Runner installation..."
+
+# 1. Determine system architecture
+ARCH=$(uname -m)
+case $ARCH in
+x86_64) RUNNER_ARCH="amd64" ;;
+aarch64) RUNNER_ARCH="arm64" ;;
+armv7l) RUNNER_ARCH="arm" ;;
+s390x) RUNNER_ARCH="s390x" ;;
+*)
+ echo "Error: Unsupported architecture: $ARCH"
+ exit 1
+ ;;
+esac
+
+echo "Detected architecture: $RUNNER_ARCH"
+
+# 2. Download the latest binary
+DOWNLOAD_URL="https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/binaries/gitlab-runner-linux-${RUNNER_ARCH}"
+echo "Downloading the latest GitLab Runner binary..."
+curl -L --output /usr/local/bin/gitlab-runner "$DOWNLOAD_URL"
+
+if [ $? -ne 0 ]; then
+ echo "Error: Failed to download the binary."
+ exit 1
+fi
+
+# 3. Grant execution permissions
+echo "Applying execution permissions..."
+chmod +x /usr/local/bin/gitlab-runner
+
+# 4. Create the GitLab CI user if it doesn't already exist
+if id "gitlab-runner" &>/dev/null; then
+ echo "User 'gitlab-runner' already exists. Skipping creation."
+else
+ echo "Creating 'gitlab-runner' user..."
+ useradd --comment 'GitLab Runner' --create-home gitlab-runner --shell /bin/bash
+fi
+
+# 5. Install and run as a service
+echo "Installing and starting the GitLab Runner service..."
+# Stop it first just in case it's an upgrade or already running
+gitlab-runner stop &>/dev/null
+gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner &>/dev/null
+gitlab-runner start
+
+echo "---------------------------------------------------------"
+echo "GitLab Runner successfully installed and started!"
+echo "---------------------------------------------------------"
+
+# 6. Prompt user for registration details
+echo "Let's register this runner to your GitLab instance."
+
+read -p "Enter your GitLab instance URL (e.g., https://gitlab.com/): " GITLAB_URL
+read -p "Enter your GitLab Runner Token: " GITLAB_TOKEN
+read -p "Enter a description for this runner: " RUNNER_DESC
+read -p "Enter comma-separated tags (e.g., linux, shell, build): " RUNNER_TAGS
+
+# Note: Using the 'shell' executor as the default for this bare-metal installation.
+# You can change this to 'docker' if you have Docker installed on the host.
+EXECUTOR="shell"
+
+# 7. Register the runner
+echo "Registering the runner..."
+gitlab-runner register \
+ --non-interactive \
+ --url "$GITLAB_URL" \
+ --token "$GITLAB_TOKEN" \
+ --executor "$EXECUTOR" \
+ --description "$RUNNER_DESC" \
+ --tag-list "$RUNNER_TAGS"
+
+if [ $? -eq 0 ]; then
+ echo "---------------------------------------------------------"
+ echo "Success! Your GitLab Runner is configured and ready."
+else
+ echo "---------------------------------------------------------"
+ echo "Error: Registration failed. Please check your URL and Token and try running 'sudo gitlab-runner register' manually."
+fi

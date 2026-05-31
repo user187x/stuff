@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo "Refreshing snap packages"
+sudo snap refresh
+
+# Install VS Code
+if ! command -v code >/dev/null 2>&1; then
+ echo "Installing VS Code..."
+ sudo snap install code --classic
+fi

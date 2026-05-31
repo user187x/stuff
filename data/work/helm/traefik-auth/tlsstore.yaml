@@ -1,0 +1,14 @@
+# =============================================================================
+# Default TLSStore — Traefik uses this certificate for every HTTPS route
+# that doesn't explicitly specify its own cert. The referenced Secret
+# must be a `kubernetes.io/tls` secret containing tls.crt + tls.key
+# signed by your private CA.
+# =============================================================================
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik-auth
+spec:
+  defaultCertificate:
+    secretName: traefik-ingress-tls

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+echo "Setting up repository environment..."
+
+# 1. Point Git to the version-controlled hooks directory
+git config core.hooksPath hooks/file-limits
+
+# 2. Ensure hooks are executable
+chmod +x .githooks/pre-commit
+chmod +x .githooks/post-checkout
+chmod +x .githooks/post-merge
+
+# 3. Trigger the initial recombination logic for newly cloned files
+echo "Scanning for split files to recombine..."
+
+find . -type d -name "*-parts" ! -path "*/\.git/*" | while read -r dir_name; do
+ clean_target="${dir_name%/}"
+ MANIFEST_FILE="$clean_target/.manifest"
+
+ if [[ -f "$MANIFEST_FILE" ]]; then
+  ORIGINAL_FILE=$(grep "^ORIGINAL_FILE=" "$MANIFEST_FILE" | cut -d'=' -f2-)
+  EXPECTED_SHA=$(grep "^ORIGINAL_SHA256=" "$MANIFEST_FILE" | cut -d'=' -f2)
+  EXPECTED_SIZE=$(grep "^ORIGINAL_SIZE=" "$MANIFEST_FILE" | cut -d'=' -f2)
+
+  echo "Combining parts for '$ORIGINAL_FILE'..."
+  cat "$clean_target"/*.part* >"$ORIGINAL_FILE"
+
+  NEW_SIZE=$(wc -c <"$ORIGINAL_FILE" | awk '{print $1}')
+  NEW_SHA=$(sha256sum "$ORIGINAL_FILE" | awk '{print $1}')
+
+  if [[ "$EXPECTED_SHA" == "$NEW_SHA" && "$EXPECTED_SIZE" == "$NEW_SIZE" ]]; then
+   echo "✅ '$ORIGINAL_FILE' is perfectly restored!"
+  else
+   echo "❌ Error: Integrity check FAILED for '$ORIGINAL_FILE'."
+   rm -f "$ORIGINAL_FILE"
+  fi
+ fi
+done
+
+echo "Repository setup complete. Git hooks are active."

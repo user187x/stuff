@@ -1,0 +1,220 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+DOMAIN="coder.xxx"
+NAMESPACE="coder"
+SAFE_NAME="${DOMAIN//./-}"
+CERT_DIR="$PWD/certs"
+
+echo "==================================================="
+echo " 🚀 Starting the Zero-to-Hero Coder Minikube Deployment!"
+echo "==================================================="
+
+# 0. Pre-flight Checks
+for cmd in minikube helm kubectl openssl; do
+ if ! command -v $cmd &>/dev/null; then
+  echo "Error: $cmd is not installed or not in your PATH."
+  exit 1
+ fi
+done
+
+echo "[+] Pre-flight checks passed."
+
+# Ensure minikube is running
+if ! minikube status | grep -q "host: Running"; then
+ echo "🔄 Starting Minikube..."
+ minikube start
+fi
+
+# 1. PKI Generation
+echo -e "\n[1/6] 🔒 Generating TLS PKI for ${DOMAIN}..."
+mkdir -p "$CERT_DIR"
+cd "$CERT_DIR"
+
+if [ ! -f "ca-cert.pem" ]; then
+ echo "      Generating Root CA..."
+ openssl genrsa -out ca.key 4096 2>/dev/null
+ openssl req -x509 -new -nodes -key ca.key -sha256 -days 365 -out ca-cert.pem -subj "/O=Coder PoC Root CA/CN=${DOMAIN} Root CA" 2>/dev/null
+
+ echo "      Generating Server Certificate..."
+ openssl genrsa -out server.key 4096 2>/dev/null
+ openssl req -new -key server.key -out server.csr -subj "/O=Coder PoC Cert/CN=${DOMAIN}" 2>/dev/null
+
+ cat >server-ext.cnf <<EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = ${DOMAIN}
+EOF
+
+ openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey ca.key -CAcreateserial -out server.crt -days 365 -sha256 -extfile server-ext.cnf 2>/dev/null
+else
+ echo "      Certificates already exist in ${CERT_DIR}. Skipping generation."
+fi
+cd ..
+
+# 2. Kubernetes Namespace & Secrets
+echo -e "\n[2/6] ☸️ Provisioning Kubernetes Secrets..."
+kubectl create namespace "${NAMESPACE}" >/dev/null 2>&1 || true
+
+kubectl create secret tls "${SAFE_NAME}-tls" --cert="${CERT_DIR}/server.crt" --key="${CERT_DIR}/server.key" --namespace="${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic "${SAFE_NAME}-ca" --from-file=ca.crt="${CERT_DIR}/ca-cert.pem" --namespace="${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+# 3. Provision PostgreSQL (Native, No Bitnami)
+echo -e "\n[3/6] 🐘 Provisioning Native PostgreSQL..."
+cat <<EOF | kubectl apply -n ${NAMESPACE} -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:13
+        env:
+        - name: POSTGRES_USER
+          value: coder
+        - name: POSTGRES_PASSWORD
+          value: coder
+        - name: POSTGRES_DB
+          value: coder
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+EOF
+
+echo "      Waiting for PostgreSQL to be ready..."
+kubectl rollout status deployment/postgres -n ${NAMESPACE} --timeout=120s
+
+# Create the DB URL secret for Coder
+kubectl create secret generic coder-db-url --namespace="${NAMESPACE}" --from-literal=url="postgres://coder:coder@postgres.${NAMESPACE}.svc.cluster.local:5432/coder?sslmode=disable" --dry-run=client -o yaml | kubectl apply -f -
+
+# 4. Install Coder via Helm
+echo -e "\n[4/6] 📦 Installing Coder via Helm..."
+helm repo add coder-v2 https://helm.coder.com/v2 >/dev/null 2>&1
+helm repo update >/dev/null 2>&1
+
+cat <<EOF >coder-values.yaml
+coder:
+  env:
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-url
+          key: url
+    - name: CODER_ACCESS_URL
+      value: "https://${DOMAIN}"
+  service:
+    type: ClusterIP
+EOF
+
+helm upgrade --install coder coder-v2/coder \
+ --namespace="${NAMESPACE}" \
+ -f coder-values.yaml \
+ --wait
+
+# 5. Traefik and Ingress Config
+echo -e "\n[5/6] 🚦 Installing Traefik and configuring Ingress..."
+helm repo add traefik https://helm.traefik.io/traefik >/dev/null 2>&1
+helm repo update >/dev/null 2>&1
+
+# Note: Using hostPorts on Minikube prevents LoadBalancer pending hangs
+helm upgrade --install traefik traefik/traefik \
+ --namespace="${NAMESPACE}" \
+ --set ports.web.hostPort=80 \
+ --set ports.websecure.hostPort=443 \
+ --set service.type=ClusterIP \
+ --wait
+
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${SAFE_NAME}-ingress
+  namespace: ${NAMESPACE}
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - ${DOMAIN}
+    secretName: ${SAFE_NAME}-tls
+  rules:
+  - host: ${DOMAIN}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: coder
+            port:
+              number: 80
+EOF
+
+# 6. Local Host DNS
+echo -e "\n[6/6] 🌐 Updating local /etc/hosts file..."
+TARGET_IP=$(minikube ip)
+HOSTS_ENTRY="${TARGET_IP} ${DOMAIN} # Added by Coder Zero-to-Hero Script"
+HOSTS_FILE="/etc/hosts"
+
+if grep -q "[[:space:]]${DOMAIN}\b" "$HOSTS_FILE"; then
+ echo "      ✅ Domain '${DOMAIN}' is already in ${HOSTS_FILE}."
+else
+ echo "      Adding '${DOMAIN}' to ${HOSTS_FILE}. You may be prompted for your password."
+ echo "$HOSTS_ENTRY" | sudo tee -a "$HOSTS_FILE" >/dev/null
+fi
+
+echo -e "\n========================================================================"
+echo "🎉 Coder Proof-of-Concept is fully operational!"
+echo "========================================================================"
+echo "👉 Access URL: https://${DOMAIN}"
+echo ""
+echo "⚠️ IMPORTANT: Because this uses a self-signed local PKI, you must import the"
+echo "   generated CA Certificate into your browser/system to prevent TLS warnings."
+echo "   Location of CA Cert: ${CERT_DIR}/ca-cert.pem"
+echo ""
+echo "   In Chrome/Edge: Settings -> Privacy and security -> Security -> "
+echo "                   Manage certificates -> Authorities -> Import."
+echo "   In Firefox: Settings -> Privacy & Security -> Certificates -> "
+echo "               View Certificates -> Authorities -> Import."
+echo "========================================================================"

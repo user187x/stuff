@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    This file defines the color palette for the application.
+    These are the fallback colors for older Android versions that don't support
+    Material You dynamic coloring. On Android 12+, the system will generate
+    colors based on the user's wallpaper and override these.
+    -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!--
+    Placeholder colors for Material Dynamic Color attributes.
+    These names are conventions and are not special system names. The styles.xml
+    file references these, so they must be defined.
+    -->
+    <!-- Light Theme Primary Colors -->
+    <color name="material_dynamic_primary_40">#6750A4</color> <!-- Primary -->
+    <color name="material_dynamic_primary_70">#BBA2F7</color> <!-- Primary Variant -->
+    <color name="material_dynamic_primary_100">#FFFFFF</color> <!-- On Primary -->
+
+    <!-- Light Theme Secondary Colors -->
+    <color name="material_dynamic_secondary_40">#625B71</color> <!-- Secondary -->
+    <color name="material_dynamic_secondary_70">#C8C0D9</color> <!-- Secondary Variant -->
+    <color name="material_dynamic_secondary_100">#FFFFFF</color> <!-- On Secondary -->
+
+</resources>

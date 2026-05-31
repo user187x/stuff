@@ -1,0 +1,25 @@
+#!/bin/bash
+
+function youtube-download {
+
+ read -e -r -p "Enter URL: " src
+ read -e -r -p "Enter Save Destination: " dst
+
+ if [[ ! -d "$dst" ]]; then
+  echo "Destination doesn't exist. Creating now..."
+  mkdir -p "$dst" 2>/dev/null
+ fi
+
+ yt-dlp --extract-audio \
+  --progress \
+  --newline \
+  --console-title \
+  --audio-format mp3 \
+  --audio-quality 0 \
+  --embed-thumbnail \
+  --embed-metadata \
+  --output "$dst/%(title)s.%(ext)s" \
+  "$src"
+}
+
+export -f youtube-download

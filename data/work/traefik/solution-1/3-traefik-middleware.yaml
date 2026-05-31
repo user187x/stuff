@@ -1,0 +1,19 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: enrich-user-middleware
+  namespace: argocd
+spec:
+  forwardAuth:
+    # Point to your internal Shim, not the external URL
+    address: "http://auth-shim.traefik-system.svc.cluster.local/verify"
+    
+    # CRITICAL: This tells Traefik to take the header returned by the Shim
+    # and inject it into the final request sent to ArgoCD.
+    authResponseHeaders:
+      - "X-Enriched-Role"
+      - "X-User-Details"
+    
+    # Ensure the DN header from the client actually reaches the Shim
+    authRequestHeaders:
+      - "X-User-DN"

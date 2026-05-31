@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Load Bash tab completion
+BASH_COMPLETIONS="/usr/share/bash-completion/bash_completion"
+if [ -f "${BASH_COMPLETIONS}" ]; then
+ source "${BASH_COMPLETIONS}"
+fi
+
+# Load Kubectl completions
+if command -v kubectl >/dev/null; then
+ source <(kubectl completion bash)
+ complete -o default -F __start_kubectl k
+fi
+
+# Load toilet completions
+__toilet_completion() {
+
+ local cur prev filters
+
+ COMPREPLY=()
+
+ cur="${COMP_WORDS[COMP_CWORD]}"
+ prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+ if [[ "$prev" == "-F" || "$prev" == "--filter" ]]; then
+  filters=$(toilet --filter list 2>/dev/null | awk -F: '{print $1}' | awk '{print $1}')
+  COMPREPLY=($(compgen -W "${filters}" -- ${cur}))
+  return 0
+ fi
+
+ if [[ "$cur" =~ ^- ]]; then
+  local opts="-F --filter -f --font -E --export -w --width -h --help"
+  COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+  return 0
+ fi
+}
+
+# Register function
+complete -F _toilet_completion toilet

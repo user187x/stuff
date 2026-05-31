@@ -1,0 +1,37 @@
+servingEngineSpec:
+  runtimeClassName: ""
+
+  modelSpec:
+    - name: "gemma-4-e4b-it-q4-k-m"
+      repository: "vllm/vllm-openai-cpu"
+      tag: "latest-x86_64"
+      modelURL: "/models/gemma-4-E4B-it-Q4_K_M.gguf"
+      replicaCount: 1
+      requestCPU: 2
+      requestMemory: "8Gi"
+      requestGPU: 0
+
+      extraVolumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: llm-models-pvc
+            readOnly: true
+
+      extraVolumeMounts:
+        - name: model-storage
+          mountPath: /models
+          readOnly: true
+
+      env:
+        - name: VLLM_CPU_KVCACHE_SPACE
+          value: "4"
+      vllmConfig:
+        maxModelLen: 2048
+        extraArgs:
+          - "--tokenizer"
+          - "google/gemma-4-e4b-it"
+          - "--generation-config"
+          - "google/gemma-4-e4b-it"
+          - "--dtype"
+          - "bfloat16"
+          - "--enforce-eager"

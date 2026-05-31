@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=LM-Studio
+Exec=/home/xxx/.local/share/applications/lm-studio.AppImage --no-sandbox %U
+Terminal=false
+Type=Application
+Icon=/home/xxx/.local/share/icons/hicolor/0x0/apps/lm-studio.png
+StartupWMClass=LM-Studio
+Comment=Use the chat UI or local server to experiment and develop with local LLMs.
+Keywords=developer;llm;
+category=Development;Utility;
+MimeType=x-scheme-handler/lmstudio;
+Categories=Development;

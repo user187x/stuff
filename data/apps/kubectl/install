@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Fetch the latest kubectl version tag (e.g., v1.30.0)
+LATEST_KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+
+# Helper function to handle the download and install process
+install_kubectl() {
+ echo "Installing/Updating kubectl ${LATEST_KUBECTL_VERSION}..."
+ curl -LO "https://dl.k8s.io/release/${LATEST_KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+ sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+ rm kubectl
+ echo "kubectl setup complete!"
+}
+
+# Check if kubectl is installed
+if ! command -v kubectl >/dev/null 2>&1; then
+ echo "kubectl is not installed."
+ install_kubectl
+else
+ # Get the current installed version
+ LOCAL_KUBECTL_VERSION=$(kubectl version --client 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+
+ # Compare local version with latest version
+ if [[ "$LOCAL_KUBECTL_VERSION" != "$LATEST_KUBECTL_VERSION" ]]; then
+  echo "kubectl update available! (Local: $LOCAL_KUBECTL_VERSION -> Latest: $LATEST_KUBECTL_VERSION)"
+  install_kubectl
+ else
+  echo "kubectl is already up to date ($LOCAL_KUBECTL_VERSION)."
+ fi
+fi

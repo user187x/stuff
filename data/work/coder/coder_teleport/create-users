@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Admin
+TELEPORT_POD=$(kubectl get pods -n dev-platform -l app.kubernetes.io/name=teleport-cluster -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n dev-platform "$TELEPORT_POD" -- tctl users add teleport-admin --roles=editor,access --logins=root,ubuntu,ec2-user
+
+# User
+kubectl exec -it -n dev-platform "$TELEPORT_POD" -- tctl users add dev-greg --roles=access --logins=developer
+
+# Frontend developer 
+cat << EOF > kubectl apply -f -
+kind: role
+version: v7
+metadata:
+  name: frontend-dev
+  description: "Access to frontend team Coder workspaces"
+spec:
+  allow:
+    # Restrict access strictly to K8s pods/clusters with this label
+    kubernetes_labels:
+      'team': 'frontend'
+    # Map the user to these standard Kubernetes RBAC groups
+    kubernetes_groups:
+      - 'edit'
+      - 'view'
+    # Automatically map their Teleport login to a K8s user
+    kubernetes_users:
+      - '{{internal.logins}}'
+  deny: {}
+EOF
+
+# QA-Test role
+cat << EOF > kubectl apply -f -
+kind: role
+version: v7
+metadata:
+  name: qa-tester
+  description: "Read-only access to QA and Dev environments"
+spec:
+  allow:
+    # Allow access to multiple environments using a wildcard or explicit labels
+    kubernetes_labels:
+      'environment': '*'
+    # Restrict them purely to the 'view' group (read-only)
+    kubernetes_groups:
+      - 'view'
+    kubernetes_users:
+      - 'qa-auditor'
+  deny:
+    # Explicitly deny access to production, just in case
+    kubernetes_labels:
+      'environment': 'prod'
+EOF

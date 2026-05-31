@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+#
+# Grants a target namespace access to the shared NFS volume created
+# by setup-nfs-minikube.sh. Creates a new PV (cluster-scoped, unique name)
+# and a PVC inside the target namespace, both pointing at the same NFS export.
+#
+# Usage:
+#   ./grant-nfs-access.sh <target-namespace>
+#   ./grant-nfs-access.sh my-app-ns
+#
+# Env overrides:
+#   NFS_NAMESPACE  Namespace where the nfs-server runs (default: nfs-demo)
+#   PVC_NAME       Name of the PVC to create in the target ns (default: nfs-shared-pvc)
+
+set -euo pipefail
+
+TARGET_NS="${1:-}"
+NFS_NAMESPACE="${NFS_NAMESPACE:-nfs-demo}"
+PVC_NAME="${PVC_NAME:-nfs-shared-pvc}"
+
+if [[ -z "${TARGET_NS}" ]]; then
+ echo "Usage: $0 <target-namespace>"
+ exit 1
+fi
+
+# Look up the NFS server IP. Using the IP (not DNS name) because kubelet
+# does mount resolution on the node, where cluster DNS is not available.
+NFS_IP=$(kubectl get svc -n "${NFS_NAMESPACE}" nfs-server -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+if [[ -z "${NFS_IP}" ]]; then
+ echo "Could not find nfs-server service in namespace '${NFS_NAMESPACE}'."
+ echo "Did you run setup-nfs-minikube.sh first?"
+ exit 1
+fi
+echo "==> NFS server IP: ${NFS_IP}"
+
+# PV name must be globally unique since PVs are cluster-scoped.
+PV_NAME="nfs-shared-pv-${TARGET_NS}"
+
+echo "==> Ensuring namespace '${TARGET_NS}' exists..."
+kubectl create namespace "${TARGET_NS}" --dry-run=client -o yaml | kubectl apply -f -
+
+echo "==> Creating PV '${PV_NAME}' and PVC '${PVC_NAME}' in '${TARGET_NS}'..."
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${PV_NAME}
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  mountOptions:
+    - nfsvers=4.1
+  nfs:
+    server: ${NFS_IP}
+    path: /
+  # Pre-bind to the PVC below so nothing else can claim it.
+  claimRef:
+    namespace: ${TARGET_NS}
+    name: ${PVC_NAME}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${PVC_NAME}
+  namespace: ${TARGET_NS}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: ${PV_NAME}
+EOF
+
+echo ""
+echo "==> Done. Mount it from any deployment in '${TARGET_NS}':"
+cat <<EOF
+
+  volumes:
+    - name: shared
+      persistentVolumeClaim:
+        claimName: ${PVC_NAME}
+  # ...then in your container:
+  volumeMounts:
+    - name: shared
+      mountPath: /data
+
+Verify:
+  kubectl get pvc -n ${TARGET_NS} ${PVC_NAME}
+  kubectl get pv ${PV_NAME}
+EOF

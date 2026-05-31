@@ -1,0 +1,25 @@
+# =============================================================================
+# Example IngressRoute that uses the auth-shim ForwardAuth middleware.
+# Every request to https://api.example.com/* will be probed by auth-shim
+# at http://<release>-auth-shim.<ns>.svc.cluster.local:8080/auth before
+# being forwarded to the `my-app` Service.
+# =============================================================================
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: auth-shim-ingressRoute
+  namespace: traefik-auth
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`test.xxx`)
+      kind: Rule
+      middlewares:
+        - name: auth-shim-forward-auth   # must match traefik.middlewareName in auth-shim values
+          namespace: auth-shim           # namespace the auth-shim chart was released into
+      services:
+        - name: my-app
+          port: 80
+  tls:
+    secretName: traefik-ingress-tls       # optional override; otherwise TLSStore default is used

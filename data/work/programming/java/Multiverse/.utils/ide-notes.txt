@@ -1,0 +1,15 @@
+
+# Used for Google Code formatter
+--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED
+--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED
+# Utilize the GPU
+-Dsun.java2d.d3d=true
+-Dsun.java2d.noddraw=false
+# Increate the VM memory
+-Xmx25600m
+# Increase the terminal redraw rate
+-Dconsole.flush.delay.ms=50

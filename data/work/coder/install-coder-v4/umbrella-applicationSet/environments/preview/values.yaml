@@ -1,0 +1,53 @@
+# =============================================================================
+# environments/preview/values.yaml — overrides for PREVIEW branches
+#
+# IMPORTANT: do NOT define `coder.coder.env` here. The ApplicationSet's
+# preview generator overrides it via `helm.valuesObject` to inject the
+# branch-specific CODER_ACCESS_URL.
+# =============================================================================
+
+cloudnative-pg:
+  enabled: false                     # operator installed cluster-wide on dev cluster
+
+postgres:
+  enabled: true
+  name: coder-pg
+  instances: 1
+  database: coder
+  owner: coder
+
+  # Small + ephemeral. Previews are short-lived.
+  storage:
+    size: 5Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+coder:
+  coder:
+    replicaCount: 1
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+
+    # ClusterIP + Ingress is the typical preview pattern: each preview gets
+    # a wildcard hostname like <branch>.preview.coder.example.com via your
+    # ingress controller. (Set up wildcard DNS + cert-manager separately.)
+    service:
+      type: ClusterIP
+
+    ingress:
+      enable: true
+      className: nginx               # CHANGE ME — your ingress class
+      # The hostname is templated per-branch by the ApplicationSet's
+      # valuesObject (see argocd/applicationset.yaml).
+      tls:
+        - secretName: coder-preview-wildcard-tls

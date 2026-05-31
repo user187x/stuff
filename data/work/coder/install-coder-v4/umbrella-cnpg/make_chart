@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+echo "Adding Helm repositories..."
+helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts --force-update
+helm repo add coder https://helm.coder.com/v2 --force-update
+
+echo "Updating Chart dependencies..."
+helm dependency build umbrella-cnpg/
+
+echo "Packing the Helm chart..."
+helm package umbrella-cnpg/
+
+# Only run this if you are using the Harbor OCI registry
+# echo "Pushing the chart to Harbor..."
+# helm push coder-umbrella-0.2.1.tgz oci://harbor.local/library

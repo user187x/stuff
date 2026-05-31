@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  ~ This file is part of Compass.
+  ~ Copyright (C) 2021 Philipp Bobek <philipp.bobek@mailbox.org>
+  ~
+  ~ This program is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Compass is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="108dp"
+        android:height="108dp"
+        android:viewportWidth="108"
+        android:viewportHeight="108">
+
+    <group
+            android:scaleX="0.135"
+            android:scaleY="0.135">
+
+        <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M400,150 L360,360 L400,400 Z" />
+        <path
+                android:fillColor="#000000"
+                android:pathData="M400,150 L440,360 L400,400 Z" />
+        <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M650,400 L440,360 L400,400 Z" />
+        <path
+                android:fillColor="#000000"
+                android:pathData="M650,400 L440,440 L400,400 Z" />
+        <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M400,650 L440,440 L400,400 Z" />
+        <path
+                android:fillColor="#000000"
+                android:pathData="M400,650 L360,440 L400,400 Z" />
+        <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M150,400 L360,440 L400,400 Z" />
+        <path
+                android:fillColor="#000000"
+                android:pathData="M150,400 L360,360 L400,400 Z" />
+
+    </group>
+
+</vector>

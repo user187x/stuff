@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Define your source file and destination directory
+PLAYLIST="url-playlist.txt"
+DEST_DIR="mp3"
+
+# Create the destination directory just in case it was deleted
+mkdir -p "$DEST_DIR" > /dev/null 2>&1
+
+# Filter out invalid lines (like "No URL found") into a temporary clean list
+grep "^http" "$PLAYLIST" > valid-urls.txt
+
+echo "Scanning YouTube API against local files to find and download missing MP3s..."
+
+# yt-dlp will check the video title, see if the file exists in /mp3, 
+# and gracefully skip it if it does. If it's missing, it downloads it.
+yt-dlp --extract-audio \
+  --progress \
+  --newline \
+  --console-title \
+  --audio-format mp3 \
+  --audio-quality 0 \
+  --embed-thumbnail \
+  --embed-metadata \
+  --no-overwrites \
+  --batch-file valid-urls.txt \
+  --output "$DEST_DIR/%(title)s.%(ext)s"
+
+# Clean up the temporary URL list
+rm valid-urls.txt
+
+echo "Sync completely finished!"

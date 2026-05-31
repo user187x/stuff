@@ -1,0 +1,9 @@
+#!/bin/bash
+
+cd proviision-cluster-terraform/
+
+terraform destroy -auto-approve
+
+for n in talos-cp-0 talos-worker-0 talos-worker-1; do
+   VBoxManage unregistervm "$n" --delete 2>/dev/null || true
+   done

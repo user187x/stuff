@@ -1,0 +1,468 @@
+#!/bin/bash
+
+# Global filter variable
+FILTER="$1"
+
+# --- ANSI COLOR CODES ---
+C_RESET="\e[0m"
+C_BOLD="\e[1m"
+C_UNDERLINE="\e[4m"
+C_DIM="\e[2m"
+
+# Palette
+C_APP="\e[1;36m" # Bold Cyan
+C_LABEL="\e[90m" # Dark Gray (Dim)
+C_CMD="\e[1;32m" # Bold Green
+C_ARG="\e[1;33m" # Bold Yellow
+C_TEXT="\e[37m"  # White
+
+_formalize() {
+ local app=""
+ local synopsis=""
+ local cmd_str=""
+ local explanations=()
+
+ # Process arguments
+ while [[ "$#" -gt 0 ]]; do
+  case $1 in
+  --app)
+   app="$2"
+   shift
+   ;;
+  --synopsis)
+   synopsis="$2"
+   shift
+   ;;
+  --command)
+   cmd_str="$2"
+   shift
+   ;;
+  --explain)
+   explanations+=("$2")
+   shift
+   ;;
+  *) ;;
+  esac
+  shift
+ done
+
+ # FILTER LOGIC
+ if [[ -n "$FILTER" ]]; then
+  if [[ "${app,,}" != *"${FILTER,,}"* ]]; then
+   return
+  fi
+ fi
+
+ # --- DISPLAY HEADER ---
+ echo -e "${C_DIM}──────────────────────────────────────────────────────────────${C_RESET}"
+ echo -e "${C_APP}${C_BOLD}${C_UNDERLINE}${app}${C_RESET}"
+ echo -e " ${C_LABEL}Synopsis ::${C_RESET} ${synopsis}"
+ echo -e " ${C_LABEL}Command  ::${C_RESET} ${C_CMD}${cmd_str}${C_RESET}"
+
+ # --- PROCESS & DISPLAY BREAKDOWN (Pure Bash Alignment) ---
+ if [ ${#explanations[@]} -gt 0 ]; then
+  echo -e " ${C_LABEL}Breakdown::${C_RESET}"
+
+  # 1. Calculate the maximum length of the "Argument" (Left side)
+  local max_len=0
+  for explanation in "${explanations[@]}"; do
+   local lhs="${explanation%%:*}"
+   if [[ ${#lhs} -gt $max_len ]]; then
+    max_len=${#lhs}
+   fi
+  done
+
+  # 2. Print with dynamic padding
+  for explanation in "${explanations[@]}"; do
+   local lhs="${explanation%%:*}"
+   local rhs="${explanation#*:}"
+
+   # If line has no colon, print plainly
+   if [[ "$lhs" == "$explanation" ]]; then
+    echo -e "   ${C_TEXT}ⓘ $lhs${C_RESET}"
+   else
+    # printf format: Indent + ColorArg + PaddedString + Reset + Separator + Description
+    printf "   ${C_ARG}%-${max_len}s${C_RESET}  ${C_DIM}:${C_RESET}  ${C_TEXT}%s${C_RESET}\n" "$lhs" "$rhs"
+   fi
+  done
+ fi
+ echo
+}
+
+function knowledge {
+
+ # GIT
+ _formalize --app "Git" \
+  --synopsis "Remove all untracked files from directory" \
+  --command "git clean -nfd" \
+  --explain "-n : dry-run (shows what will be done)" \
+  --explain "-f : force (required to run actual clean)" \
+  --explain "-d : delete untracked directories too"
+
+ # KUBERNETES
+ _formalize --app "Kubernetes" \
+  --synopsis "Launch temporary busybox pod for debugging" \
+  --command "kubectl run -it --rm debug --image=busybox --restart=Never -- sh" \
+  --explain "-it : Interactive TTY mode" \
+  --explain "--rm : Delete pod automatically on exit" \
+  --explain "--restart=Never : Run as Pod, not Deployment"
+
+ # TMUX
+ _formalize --app "Tmux" \
+  --synopsis "Synchronize panes (typing mimics across all panes)" \
+  --command "Ctrl+b :setw synchronize-panes" \
+  --explain "Ctrl+b : Prefix key" \
+  --explain ":setw ... : Enters command prompt inside Tmux" \
+  --explain "Use Case : Updating multiple servers at once"
+
+ # TMUX
+ _formalize --app "Tmux" \
+  --synopsis "Show file browser within terminal" \
+  --command "<prefix> + F (shift + F)" \
+  --explain "Use Case : View directories on the fly"
+
+ # AWK
+ _formalize --app "Awk" \
+  --synopsis "Print specific columns from output" \
+  --command "docker ps | awk '{print \$1, \$NF}'" \
+  --explain "\$1 : First column (ID)" \
+  --explain "\$NF : Last column (Name)" \
+  --explain "Note : Default delimiter is whitespace"
+
+ # BASH - Substitution
+ _formalize --app "Bash (History)" \
+  --synopsis "Fix typo in previous command" \
+  --command "^old^new" \
+  --explain "^old : String to find in previous command" \
+  --explain "^new : String to replace it with"
+
+ # GREP
+ _formalize --app "Grep" \
+  --synopsis "Recursive search with line numbers" \
+  --command "grep -rn \"search_term\" ." \
+  --explain "-r : Recursive search" \
+  --explain "-n : Show line numbers" \
+  --explain ". : Search current directory"
+
+ # COLUMN
+ _formalize --app "Column" \
+  --synopsis "Format messy CLI output into tables" \
+  --command "mount | column -t" \
+  --explain "-t : Auto-detect columns" \
+  --explain "Pipe : Use '|' to feed data into this"
+
+ # BASH - Brace
+ _formalize --app "Bash (Brace)" \
+  --synopsis "Quick file backup / generation" \
+  --command "cp file.txt{,.bak}" \
+  --explain "{a,b} : Expands to 'file.txt' and 'file.txt.bak'" \
+  --explain "Use Case : Quick config backups"
+
+ _formalize --app "Toilet" \
+  --synopsis "Pretty print text / ascii generation" \
+  --command "toilet -f slant --filter metal 'Hello World'" \
+  --explain "--font   : selected font name" \
+  --explain "--filter : metal,border..."
+
+ _formalize --app "Vim (NERDTree)" \
+  --synopsis "Toggle the file browser sidebar" \
+  --command ":NERDTreeToggle (Ctrl + n)" \
+  --explain ":NERDTreeToggle : Command to open/close the tree" \
+  --explain "<C-n>           : Common custom keybinding (Ctrl+n)" \
+  --explain "?               : Press inside tree for help menu"
+
+ # VIM - Permissions
+ _formalize --app "Vim" \
+  --synopsis "Change permissions of the current file to executable" \
+  --command ":!chmod +x %" \
+  --explain "!    : Execute an external shell command" \
+  --explain "%    : Vim shorthand representing the current file path"
+
+ # VIM - Format
+ _formalize --app "Vim" \
+  --synopsis "Bash format the current file" \
+  --command ":%!shfmt -i 1" \
+  --explain "%    : Selects all lines in the file" \
+  --explain "!    : Filters the selected lines through an external command" \
+  --explain "-i 1 : shfmt flag to indent by 1 space"
+
+ # VIM - Delete All
+ _formalize --app "Vim" \
+  --synopsis "Delete entire contents of the current file" \
+  --command ":%d" \
+  --explain "%   : Range representing all lines in the file" \
+  --explain "d   : Delete command"
+
+ # PKI - Directory Scan
+ _formalize --app "PKI (Directory Scan)" \
+  --synopsis "Analyze all certificates and keys in a directory" \
+  --command "pki ./certs" \
+  --explain "Logic      : Scans for CSRs, Certs, P12s, and Keys" \
+  --explain "Auto-Fit   : Borders dynamically adjust to file path length" \
+  --explain "Color-Code : Blue=Cert, Red=Key, Yellow=P12, Cyan=CSR"
+
+ # PKI - Remote Cert
+ _formalize --app "PKI (Remote)" \
+  --synopsis "Fetch and analyze a live site certificate" \
+  --command "pki google.com" \
+  --explain "Flow      : Connects via s_client and pipes to analyzer" \
+  --explain "-s / --save : Use flag to download the remote cert locally"
+
+ # PKI - Verification
+ _formalize --app "PKI (Verify)" \
+  --synopsis "Check if a Private Key matches a Certificate" \
+  --command "pki --verify server.key server.crt" \
+  --explain "Logic      : Compares the modulus of both files" \
+  --explain "Outputs    : Prints 'MATCH!' or 'MISMATCH'"
+
+ # PKI - Search & Match
+ _formalize --app "PKI (Find Match)" \
+  --synopsis "Find which key in a folder matches a specific cert" \
+  --command "pki --find-match server.crt ./keys" \
+  --explain "Mechanism : Iterates through folder to find matching modulus"
+
+ # PKI - Chain Check
+ _formalize --app "PKI (Chain)" \
+  --synopsis "Verify the certificate chain for a host" \
+  --command "pki --chain rancher.xxx" \
+  --explain "Display   : Shows full chain depth and Issuer/Subject paths"
+
+ # --- NEW ADDITIONS FROM BASH_FUNCTIONS ---
+
+ # NOW
+ _formalize --app "Now" \
+  --synopsis "Display current time in New York" \
+  --command "now" \
+  --explain "TZ : Uses America/New_York timezone" \
+  --explain "Format : 12-hour format with AM/PM"
+
+ _formalize --app "Now" \
+  --synopsis "Use 'now' to timestamp log entries" \
+  --command "echo \"[\$(now)] Script started\" >> log.txt" \
+  --explain "\$(now) : Command substitution to inject current formatted time"
+
+ # CLOCK
+ _formalize --app "Clock" \
+  --synopsis "Display full-screen live clock in terminal" \
+  --command "clock" \
+  --explain "Dependencies : Requires 'toilet' and 'watch'" \
+  --explain "Exit : Press Ctrl+C to stop the clock"
+
+ _formalize --app "Clock" \
+  --synopsis "Run clock as background monitor" \
+  --command "clock" \
+  --explain "-t : Watch command hides its header" \
+  --explain "Filter : Uses 'border:gay' toilet filter for styling"
+
+ # CLIPBOARD
+ _formalize --app "Clipboard" \
+  --synopsis "Copy the contents of single or multiple files" \
+  --command "clipboard file1.txt file2.log" \
+  --explain "Arguments : Accepts multiple file paths" \
+  --explain "Logic : Concatenates all files with newlines in between"
+
+ _formalize --app "Clipboard" \
+  --synopsis "Copy standard input via pipe" \
+  --command "echo 'hello' | clipboard" \
+  --explain "Pipe : Detects /dev/stdin for input" \
+  --explain "Support : Works on Wayland (wl-copy) and X11 (xclip/xsel)"
+
+ # FMT
+ _formalize --app "Format (fmt)" \
+  --synopsis "Auto-format shell scripts in a directory" \
+  --command "fmt ./scripts" \
+  --explain "Dependency : Requires 'shfmt' utility" \
+  --explain "Logic : Recursively finds scripts or files without extensions"
+
+ _formalize --app "Format (fmt)" \
+  --synopsis "Interactively format shell scripts" \
+  --command "fmt -i ./scripts" \
+  --explain "-i : Interactive mode" \
+  --explain "Prompt : Asks (y/n) confirmation before formatting each file"
+
+ # TERMINAL_DEPTH
+ _formalize --app "Terminal Depth" \
+  --synopsis "Show nested terminal sessions cleanly" \
+  --command "terminal_depth" \
+  --explain "Output : Shows visual tree truncated at the current shell" \
+  --explain "Format : Clean display without process IDs"
+
+ _formalize --app "Terminal Depth" \
+  --synopsis "Show nested terminal sessions with PIDs" \
+  --command "terminal_depth --pid" \
+  --explain "--pid : Includes Process IDs in the tree output" \
+  --explain "Use Case : Debugging orphaned processes or shell layers"
+
+ # FZ (Fuzzy Finder)
+ _formalize --app "Fuzzy Action (fz)" \
+  --synopsis "Fuzzy find files and perform actions" \
+  --command "fz" \
+  --explain "Selection : Use 'Space' to multi-select items" \
+  --explain "Menu : Whiptail interface provides View, Edit, OpenWith, Delete"
+
+ _formalize --app "Fuzzy Action (fz)" \
+  --synopsis "Fuzzy find in a specific directory" \
+  --command "fz /var/log --preview 'tail -n 50 {}'" \
+  --explain "Path : First argument specifies the search directory" \
+  --explain "Arguments : Additional flags are passed directly to fzf"
+
+ # QR-CODE
+ _formalize --app "QR Code" \
+  --synopsis "Generate a QR code and display in terminal" \
+  --command "qr-code 'https://google.com'" \
+  --explain "Argument : Text or URL to encode" \
+  --explain "Prompt : Press enter to skip saving to a file"
+
+ _formalize --app "QR Code" \
+  --synopsis "Generate a QR code and save as PNG" \
+  --command "qr-code 'WiFi Password'" \
+  --explain "Save : Prompts for a save location (directory or filename)" \
+  --explain "Format : Saves as PNG with error correction"
+
+ # IMAGE-TO-ASCI
+ _formalize --app "Image to ASCII" \
+  --synopsis "Convert an image to ASCII art in terminal" \
+  --command "image-to-asci photo.jpg" \
+  --explain "Dependency : Requires 'jp2a' utility" \
+  --explain "Characters : Uses 'XxxVO' for shading"
+
+ _formalize --app "Image to ASCII" \
+  --synopsis "Convert image and save ASCII art to text file" \
+  --command "image-to-asci photo.jpg > art.txt" \
+  --explain "> : Standard bash redirection to save output" \
+  --explain "Note : Works best with high-contrast images"
+
+ # CONVERT-IMAGE
+ _formalize --app "Convert Image" \
+  --synopsis "Change an image file format" \
+  --command "convert-image input.png output.jpg" \
+  --explain "Dependency : Requires ImageMagick ('convert')" \
+  --explain "Quality : Forces 100% quality output by default"
+
+ _formalize --app "Convert Image" \
+  --synopsis "Batch convert images in directory (example)" \
+  --command "for i in *.png; do convert-image \"\$i\" \"\${i%.*}.jpg\"; done" \
+  --explain "Loop : Basic bash loop iterating through pngs" \
+  --explain "Substitution : Removes .png extension and adds .jpg"
+
+ # ALERT
+ _formalize --app "Alert" \
+  --synopsis "Notify upon command completion (Success)" \
+  --command "sleep 5; alert" \
+  --explain "Icon : Uses 'terminal' icon for exit status 0" \
+  --explain "Message : Parses history to show the exact command ran"
+
+ _formalize --app "Alert" \
+  --synopsis "Notify upon command completion (Failure)" \
+  --command "ls /root; alert" \
+  --explain "Exit Status : Checks \$? to determine success/failure" \
+  --explain "Icon : Uses 'error' icon for non-zero exit status"
+
+ # CLEAN
+ _formalize --app "Clean (APT)" \
+  --synopsis "Perform a full system package cleanup" \
+  --command "clean" \
+  --explain "sudo : Automatically invoked via sudo commands inside" \
+  --explain "Actions : Runs clean, autoclean, remove, and autoremove"
+
+ _formalize --app "Clean (APT)" \
+  --synopsis "Free up disk space on Ubuntu/Debian" \
+  --command "clean" \
+  --explain "autoremove : Purges unused dependencies" \
+  --explain "clean : Clears the local repository of retrieved package files"
+
+ # UPDATE
+ _formalize --app "Update (APT)" \
+  --synopsis "Fully update system packages" \
+  --command "update" \
+  --explain "Steps : Runs apt-get update then apt upgrade -y" \
+  --explain "Cleanup : Automatically calls the 'clean' function afterwards"
+
+ _formalize --app "Update (APT)" \
+  --synopsis "Keep system current and clean" \
+  --command "update" \
+  --explain "-y : Automatically answers yes to upgrade prompts" \
+  --explain "Efficiency : Combines update and cleanup into one command"
+
+ # PRETTYJSON
+ _formalize --app "Pretty JSON" \
+  --synopsis "Format and colorize a JSON file" \
+  --command "prettyJson config.json" \
+  --explain "Dependency : Requires 'jq' installed" \
+  --explain "Paging : Pipes output through 'less -R' for easy scrolling"
+
+ _formalize --app "Pretty JSON" \
+  --synopsis "Format a raw JSON string" \
+  --command "prettyJson '{\"key\":\"value\"}'" \
+  --explain "String : Detects raw input if file does not exist" \
+  --explain "Output : Prints colorized JSON to standard output"
+
+ # SPIN
+ _formalize --app "Spin" \
+  --synopsis "Display an animated loading spinner" \
+  --command "spin 'Processing...'" \
+  --explain "Message : Custom text displayed next to the spinner" \
+  --explain "Animation : Loops endlessly through braille characters"
+
+ _formalize --app "Spin" \
+  --synopsis "Run spinner alongside background job" \
+  --command "spin 'Wait' & pid=\$!; sleep 3; kill \$pid" \
+  --explain "& : Runs spinner in background" \
+  --explain "kill : Stops the infinite spinner loop when task finishes"
+
+ # PLAY
+ _formalize --app "Play Media" \
+  --synopsis "Play a specific audio/video file" \
+  --command "play track.mp3" \
+  --explain "Player : Uses 'mpv' under the hood" \
+  --explain "Headless : Enforces '--no-video' flag"
+
+ _formalize --app "Play Media" \
+  --synopsis "Play all MP3 files in a directory" \
+  --command "play ~/Music/Playlist" \
+  --explain "Find : Recursively searches directory for .mp3 files" \
+  --explain "Batch : Passes all found files as a playlist to mpv"
+
+ # MP3
+ _formalize --app "MP3" \
+  --synopsis "Alias to play command for audio files" \
+  --command "mp3 song.mp3" \
+  --explain "Alias : Calls 'play' function passing all arguments" \
+  --explain "Use Case : Intuitively play audio files from CLI"
+
+ _formalize --app "MP3" \
+  --synopsis "Play entire directories of music" \
+  --command "mp3 ./audio_folder" \
+  --explain "Batch : Collects and queues all .mp3 files found in folder" \
+  --explain "Output : Displays total count of found MP3s before playing"
+
+ # SEARCH
+ _formalize --app "Search" \
+  --synopsis "Interactive text search across files" \
+  --command "search 'TODO'" \
+  --explain "Dependencies: Requires 'rg' (ripgrep) and 'fzf'" \
+  --explain "Preview : Uses 'bat' or 'cat' to show syntax-highlighted context"
+
+ _formalize --app "Search" \
+  --synopsis "Search and open matched file in Vim" \
+  --command "search 'function_name'" \
+  --explain "Selection : Pressing Enter on a result gets the file path" \
+  --explain "Editor : Automatically opens the selected file in Vim"
+
+ # LIST-FONTS
+ _formalize --app "List Fonts" \
+  --synopsis "Preview all toilet/figlet fonts interactively" \
+  --command "list-fonts" \
+  --explain "Display : Iterates over /usr/share/figlet fonts" \
+  --explain "Paging : Pauses every 5 fonts for user review"
+
+ _formalize --app "List Fonts" \
+  --synopsis "Preview fonts with a specific toilet filter" \
+  --command "list-fonts 'metal'" \
+  --explain "Filter : Passes the filter (e.g. metal, gay) directly to toilet" \
+  --explain "Validation : Checks filter against available system filters"
+
+}
+
+# execute the function while retaining color
+knowledge | less -R

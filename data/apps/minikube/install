@@ -1,0 +1,39 @@
+#!/bin/bash
+
+echo "--- 🚀 Running Minikube installation script ---"
+
+# Fetch the latest minikube version tag (e.g., v1.32.0)
+LATEST_MINIKUBE_VERSION=$(curl -s https://api.github.com/repos/kubernetes/minikube/releases/latest | jq -r .tag_name)
+
+function _install {
+
+ echo "Installing minikube ${LATEST_MINIKUBE_VERSION}..."
+ curl -LO "https://github.com/kubernetes/minikube/releases/download/${LATEST_MINIKUBE_VERSION}/minikube-linux-amd64"
+
+ sudo install minikube-linux-amd64 /usr/local/bin/minikube
+ rm minikube-linux-amd64
+
+ echo "Minikube setup complete!"
+}
+
+# Check if minikube is installed
+if ! command -v minikube >/dev/null 2>&1; then
+
+ echo "Minikube is not installed."
+ _install
+
+else
+ # Get the current installed version
+ LOCAL_MINIKUBE_VERSION=$(minikube version --short)
+
+ # Compare local version with latest version
+ if [ "$LOCAL_MINIKUBE_VERSION" != "$LATEST_MINIKUBE_VERSION" ]; then
+  echo "Minikube update available! (Local: $LOCAL_MINIKUBE_VERSION -> Latest: $LATEST_MINIKUBE_VERSION)"
+  install_minikube
+ else
+  echo "Minikube is already up to date ($LOCAL_MINIKUBE_VERSION)."
+ fi
+fi
+
+echo "Setting Minikube alias"
+alias kubectl="minikube kubectl --"

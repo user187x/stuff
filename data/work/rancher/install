@@ -1,0 +1,104 @@
+#!/bin/bash
+
+PASS=1
+MINIKUBE_PROFILE="minikube"
+
+./pki-generator
+
+declare -A pki
+
+pki["CRT"]="./server-wildcard.crt"
+pki["KEY"]="./server-wildcard.key"
+pki["CA"]="./ca-cert.pem"
+
+for cert in "${!pki[@]}"; do
+ if [[ ! -f "${pki[$cert]}" ]]; then
+  echo -e "\e[91m(!)\e[0m Certficate not found: ${pki[$cert]}"
+  exit
+ else
+  echo -e "(\e[93mi\e[0m) Using certficate: ${pki[$cert]}" 
+ fi
+done
+
+echo "${certs[CA]}"
+echo "${certs[KEY]}"
+echo "${certs[CRT]}"
+
+echo "Terminating Minikube instance in 5 seconds...."
+sleep 5
+minikube delete
+
+rm -rf ~/.minikube
+rm -rf ~/.kube
+
+if minikube status -p "$MINIKUBE_PROFILE" >/dev/null 2>&1; then
+ echo "✅ Profile '$MINIKUBE_PROFILE' is already running."
+else
+ echo "🚀 Profile '$MINIKUBE_PROFILE' is not running. Starting..."
+ minikube start \
+  --kubernetes-version=v1.34.0 \
+  --memory=12000 \
+  --disk-size=40g \
+  --cpus=8
+fi
+
+minikube addons enable ingress
+
+helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1
+helm repo update
+
+helm repo add rancher-stable https://releases.rancher.com/server-charts/stable >/dev/null 2>&1
+helm repo update
+
+kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace cattle-system --dry-run=client -o yaml | kubectl apply -f -
+
+# Create the Rancher TLS secret
+kubectl create secret tls tls-rancher-ingress \
+ --cert="${pki[CRT]}" \
+ --key="${pki[KEY]}" \
+ --namespace cattle-system \
+ --dry-run=client -o yaml | kubectl apply -f -
+
+# Tell Kubernetes this is managed by Helm
+kubectl label secret tls-rancher-ingress -n cattle-system \
+ app.kubernetes.io/managed-by=Helm \
+ --overwrite
+
+# Tell Helm which release owns it, and instruct it NEVER to delete it
+kubectl annotate secret tls-rancher-ingress -n cattle-system \
+ meta.helm.sh/release-name=rancher \
+ meta.helm.sh/release-namespace=cattle-system \
+ helm.sh/resource-policy=keep \
+ --overwrite
+
+# Create the Rancher Ca-Cert
+kubectl create secret generic tls-ca \
+ --from-file=cacerts.pem="${pki[CA]}" \
+ --namespace cattle-system \
+ --dry-run=client -o yaml | kubectl apply -f -
+
+# Tell Kubernetes this is managed by Helm
+kubectl label secret tls-ca -n cattle-system \
+ app.kubernetes.io/managed-by=Helm \
+ --overwrite
+
+# Tell Helm which release owns it, and instruct it NEVER to delete it
+kubectl annotate secret tls-ca -n cattle-system \
+ meta.helm.sh/release-name=rancher \
+ meta.helm.sh/release-namespace=cattle-system \
+ helm.sh/resource-policy=keep \
+ --overwrite
+
+helm upgrade --install cert-manager jetstack/cert-manager \
+ --namespace cert-manager \
+ --create-namespace \
+ --set crds.enabled=true
+
+helm upgrade --install rancher rancher-stable/rancher \
+ --version 2.13.2 \
+ --namespace cattle-system \
+ --create-namespace \
+ --set hostname=rancher.xxx \
+ --set ingress.tls.source=secret \
+ --set privateCA=true

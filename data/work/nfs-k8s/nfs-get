@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#
+# Download a file or directory from the NFS shared volume to local
+# via an ephemeral busybox pod.
+#
+# Usage:
+#   ./nfs-get.sh <remote-path> [local-path]
+#
+# Examples:
+#   ./nfs-get.sh /index.html                 # -> ./index.html
+#   ./nfs-get.sh /index.html ./copy.html     # -> ./copy.html
+#   ./nfs-get.sh /assets ./local-assets      # directories work too
+#
+# Env overrides:
+#   NAMESPACE  Namespace where the PVC lives (default: nfs-demo)
+#   PVC        PVC name (default: nfs-shared-pvc)
+
+set -euo pipefail
+
+REMOTE="${1:-}"
+LOCAL="${2:-}"
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PVC="${PVC:-nfs-shared-pvc}"
+
+if [[ -z "$REMOTE" ]]; then
+ echo "Usage: $0 <remote-path> [local-path]"
+ echo "  e.g. $0 /index.html"
+ exit 1
+fi
+
+# Normalize remote path; default local to basename of remote
+[[ "$REMOTE" != /* ]] && REMOTE="/$REMOTE"
+[[ -z "$LOCAL" ]] && LOCAL="./$(basename "$REMOTE")"
+
+POD="nfs-get-$$"
+cleanup() { kubectl delete pod -n "$NAMESPACE" "$POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+echo "==> Launching ephemeral pod '$POD' in '$NAMESPACE'..."
+kubectl run "$POD" -n "$NAMESPACE" --restart=Never --image=busybox \
+ --overrides="{
+        \"spec\": {
+            \"containers\": [{
+                \"name\": \"$POD\",
+                \"image\": \"busybox\",
+                \"command\": [\"sleep\", \"3600\"],
+                \"volumeMounts\": [{\"name\": \"shared\", \"mountPath\": \"/data\"}]
+            }],
+            \"volumes\": [{
+                \"name\": \"shared\",
+                \"persistentVolumeClaim\": {\"claimName\": \"$PVC\"}
+            }]
+        }
+    }" >/dev/null
+
+kubectl wait -n "$NAMESPACE" --for=condition=ready "pod/$POD" --timeout=60s >/dev/null
+
+# Verify the source exists
+if ! kubectl exec -n "$NAMESPACE" "$POD" -- test -e "/data$REMOTE"; then
+ echo "Error: '/data$REMOTE' does not exist on the NFS volume."
+ exit 1
+fi
+
+echo "==> Copying /data$REMOTE -> $LOCAL ..."
+kubectl cp "$NAMESPACE/$POD:/data$REMOTE" "$LOCAL"
+
+echo "==> Done. Saved to: $LOCAL"
+ls -la "$LOCAL" 2>/dev/null || true

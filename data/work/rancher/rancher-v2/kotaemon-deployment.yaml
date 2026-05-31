@@ -1,0 +1,174 @@
+# -------------------
+# 1. Namespace
+# -------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kotaemon
+---
+# -------------------
+# 2. App Secrets (LLM Keys)
+# -------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kotaemon-secrets
+  namespace: kotaemon
+type: Opaque
+stringData:
+  # Add your API keys here
+  OPENAI_API_KEY: "sk-..."
+  AZURE_OPENAI_API_KEY: ""
+  COHERE_API_KEY: ""
+---
+# -------------------
+# 3. Basic Auth Secret (Traefik)
+# -------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kotaemon-auth-secret
+  namespace: kotaemon
+type: Opaque
+data:
+  # Default user: admin / password: admin
+  # Generated via: htpasswd -nb admin admin | base64
+  users: YWRtaW46JGFwcjEkc3FqV20uNGckc0N4d2V1L21hRWhQZ3l1SHYuV3AuMA==
+---
+# -------------------
+# 4. Traefik Middleware
+# -------------------
+# This CRD defines the Basic Auth logic.
+# Ensure your Traefik has CRDs installed (standard in Helm charts).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: kotaemon-auth
+  namespace: kotaemon
+spec:
+  basicAuth:
+    secret: kotaemon-auth-secret
+---
+# -------------------
+# 5. Persistent Storage
+# -------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kotaemon-pvc
+  namespace: kotaemon
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# -------------------
+# 6. Deployment
+# -------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kotaemon
+  namespace: kotaemon
+  labels:
+    app: kotaemon
+spec:
+  replicas: 1 # Stateful app; do not scale beyond 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kotaemon
+  template:
+    metadata:
+      labels:
+        app: kotaemon
+    spec:
+      containers:
+        - name: kotaemon
+          image: ghcr.io/cinnamon/kotaemon:main-lite
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7860
+              name: http
+          env:
+            - name: GRADIO_SERVER_NAME
+              value: "0.0.0.0"
+            - name: GRADIO_SERVER_PORT
+              value: "7860"
+            - name: GRADIO_QUEUE_CONCURRENCY_COUNT
+              value: "10"
+            # Secrets
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kotaemon-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /app/ktem_app_data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kotaemon-pvc
+---
+# -------------------
+# 7. Service
+# -------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: kotaemon
+  namespace: kotaemon
+spec:
+  selector:
+    app: kotaemon
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 7860
+  type: ClusterIP
+---
+# -------------------
+# 8. Ingress (Traefik)
+# -------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kotaemon-ingress
+  namespace: kotaemon
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    # Apply the Middleware defined in step 4.
+    # Format: <namespace>-<middleware_name>@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kotaemon-kotaemon-auth@kubernetescrd
+spec:
+  rules:
+    # CHANGE THIS to your domain
+    - host: kotaemon.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kotaemon
+                port:
+                  number: 80

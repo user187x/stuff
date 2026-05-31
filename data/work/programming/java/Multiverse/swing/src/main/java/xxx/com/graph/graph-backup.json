@@ -1,0 +1,168 @@
+{
+  "nodes": [
+    {
+      "id": "Stand",
+      "label": "Stand",
+      "type": "Ingress",
+      "x": 510.0,
+      "y": 425.0,
+      "note": ""
+    },
+    {
+      "id": "Ted",
+      "label": "Ted",
+      "type": "Ingress",
+      "x": 385.0,
+      "y": 382.0,
+      "note": ""
+    },
+    {
+      "id": "Mariel",
+      "label": "Mariel",
+      "type": "Ingress",
+      "x": 687.0,
+      "y": 359.0,
+      "note": ""
+    },
+    {
+      "id": "Courtnety",
+      "label": "Courtnety",
+      "type": "Ingress",
+      "x": 275.0,
+      "y": 313.0,
+      "note": ""
+    },
+    {
+      "id": "Bob",
+      "label": "Bob",
+      "type": "Ingress",
+      "x": 542.0,
+      "y": 72.0,
+      "note": ""
+    },
+    {
+      "id": "Shan",
+      "label": "Shan",
+      "type": "Ingress",
+      "x": 319.0,
+      "y": 504.0,
+      "note": ""
+    },
+    {
+      "id": "Josh",
+      "label": "Josh",
+      "type": "Ingress",
+      "x": 244.0,
+      "y": 37.0,
+      "note": ""
+    },
+    {
+      "id": "Greg",
+      "label": "Greg",
+      "type": "Ingress",
+      "x": 122.0,
+      "y": 65.0,
+      "note": "",
+      "color": -24454
+    },
+    {
+      "id": "Shannon",
+      "label": "Shannon",
+      "type": "Ingress",
+      "x": 137.0,
+      "y": 465.0,
+      "note": ""
+    },
+    {
+      "id": "Sam",
+      "label": "Sam",
+      "type": "Ingress",
+      "x": 439.0,
+      "y": 151.0,
+      "note": "",
+      "color": -12799119
+    }
+  ],
+  "edges": [
+    {
+      "sourceId": "Shannon",
+      "targetId": "Greg",
+      "relationship": "Works With",
+      "controlX": 72.0,
+      "controlY": 335.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Courtnety",
+      "targetId": "Mariel",
+      "relationship": "",
+      "controlX": 533.0,
+      "controlY": 101.0,
+      "isDuplex": true
+    },
+    {
+      "sourceId": "Courtnety",
+      "targetId": "Greg",
+      "relationship": "Knows",
+      "controlX": 219.0,
+      "controlY": 179.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Mariel",
+      "targetId": "Josh",
+      "relationship": "",
+      "controlX": 321.0,
+      "controlY": 185.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Shan",
+      "targetId": "Stand",
+      "relationship": "",
+      "controlX": 676.0,
+      "controlY": 557.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Bob",
+      "targetId": "Sam",
+      "relationship": "",
+      "controlX": 634.0,
+      "controlY": 252.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Bob",
+      "targetId": "Ted",
+      "relationship": "",
+      "controlX": 902.0,
+      "controlY": 36.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Josh",
+      "targetId": "Sam",
+      "relationship": "",
+      "controlX": 341.5,
+      "controlY": 94.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Courtnety",
+      "targetId": "Shan",
+      "relationship": "",
+      "controlX": 266.0,
+      "controlY": 455.0,
+      "isDuplex": false
+    },
+    {
+      "sourceId": "Stand",
+      "targetId": "Sam",
+      "relationship": "",
+      "controlX": 239.0,
+      "controlY": 235.0,
+      "isDuplex": true
+    }
+  ]
+}

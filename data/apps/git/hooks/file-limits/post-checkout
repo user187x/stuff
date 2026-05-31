@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Arguments passed by Git:
+# $1 = Previous HEAD
+# $2 = New HEAD
+# $3 = Checkout flag (1 = branch checkout, 0 = file checkout)
+
+# Only run if we are checking out a whole branch
+if [ "$3" == "1" ]; then
+ echo "Scanning repository for split files to recombine..."
+
+ # Find all directories ending in '-parts' tracked within the repository
+ find . -type d -name "*-parts" ! -path "*/\.git/*" | while read -r dir_name; do
+  clean_target="${dir_name%/}"
+  out_file="${clean_target%-parts}"
+
+  echo "Combining parts from '$clean_target'..."
+
+  # Combine parts into the target output file
+  cat "$clean_target"/*.part* >"$out_file"
+
+  if [[ -f "$clean_target/.checksum" ]]; then
+   echo "Verifying file integrity..."
+
+   original_hash=$(cat "$clean_target/.checksum")
+   new_hash=$(sha256sum "$out_file" | awk '{print $1}')
+
+   if [[ "$original_hash" == "$new_hash" ]]; then
+    echo "✅ Integrity check PASSED. File is perfectly restored!"
+    echo "Restored: $out_file"
+   else
+    echo "❌ Error: Integrity check FAILED! The combined file does not match the original."
+    # Clean up the corrupted recombination attempt
+    rm -f "$out_file"
+   fi
+  else
+   echo "⚠️ Warning: No .checksum file found. Combined successfully, but integrity could not be verified."
+  fi
+ done
+fi
+
+exit 0

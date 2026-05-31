@@ -1,0 +1,24 @@
+#!/bin/bash
+
+helm uninstall vllm-stack -n llm-ops
+
+cat <<EOF >vllm-values.yaml
+servingEngineSpec:
+  runtimeClassName: ""
+  modelSpec:
+    - name: "vllm-engine"
+      repository: "vllm/vllm-openai"
+      tag: "latest"
+      modelURL: "google/gemma-2-2b-it"
+      replicaCount: 1
+      requestCPU: 2
+      requestMemory: "8Gi"
+      requestGPU: 0
+      vllmConfig:
+        maxModelLen: 2048
+        extraArgs: ["--device", "cpu", "--enforce-eager"]
+EOF
+
+helm upgrade --install vllm-stack vllm/vllm-stack \
+ --namespace llm-ops \
+ --values vllm-values.yaml

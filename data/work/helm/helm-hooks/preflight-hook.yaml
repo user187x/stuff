@@ -1,0 +1,164 @@
+{{- if .Values.preflight.enabled }}
+# =============================================================================
+# Pre-install / pre-upgrade hook
+#
+# Runs as a Kubernetes Job before the chart's main resources are applied.
+# Fails the install fast (with a clear message) if prerequisites are missing,
+# so you don't end up with a half-configured chart that quietly 401s every
+# request.
+#
+# Checks:
+#   - validator-tls-secret exists in the release namespace and has key tls.crt
+#   - For every secret in traefik.tlsOption.caSecretNames: exists + has tls.crt
+#
+# Hook weights ensure ServiceAccount/Role/RoleBinding are created before the
+# Job, and everything cleans up after success.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "auth-shim.fullname" . }}-preflight
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "auth-shim.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "auth-shim.fullname" . }}-preflight
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "auth-shim.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "auth-shim.fullname" . }}-preflight
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "auth-shim.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "auth-shim.fullname" . }}-preflight
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "auth-shim.fullname" . }}-preflight
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "auth-shim.fullname" . }}-preflight
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "auth-shim.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "auth-shim.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: preflight
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "auth-shim.fullname" . }}-preflight
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: preflight
+          image: "{{ .Values.preflight.image.repository }}:{{ .Values.preflight.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          env:
+            - name: VALIDATOR_SECRET
+              value: {{ .Values.validator.tlsSecretName | quote }}
+            - name: CLIENT_CA_SECRETS
+              value: {{ join "," .Values.traefik.tlsOption.caSecretNames | quote }}
+            - name: TLSOPTION_ENABLED
+              value: {{ .Values.traefik.tlsOption.enabled | quote }}
+            - name: NS
+              value: {{ .Release.Namespace | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "▶ auth-shim pre-install checks (namespace=${NS})"
+
+              fail() { echo "✗ $*" >&2; exit 1; }
+              ok()   { echo "✓ $*"; }
+
+              # ---- validator CA -------------------------------------------------
+              if [ -z "${VALIDATOR_SECRET}" ]; then
+                ok "validator.tlsSecretName not set — skipping validator CA check"
+              else
+                if ! kubectl -n "${NS}" get secret "${VALIDATOR_SECRET}" >/dev/null 2>&1; then
+                  fail "secret '${VALIDATOR_SECRET}' missing in namespace '${NS}'.
+       Create it with:
+         kubectl create secret generic ${VALIDATOR_SECRET} \\
+           --from-file=tls.crt=/path/to/validator-ca.crt -n ${NS}"
+                fi
+                if ! kubectl -n "${NS}" get secret "${VALIDATOR_SECRET}" \
+                       -o jsonpath='{.data.tls\.crt}' | grep -q .; then
+                  fail "secret '${VALIDATOR_SECRET}' has no 'tls.crt' key (validator CA bundle)"
+                fi
+                ok "validator CA secret '${VALIDATOR_SECRET}' present"
+              fi
+
+              # ---- client CA bundles for TLSOption -----------------------------
+              if [ "${TLSOPTION_ENABLED}" != "true" ]; then
+                ok "tlsOption disabled — skipping client CA checks"
+              elif [ -z "${CLIENT_CA_SECRETS}" ]; then
+                fail "traefik.tlsOption.enabled=true but traefik.tlsOption.caSecretNames is empty.
+       Without a client CA bundle, Traefik can't verify client certs and the
+       whole mTLS chain will reject every request."
+              else
+                IFS=',' ; for s in ${CLIENT_CA_SECRETS}; do
+                  if ! kubectl -n "${NS}" get secret "${s}" >/dev/null 2>&1; then
+                    fail "client CA secret '${s}' missing in namespace '${NS}'"
+                  fi
+                  if ! kubectl -n "${NS}" get secret "${s}" \
+                         -o jsonpath='{.data.tls\.crt}' | grep -q .; then
+                    fail "secret '${s}' has no 'tls.crt' key"
+                  fi
+                  ok "client CA secret '${s}' present"
+                done
+              fi
+
+              echo "✓ pre-flight passed"
+{{- end }}

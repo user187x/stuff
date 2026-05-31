@@ -1,0 +1,28 @@
+# invocation artifacts
+package-backup/
+apt-cache/
+
+# operating system
+.DS_store
+.netrwhist
+
+# file extensions
+*.sass-cache
+*.scss
+*.vscode
+*.css
+*.git
+*.iso
+
+# certificate related
+**/certs/
+*.crt
+*.key
+*.pem
+*.p12
+*.csr
+
+# Ignore all large file part directories by default
+*-parts/
+*-parts/*
+resources/os/components/icons/payload.tar

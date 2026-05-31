@@ -1,0 +1,87 @@
+# =============================================================================
+# coder-umbrella values
+# Sub-chart values are nested under their chart name (postgresql, coder).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Bitnami PostgreSQL (in-cluster). For production, use a managed Postgres and
+# set `postgresql.enabled: false`, then provide `dbUrlSecret.url` directly.
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: true
+
+  # As of late 2025, Bitnami restructured their image registry. The Coder docs
+  # example uses the legacy image to match prior behavior. Adjust as needed.
+  image:
+    repository: bitnamilegacy/postgresql
+
+  auth:
+    username: coder
+    password: coder        # CHANGE ME for any real environment
+    database: coder
+
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+# -----------------------------------------------------------------------------
+# DB URL secret. The Coder chart expects a secret named `coder-db-url` with
+# key `url`. This umbrella chart creates it from the values above so the two
+# sub-charts stay loosely coupled.
+# -----------------------------------------------------------------------------
+dbUrlSecret:
+  create: true
+  name: coder-db-url
+  # Used only when postgresql.enabled is false (external DB).
+  # Example: postgres://user:pass@db.example.com:5432/coder?sslmode=require
+  url: ""
+
+# -----------------------------------------------------------------------------
+# Coder control plane.
+# Note the double-nested `coder.coder.*` — the outer key is the dependency
+# alias (the chart's name), the inner is Coder's own top-level "coder" key.
+# -----------------------------------------------------------------------------
+coder:
+  enabled: true
+
+  coder:
+    env:
+      - name: CODER_PG_CONNECTION_URL
+        valueFrom:
+          secretKeyRef:
+            name: coder-db-url
+            key: url
+
+      # Disable the default GitHub OAuth provider in any real deployment;
+      # configure your own OIDC/OAuth2 provider via additional env vars.
+      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+        value: "false"
+
+      # Required for production: the externally reachable URL.
+      # - name: CODER_ACCESS_URL
+      #   value: "https://coder.example.com"
+
+      # Required if you terminate TLS at a proxy/LB and want correct client IPs.
+      # - name: CODER_PROXY_TRUSTED_HEADERS
+      #   value: X-Forwarded-For
+      # - name: CODER_PROXY_TRUSTED_ORIGINS
+      #   value: 10.0.0.0/8
+
+    service:
+      type: LoadBalancer
+      # AWS NLB example — uncomment for EKS:
+      # externalTrafficPolicy: Local
+      # sessionAffinity: None
+      # annotations:
+      #   service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+    # tls:
+    #   secretNames:
+    #     - coder-tls

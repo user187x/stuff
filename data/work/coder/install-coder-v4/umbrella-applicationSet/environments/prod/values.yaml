@@ -1,0 +1,88 @@
+# =============================================================================
+# environments/prod/values.yaml — overrides for the PROD environment
+# =============================================================================
+
+# CloudNativePG operator: assume already installed cluster-wide in prod.
+# Flip to true if the umbrella should install/manage the operator itself.
+cloudnative-pg:
+  enabled: false
+
+postgres:
+  enabled: true
+  name: coder-pg
+  instances: 3                       # 1 primary + 2 streaming replicas
+  database: coder
+  owner: coder
+
+  storage:
+    size: 100Gi
+    storageClass: gp3                # CHANGE ME — fast SSD class
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+
+  postgresql:
+    parameters:
+      max_connections: "400"
+      shared_buffers: "1GB"
+      effective_cache_size: "3GB"
+
+  monitoring:
+    enabled: true
+
+  # Backups to S3 — wire up an IRSA role or static creds in `backup-creds`.
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://my-bucket-prod/coder-pg     # CHANGE ME
+      s3Credentials:
+        accessKeyId:
+          name: backup-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: backup-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+    retentionPolicy: "30d"
+
+coder:
+  coder:
+    # Helm replaces arrays — define the full env list here.
+    env:
+      - name: CODER_PG_CONNECTION_URL
+        valueFrom:
+          secretKeyRef:
+            name: coder-pg-app
+            key: uri
+      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+        value: "false"
+      - name: CODER_ACCESS_URL
+        value: "https://coder.example.com"              # CHANGE ME
+      - name: CODER_PROXY_TRUSTED_HEADERS
+        value: X-Forwarded-For
+      - name: CODER_PROXY_TRUSTED_ORIGINS
+        value: 10.0.0.0/8                               # CHANGE ME — your LB CIDR
+
+    replicaCount: 3                  # HA control plane
+
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      sessionAffinity: None
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+    tls:
+      secretNames:
+        - coder-tls                  # cert-manager / external-secrets should populate this

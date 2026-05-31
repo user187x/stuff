@@ -1,0 +1,42 @@
+#!/bin/bash
+
+set -e
+
+echo "🚀 Running Helm installation script"
+
+if [ -f "/usr/local/bin/helm" ]; then
+ echo "🧹 Removing old manual Helm binary found at /usr/local/bin/helm..."
+ rm /usr/local/bin/helm
+fi
+
+echo "📦 Installing necessary dependencies..."
+sudo apt-get update
+sudo apt-get install -y apt-transport-https gnupg curl
+
+echo "🔐 Importing Helm GPG key..."
+curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor | tee /usr/share/keyrings/helm.gpg >/dev/null
+
+echo "🌍 Adding the Helm repository to APT sources..."
+SYSTEM_ARCH=$(dpkg --print-architecture)
+GPG_KEY_PATH="/usr/share/keyrings/helm.gpg"
+HELM_REPO_URL="https://baltocdn.com/helm/stable/debian/"
+REPO_COMPONENTS="all main"
+DESTINATION_FILE="/etc/apt/sources.list.d/helm-stable-debian.list"
+
+APT_SOURCE_ENTRY="deb [arch=${SYSTEM_ARCH} signed-by=${GPG_KEY_PATH}] ${HELM_REPO_URL} ${REPO_COMPONENTS}"
+
+echo "📝 Writing Helm repository entry to ${DESTINATION_FILE}..."
+echo "${APT_SOURCE_ENTRY}" | tee "${DESTINATION_FILE}" > /dev/null
+
+echo "🛠️ Fetching the latest version and installing Helm..."
+sudo apt-get update
+sudo apt-get install -y helm
+
+# 7. Verify the installation
+echo ""
+echo "🎉 SUCCESS! Helm has been installed/upgraded."
+echo "--------------------------------------------------------"
+echo "Current Version:"
+helm version --short
+echo ""
+echo "You are ready to start managing Kubernetes packages!"

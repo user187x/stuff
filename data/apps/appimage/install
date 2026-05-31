@@ -1,0 +1,26 @@
+#!/bin/bash
+
+NAME="appimagetool"
+DESTINATION="${HOME}/.local/bin"
+TARGET="${PWD}/${NAME}"
+
+echo
+echo -e "\e[90m Ensuring desination path exists: ${DESTINATION}\e[0m"
+echo
+
+mkdir -p "${DESTINATION}"
+
+if [[ -f "${DESTINATION}/${NAME}" ]]; then
+ echo -e "${NAME} already installed!"
+ exit 0
+fi
+
+if [[ ! -f "${TARGET}" ]]; then
+ echo -e "(!) Target file [\e[93m${TARGET}\e[0m] found. Aborting..."
+ exit 1
+else
+ cp -f "${NAME}" "${DESTINATION}"
+fi
+
+echo -e "\e[92m${NAME}\e[0m installation complete!"
+echo

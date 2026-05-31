@@ -1,0 +1,844 @@
+#!/bin/bash
+
+# Determine if the auto-approve flag is set
+AUTO_APPROVE=0
+for arg in "$@"; do
+    if [[ "$arg" == "--approve" ]]; then
+        AUTO_APPROVE=1
+        break
+    fi
+done
+
+# Helper function to prompt the user for each script
+run_step() {
+    local step_name="$1"
+    local func_name="$2"
+
+    if [[ $AUTO_APPROVE -eq 1 ]]; then
+        echo -e "\n============================================="
+        echo -e "[AUTO-APPROVE] Applying: $step_name"
+        echo -e "============================================="
+        $func_name
+        return $?
+    fi
+
+    echo -e "\n------------------------------------------------------------"
+    while true; do
+        read -r -p "Apply update: $step_name? [y/N/skip]: " response
+        case "$response" in
+            [yY][eE][sS]|[yY])
+                echo -e "\nApplying $step_name..."
+                $func_name
+                return $?
+                ;;
+            [nN][oO]|[nN]|[sS][kK][iI][pP]|"")
+                echo "Skipping $step_name."
+                return 0
+                ;;
+            *)
+                echo "Invalid input. Please enter 'y', 'n', or 'skip'."
+                ;;
+        esac
+    done
+}
+
+# ==============================================================================
+# FUNCTION DEFINITIONS (Isolated in subshells to prevent `exit` from killing the master script)
+# ==============================================================================
+
+#
+enable_power_option_lid() (
+    # Define the config file path
+    CONFIG_FILE="/etc/systemd/logind.conf"
+    BACKUP_FILE="/etc/systemd/logind.conf.bak_$(date +%F_%T)"
+    
+    # Check if script is run as root
+    if [ "$EUID" -ne 0 ]; then
+     echo "Please run as root (use sudo)."
+     exit 1
+    fi
+    
+    echo "--- Ubuntu 24.04 Lid Close Configuration ---"
+    
+    # 1. Create a backup of the original file
+    if [ -f "$CONFIG_FILE" ]; then
+     cp "$CONFIG_FILE" "$BACKUP_FILE"
+     echo "Backup created at: $BACKUP_FILE"
+    else
+     echo "Error: $CONFIG_FILE not found!"
+     exit 1
+    fi
+    
+    # 2. Configure 'HandleLidSwitch' to 'poweroff'
+    sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=poweroff/' "$CONFIG_FILE"
+    echo "Set: HandleLidSwitch=poweroff (Shutdown on Battery)"
+    
+    # 3. Configure 'HandleLidSwitchExternalPower' to 'lock'
+    sed -i 's/^#\?HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=lock/' "$CONFIG_FILE"
+    echo "Set: HandleLidSwitchExternalPower=lock (Lock on AC Power)"
+    
+    # 4. Restart the service to apply changes
+    echo "Restarting systemd-logind service..."
+    systemctl restart systemd-logind
+    
+    echo "----------------------------------------------"
+    echo "Configuration complete!"
+    echo "Note: If the changes do not take effect immediately, please reboot your system."
+)
+
+#
+enable_keyboard_expose() (
+    KEY_PATH="/org/gnome/shell/keybindings/toggle-application-view"
+    TARGET_VAL="['<Shift>Super_L', '<Super>Shift_L', '<Super>Shift_R']"
+    
+    CURRENT_VAL=$(dconf read "$KEY_PATH")
+    
+    if [[ "$CURRENT_VAL" == "$TARGET_VAL" ]]; then
+     echo "The Shift+Super shortcut is ALREADY set."
+     read -p "Would you like to RESET it to the system default? (y/n): " choice
+     if [[ "$choice" =~ ^[Yy]$ ]]; then
+      dconf reset "$KEY_PATH"
+      echo "✅ Shortcut reset to default."
+     else
+      echo "❌ No changes made."
+     fi
+    else
+     echo "The Shift+Super shortcut is NOT currently active."
+     echo "Setting it now..."
+     dconf write "$KEY_PATH" "$TARGET_VAL"
+     echo "✅ Shortcut applied! Try pressing Shift+Super or Super+Shift now."
+    fi
+)
+
+#
+update_os_ulimits() (
+    if [ "$EUID" -ne 0 ]; then
+     echo "Error: Please run this script with sudo."
+     exit 1
+    fi
+    
+    FILE="/etc/security/limits.conf"
+    SOFT_LIMIT="* soft nofile 10000"
+    HARD_LIMIT="* hard nofile 10000"
+    
+    echo "Updating file descriptor limits in $FILE..."
+    
+    if grep -qF "$SOFT_LIMIT" "$FILE"; then
+     echo " -> Soft limit already exists. Skipping."
+    else
+     echo "$SOFT_LIMIT" >>"$FILE"
+     echo " -> Added soft limit."
+    fi
+    
+    if grep -qF "$HARD_LIMIT" "$FILE"; then
+     echo " -> Hard limit already exists. Skipping."
+    else
+     echo "$HARD_LIMIT" >>"$FILE"
+     echo " -> Added hard limit."
+    fi
+    
+    echo "Done! You must completely log out and log back in (or reboot) for changes to take effect."
+)
+
+#
+remove_os_recent_files() (
+    echo
+    echo "Removing 'recent' from file explorer"
+    echo "----------------------------------------------"
+    if gsettings set org.gnome.desktop.privacy remember-recent-files false >/dev/null 2>&1; then
+     echo -e "Setting complete!"
+     echo -e "To re-eanbled: \e[92mgsettings reset org.gnome.desktop.privacy remember-recent-files\e[0m"
+    else
+     echo -e "(\e[91m!\e[0m) Failed updating setting..."
+    fi
+    echo
+)
+
+#
+update_os_sudoers_timeout() (
+    if [[ $EUID -ne 0 ]]; then
+     echo "This script must be run as root. Try: sudo $0"
+     exit 1
+    fi
+    
+    echo "=== Adjust Sudo Password Timeout ==="
+    echo "Enter the desired timeout in minutes."
+    echo "       0 : Always prompt for a password"
+    echo "      15 : Standard Ubuntu default"
+    echo " 5256000 : Effectively never prompt again (10 years)"
+    read -p "Timeout value (minutes): " TIMEOUT
+    
+    if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]]; then
+     echo "Error: Input must be a valid positive number or 0."
+     exit 1
+    fi
+    
+    SUDOERS_FILE="/etc/sudoers.d/99_custom_timeout"
+    
+    echo "Defaults timestamp_timeout=$TIMEOUT" >"$SUDOERS_FILE"
+    chmod 0440 "$SUDOERS_FILE"
+    
+    if visudo -c -q; then
+     echo "Success! Sudo timeout updated to $TIMEOUT minutes."
+    else
+     echo "Error: Invalid syntax detected by visudo. Reverting changes."
+     rm "$SUDOERS_FILE"
+     exit 1
+    fi
+)
+
+#
+enable_inverse_fwd_search() (
+    echo
+    echo -e "set standard input mode: \e[94mstty\e[0m \e[1;92m-ixon\e[0m"
+    echo
+    stty -ixon
+    
+    export FZF_CTRL_R_OPTS="
+      --header='⌨️ NAVIGATION: [Ctrl+R] = Backwards | [Ctrl+S] = Forward'
+      --bind 'ctrl-r:up,ctrl-s:down'
+    "
+)
+
+#
+remove_os_bloatware() (
+    if [ "$EUID" -eq 0 ]; then
+     echo "Error: Please run this script as your standard user, NOT with sudo."
+     echo "The script will prompt you for your password when it needs root privileges."
+     exit 1
+    fi
+    
+    echo "=========================================="
+    echo " Ubuntu 24 Debloat & Cleanup Script"
+    echo "=========================================="
+    
+    echo -e "\n[1/5] Applying User-Specific Preferences..."
+    touch ~/.hushlogin
+    if ! grep -q "LESSHISTFILE" ~/.bashrc; then
+     echo "export LESSHISTFILE=/dev/null" >>~/.bashrc
+    fi
+    
+    gsettings set org.gnome.desktop.privacy remember-recent-files false
+    mkdir -p ~/Templates
+    touch ~/Templates/Text\ File.txt
+    
+    echo -e "\n[2/5] Requesting administrative privileges for system changes..."
+    sudo -v
+    
+    echo "Defaults !admin_flag" | sudo tee /etc/sudoers.d/disable_admin_file_in_home >/dev/null
+    sudo chmod 440 /etc/sudoers.d/disable_admin_file_in_home
+    
+    echo -e "\n[3/5] Purging unwanted applications via APT..."
+    sudo apt-get remove --purge -y libreoffice* uno-libs-private ure
+    sudo apt-get remove --purge -y yelp libreoffice-help-* totem
+    sudo rm -f /usr/share/applications/yelp.desktop
+    sudo apt-get remove --purge -y thunderbird*
+    
+    echo -e "\n[4/5] Checking for and removing Snap packages..."
+    if command -v snap >/dev/null 2>&1; then
+     echo "Snap installed. Removing Thunderbird snap..."
+     sudo snap remove thunderbird || true
+    else
+     echo "Snap not installed, skipping..."
+    fi
+    
+    echo -e "\n[5/5] Erasing system-wide and user configuration directories..."
+    sudo rm -rf /etc/thunderbird
+    sudo rm -rf /usr/lib/thunderbird
+    sudo rm -rf /usr/share/thunderbird
+    sudo rm -f /usr/share/applications/thunderbird.desktop
+    
+    for user_home in /home/*; do
+     if [ -d "$user_home/.thunderbird" ]; then
+      sudo rm -rf "$user_home/.thunderbird"
+     fi
+     if [ -d "$user_home/.cache/thunderbird" ]; then
+      sudo rm -rf "$user_home/.cache/thunderbird"
+     fi
+    done
+    
+    if [ -d "/root/.thunderbird" ]; then
+     sudo rm -rf "/root/.thunderbird"
+    fi
+    
+    echo -e "\n[Cleaning Up] Removing orphaned dependencies and APT cache..."
+    sudo apt-get autoremove --purge -y
+    sudo apt-get autoclean -y
+    
+    if command -v update-desktop-database >/dev/null 2>&1; then
+     sudo update-desktop-database /usr/share/applications
+    fi
+    
+    echo "----------------------------------------"
+    echo "Success: Unnecessary apps removed and Ubuntu 24 debloated."
+)
+
+#
+update_os_center_windows() (
+    echo "Configuring GNOME Window settings..."
+    
+    if command -v gsettings >/dev/null 2>&1; then
+     centered=$(gsettings get org.gnome.mutter center-new-windows)
+     if [[ "$centered" != "'true'" && "$centered" != "true" ]]; then
+      echo "Setting all windows to be centered!"gsettings set org.gnome.mutter center-new-windows true
+     else
+      echo "Failed applying configuration setting"
+     fi
+    fi
+    echo "Configuration settings for centering Gnome Windows complete"
+)
+
+#
+update_os_clock_12H() (
+    echo "Setting interface to use 12 Hr format"
+    gsettings set org.gnome.desktop.interface clock-format '12h'
+    echo "Interface clock-format settings update complete"
+)
+
+#
+remove_boot_logo() (
+    TARGET_FILE="/usr/share/plymouth/ubuntu-logo.png"
+    BACKUP_FILE="${TARGET_FILE}.bak"
+    TRANSPARENT_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+    
+    log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+    log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+    log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+    
+    check_root() {
+     if [ "$EUID" -ne 0 ]; then
+      log_error "Please run as root (use sudo)."
+      exit 1
+     fi
+    }
+    
+    restore_logo() {
+     log_info "Restoring original logo..."
+     if [ -f "$BACKUP_FILE" ]; then
+      cp "$BACKUP_FILE" "$TARGET_FILE"
+      log_info "Original logo restored from backup."
+      update_ramfs
+     else
+      log_error "No backup file found at $BACKUP_FILE. Cannot restore."
+      exit 1
+     fi
+    }
+    
+    update_ramfs() {
+     log_info "Updating initramfs (this may take a moment)..."
+     update-initramfs -u
+     if [ $? -eq 0 ]; then
+      log_info "Success! Reboot your system to see changes."
+     else
+      log_error "Failed to update initramfs."
+      exit 1
+     fi
+    }
+    
+    apply_patch() {
+     if [ ! -f "$TARGET_FILE" ]; then
+      log_error "Target file not found: $TARGET_FILE"
+      log_error "Your version of Ubuntu might store the logo elsewhere."
+      exit 1
+     fi
+    
+     if [ ! -f "$BACKUP_FILE" ]; then
+      log_info "Creating backup of original logo..."
+      cp "$TARGET_FILE" "$BACKUP_FILE"
+     else
+      log_warn "Backup already exists. Skipping backup to preserve original."
+     fi
+    
+     log_info "Generating transparent replacement logo..."
+     echo "$TRANSPARENT_PNG_B64" | base64 --decode >/tmp/transparent_logo_temp.png
+    
+     log_info "Overwriting current logo..."
+     mv /tmp/transparent_logo_temp.png "$TARGET_FILE"
+    
+     update_ramfs
+    }
+    
+    check_root
+    
+    if [ "$1" == "--restore" ]; then
+     restore_logo
+    else
+     echo "=========================================="
+     echo "  Ubuntu Login Logo Remover (Zero-to-Hero)"
+     echo "=========================================="
+     apply_patch
+    fi
+)
+
+#
+update_os_startup_sound() (
+    read -e -r -p "Enter path to audio file: " AUDIO_FILE
+    
+    AUDIO_FILE="${AUDIO_FILE/#\~/$HOME}"
+    if [ ! -f "$AUDIO_FILE" ]; then
+     echo "Error: File '$AUDIO_FILE' not found."
+     exit 1
+    fi
+    
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+     echo "Installing audio conversion software (ffmpeg)..."
+     sudo apt update >/dev/null 2>&1
+     if ! sudo apt install -y ffmpeg >/dev/null 2>&1; then
+      echo "Error: Failure installing ffmpeg. Aborting..."
+      exit 1
+     fi
+    fi
+    
+    SOUND_DIR="$HOME/.local/share/sounds/Yaru/stereo"
+    mkdir -p "$SOUND_DIR"
+    TARGET_FILE="$SOUND_DIR/desktop-login.ogg"
+    
+    echo "Converting '${AUDIO_FILE}' to system startup sound format..."
+    
+    if ! ffmpeg -y -i "$AUDIO_FILE" -c:a libvorbis "$TARGET_FILE" >/dev/null 2>&1; then
+     echo "Error: Failed to convert audio file."
+     exit 1
+    fi
+    
+    if ! command -v paplay >/dev/null 2>&1; then
+     echo "Installing pulseaudio-utils..."
+     if ! sudo apt install -y pulseaudio-utils >/dev/null 2>&1; then
+      echo "Error: Failed to install pulseaudio-utils. Aborting..."
+      exit 1
+     fi
+    fi
+    
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    AUTOSTART_FILE="$AUTOSTART_DIR/startup-sound.desktop"
+    
+    cat >"$AUTOSTART_FILE" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Startup Sound
+Comment=Plays a custom sound at login
+Exec=paplay "$TARGET_FILE"
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+    
+    echo "Enabling gsettings to allow sound events..."
+    gsettings set org.gnome.desktop.sound event-sounds true
+    
+    echo "Testing new startup sound..."
+    paplay "$TARGET_FILE"
+    echo "Startup sound updated successfully! It will play the next time you log in."
+    echo "To undo: rm '$AUTOSTART_FILE' '$TARGET_FILE'"
+)
+
+#
+enable_touchpad_twofinger() (
+    echo "Installing xserver synaptic inputs"
+    sudo apt install xserver-xorg-input-synaptics
+    
+    echo "Setting up touch-pad settings to enable two-finger scrolling"
+    synclient VertTwoFingerScroll=1
+    
+    echo "Enabeling gnome two-finger-scrolling"
+    gsettings set org.gnome.desktop.peripherals.touchpad two-finger-scrolling-enabled true
+    
+    read -r -p "Log out now? (y/n) : " response
+    
+    if [[ "$response" == "y" ]]; then
+     sudo pkill -u $USER
+    else
+     echo "Logout for changes to take effect"
+    fi
+)
+
+#
+update_os_alert_sound() (
+    THEME_DIR="/usr/share/sounds/custom"
+    STEREO_DIR="$THEME_DIR/stereo"
+    THEME_FILE="$THEME_DIR/index.theme"
+    SOURCE_SOUND="/usr/share/sounds/gnome/default/alerts/hum.ogg"
+    DEST_SOUND="$STEREO_DIR/bell.oga"
+    
+    echo "🎵 Starting the Custom Sound Theme Setup..."
+    
+    echo "Creating directory structure in /usr/share/sounds..."
+    sudo mkdir -p "$STEREO_DIR"
+    
+    echo "Creating theme configuration file..."
+    sudo tee "$THEME_FILE" >/dev/null <<EOF
+[Sound Theme]
+Name=custom
+Directories=stereo
+    
+[stereo]
+OutputProfile=stereo
+EOF
+    
+    echo "Copying the 'hum' sound file..."
+    if [ -f "$SOURCE_SOUND" ]; then
+     sudo cp "$SOURCE_SOUND" "$DEST_SOUND"
+    else
+     echo "❌ Error: Source sound $SOURCE_SOUND not found."
+     echo "Are you sure you are using standard Ubuntu with the GNOME desktop?"
+     exit 1
+    fi
+    
+    echo "Applying the custom sound theme to your GNOME profile..."
+    gsettings set org.gnome.desktop.sound theme-name custom
+    
+    echo "✅ Success! The 'hum' alert sound has been set."
+    echo "Note: You may need to log out and log back in for changes to take full effect."
+)
+
+#
+remove_os_power_mode_toggle() (
+    echo "Disabeling power-profiles..."
+    sudo systemctl mask power-profiles-daemon.service
+    echo "Complete!"
+)
+
+#
+remove_boot_splash() (
+    target="/etc/default/grub"
+    backup="/etc/default/grub.bak"
+    
+    if [[ "$1" == "restore" ]] || [[ "$1" == "--restore" ]]; then
+     if [[ ! -f "$backup" ]]; then
+      echo "No backup file present. Terminating"
+      exit 1
+     fi
+    
+     echo "Restoring previous grub version"
+     sudo mv $backup $target
+    
+     if [[ "$?" -eq 0 ]]; then
+      echo "Successfully restored grub file"
+      sudo rm $backup
+      exit 0
+     else
+      echo "Failure restoring grub file"
+      exit 1
+     fi
+    fi
+    
+    read -r -p "Writting new Grub file. Continue (y/n) : " response
+    if [[ "$response" != "y" ]]; then
+     echo "Terminating action"
+     exit 0
+    fi
+    
+    echo "Backing up origin grub file: $backup"
+    sudo cp "$target" "$backup"
+    
+    if [[ -f "$backup" ]]; then
+     echo "File successfully backed-up"
+    else
+     echo "Failure creating backup file: Terminating"
+     exit 1
+    fi
+    
+    cat tee "$target" <<EOF >>sudo
+GRUB_DEFAULT=0
+GRUB_TIMEOUT_STYLE=hidden
+GRUB_TIMEOUT=0
+GRUB_DISTRIBUTOR=$( (
+ . /etc/os-release
+ echo ${NAME:-Ubuntu}
+) 2>/dev/null || echo Ubuntu)
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX=""
+GRUB_GFXMODE=1920x1080x32
+GRUB_SAVEDEFAULT=true
+GRUB_DISABLE_OS_PROBER=true
+GRUB_DISABLE_RECOVERY=true
+GRUB_RECORDFAIL_TIMEOUT=0
+EOF
+    
+    if [[ "$?" -eq 0 ]]; then
+     echo "Successfully overwritten grub file with updates"
+     echo "Updating grub entry now"
+     sudo update-grub
+     return "$?"
+    else
+     echo "Failure writting to grub file"
+     exit 1
+    fi
+)
+
+#
+remove_os_boot_image() (
+    sudo update-alternatives \
+     --install /usr/share/plymouth/themes/default.plymouth default.plymouth \
+     /usr/share/plymouth/themes/spinner/spinner.plymouth 100
+    
+    sudo update-alternatives --config default.plymouth
+)
+
+#
+remove_os_login_logo() (
+    if command -v gdm-settings &>/dev/null; then
+     sudo add-apt-repository ppa:ubuntuhandbook1/gdm-settings
+     sudo apt update
+     sudo apt install gdm-settings libglib2.0-dev-bin
+    fi
+    
+    if command -v imagemagick &>/dev/null; then
+     sudo apt update -y &>/dev/null
+     sudo apt install imagemagicki -y &>/dev/null
+    fi
+    
+    read -r -p "Edit login screen logo (M)anully or (G)dm-settings? (m/d) : " input
+    if [[ "$input" == "m" ]]; then
+     TARGET_PATH="/usr/share/plymouth/ubuntu-logo.png"
+     sudo convert -size 256x86 xc:transparent "$TARGET_PATH"
+    else
+     nohup gdm-settings &>/dev/null &
+    fi
+)
+
+#
+update_os_mouse_theme() (
+    set -e
+    echo "==> Checking for git..."
+    if ! command -v git &>/dev/null; then
+     echo "Git not found. Installing git..."
+     sudo apt-get update
+     sudo apt-get install -y git
+    fi
+    
+    echo "==> Creating a temporary directory..."
+    TMP_DIR=$(mktemp -d)
+    cd "$TMP_DIR"
+    
+    echo "==> Cloning the Borealis-cursors repository..."
+    git clone https://github.com/alvatip/Borealis-cursors.git
+    
+    echo "==> Running the official system-wide installer..."
+    cd Borealis-cursors
+    sudo ./install.sh
+    
+    echo "==> Setting Borealis-cursors as your active theme..."
+    gsettings set org.gnome.desktop.interface cursor-theme "Borealis-cursors"
+    
+    echo "==> Cleaning up temporary files..."
+    cd ~
+    rm -rf "$TMP_DIR"
+    
+    echo "==> Success! The theme is installed system-wide."
+)
+
+#
+update_os_avatar() (
+    AVATAR_FILE=""
+    
+    if [[ -f "$1" ]]; then
+     AVATAR_FILE="$1"
+    else
+     read -e -r -p "Please provide path to profile image : " AVATAR_FILE
+     while true; do
+      if [[ ! -f "$AVATAR_FILE" ]]; then
+       echo "Image not found!"
+       read -e -r -p "Please provide path to profile image : " AVATAR_FILE
+      else
+       break
+      fi
+     done
+    fi
+    
+    if tar -tf "$AVATAR_FILE" >/dev/null 2>&1; then
+     tar -tvf "$AVATAR_FILE" | fzf-selector
+    fi
+    
+    echo "Setting profile picture for user: $USER..."
+    
+    if [ ! -f "$AVATAR_FILE" ]; then
+     echo "❌ Error: Avatar file not found at $AVATAR_FILE"
+     echo "Please ensure the file exists and try again."
+     exit 1
+    fi
+    
+    if command -v dbus-send &>/dev/null; then
+     echo "-> Updating AccountsService..."
+     dbus-send --system --print-reply \
+      --dest=org.freedesktop.Accounts \
+      /org/freedesktop/Accounts/User$(id -u) \
+      org.freedesktop.Accounts.User.SetIconFile \
+      string:"$AVATAR_FILE" &>/dev/null
+    
+     if [ $? -eq 0 ]; then
+      echo "✅ AccountsService updated successfully."
+     else
+      echo "⚠️ Failed to update via dbus. (Your system might not use AccountsService)."
+     fi
+    else
+     echo "⚠️ 'dbus-send' command not found. Skipping AccountsService update."
+    fi
+    
+    echo "-> Creating ~/.face symlinks as a fallback for login managers..."
+    ln -sf "$AVATAR_FILE" "$HOME/.face"
+    ln -sf "$AVATAR_FILE" "$HOME/.face.icon"
+    
+    echo "✅ Profile picture setup complete!"
+    echo "⚠️ Note: You may need to log out and log back in (or lock your screen) to see the changes everywhere."
+)
+
+#
+update_os_startup_apps() (
+    if ! command -v fzf &>/dev/null; then
+     echo "Error: fzf is not installed."
+     echo "Please install it by running: sudo apt install fzf"
+     exit 1
+    fi
+    
+    USER_DIR="$HOME/.config/autostart"
+    SYS_DIR="/etc/xdg/autostart"
+    
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    NC='\033[0m'
+    
+    mkdir -p "$USER_DIR"
+    
+    get_autostart_entries() {
+     local basenames=$( (
+      ls -1 "$SYS_DIR"/*.desktop 2>/dev/null
+      ls -1 "$USER_DIR"/*.desktop 2>/dev/null
+     ) | xargs -n 1 basename | sort -u)
+    
+     for b in $basenames; do
+      if [[ -f "$USER_DIR/$b" ]]; then
+       file="$USER_DIR/$b"
+      elif [[ -f "$SYS_DIR/$b" ]]; then
+       file="$SYS_DIR/$b"
+      else
+       continue
+      fi
+    
+      name=$(grep -m 1 "^Name=" "$file" | cut -d'=' -f2- | tr -d '\r')
+      [[ -z "$name" ]] && name="$b"
+    
+      formatted_name=$(printf "%-40.40s" "$name")
+    
+      if grep -Eqi "^(X-GNOME-Autostart-enabled=false|Hidden=true)" "$file"; then
+       status="${RED}[DISABLED]${NC}"
+      else
+       status="${GREEN}[ENABLED] ${NC}"
+      fi
+    
+      echo -e "$status || $formatted_name\t$file"
+     done
+    }
+    
+    echo "Scanning for autostart entries..."
+    
+    selected=$(get_autostart_entries | fzf \
+     --ansi \
+     --delimiter='\t' \
+     --with-nth=1 \
+     --prompt="Type to search. Enter to disable/enable (ESC to cancel) > " \
+     --layout=reverse \
+     --header=" STATUS    || NAME" \
+     --border="rounded" \
+     --info="inline" \
+     --preview='file={2}; echo -e "\033[1;34m=== Target File ===\033[0m\n$file\n\n\033[1;34m=== File Contents ===\033[0m"; cat "$file"' \
+     --preview-window="right:50%:wrap")
+    
+    if [[ -z "$selected" ]]; then
+     exit 0
+    fi
+    
+    file_path=$(echo "$selected" | awk -F'\t' '{print $2}')
+    filename=$(basename "$file_path")
+    user_override_file="$USER_DIR/$filename"
+    
+    echo "========================================"
+    
+    if grep -Eqi "^(X-GNOME-Autostart-enabled=false|Hidden=true)" "$file_path"; then
+     echo -e "Status: '$filename' is ALREADY ${RED}disabled${NC}."
+     exit 0
+    fi
+    
+    if [[ "$file_path" == "$SYS_DIR/"* ]]; then
+     echo "System file selected. Creating a local user override..."
+     cp "$file_path" "$user_override_file"
+    else
+     echo "User configuration file found..."
+    fi
+    
+    if grep -q "^X-GNOME-Autostart-enabled=" "$user_override_file"; then
+     sed -i 's/^X-GNOME-Autostart-enabled=.*/X-GNOME-Autostart-enabled=false/' "$user_override_file"
+    else
+     echo "X-GNOME-Autostart-enabled=false" >>"$user_override_file"
+    fi
+    
+    echo -e "${GREEN}Success!${NC} '$filename' will no longer start automatically."
+    echo "========================================"
+)
+
+#
+update_os_icon_theme() (
+    themes=("faenza-icon-theme" "numix-icon-theme-circle")
+    
+    for theme in "${themes[@]}"; do
+     sudo apt install "${theme}" -y
+    done
+    
+    sudo apt install gnome-tweak-tool
+)
+
+#
+update_os_theme_orchis() (
+    ORCHIS_THEME_INSTALLER="../themes/desktop/orchis/install.sh"
+    
+    if [[ ! -f "$ORCHIS_THEME_INSTALLER" ]]; then
+     echo "Orchis Gnome desktop theme installation script not found..."
+     return 1
+    else
+     if "$ORCHIS_THEME_INSTALLER" -t grey -c dark -s compact --round 15px --libadwaita; then
+      echo -e "(\e[90mi\e[0m) Orchis Gnome desktop theme installed..."
+     else
+      echo -e "(\e[91m!\e[0m) Failure installing Orchis Gnome desktop theme"
+     fi
+    fi
+)
+
+# ==============================================================================
+# MAIN EXECUTION FLOW
+# ==============================================================================
+
+echo "=========================================================="
+echo "    Ubuntu Auto-Configuration & Customization Script      "
+echo "=========================================================="
+
+run_step "Enable Power Option Lid" enable_power_option_lid
+run_step "Enable Keyboard Expose" enable_keyboard_expose
+run_step "Update OS ulimits" update_os_ulimits
+run_step "Remove OS Recent Files" remove_os_recent_files
+run_step "Update OS Sudoers Timeout" update_os_sudoers_timeout
+run_step "Enable Inverse Fwd Search" enable_inverse_fwd_search
+run_step "Remove OS Bloatware" remove_os_bloatware
+run_step "Update OS Center Windows" update_os_center_windows
+run_step "Update OS Clock 12H" update_os_clock_12H
+run_step "Remove Boot Logo" remove_boot_logo
+run_step "Update OS Startup Sound" update_os_startup_sound
+run_step "Enable Touchpad Twofinger" enable_touchpad_twofinger
+run_step "Update OS Alert Sound" update_os_alert_sound
+run_step "Remove OS Power Mode Toggle" remove_os_power_mode_toggle
+run_step "Remove Boot Splash" remove_boot_splash
+run_step "Remove OS Boot Image" remove_os_boot_image
+run_step "Remove OS Login Logo" remove_os_login_logo
+run_step "Update OS Mouse Theme" update_os_mouse_theme
+run_step "Update OS Avatar" update_os_avatar
+run_step "Update OS Startup Apps" update_os_startup_apps
+run_step "Update OS Icon Theme" update_os_icon_theme
+run_step "Update OS Theme Orchis" update_os_theme_orchis
+
+echo -e "\n=========================================================="
+echo " All selected configuration tasks have been processed! "
+echo "=========================================================="

@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+#
+# Display comprehensive information about the NFS setup:
+# pod, service, network, storage, consumers, and filesystem stats.
+#
+# Usage:
+#   ./nfs-info.sh
+#
+# Env overrides:
+#   NAMESPACE       Namespace where the NFS server runs (default: nfs-demo)
+#   PVC             PVC name to inspect filesystem through (default: nfs-shared-pvc)
+#   CLUSTER_DOMAIN  Cluster DNS suffix (default: cluster.local)
+
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PVC="${PVC:-nfs-shared-pvc}"
+CLUSTER_DOMAIN="${CLUSTER_DOMAIN:-cluster.local}"
+
+# Dependency check
+for cmd in kubectl jq; do
+ if ! command -v "$cmd" >/dev/null 2>&1; then
+  echo "Error: '$cmd' is required but not installed."
+  exit 1
+ fi
+done
+
+# Color only when stdout is a TTY
+if [[ -t 1 ]]; then
+ BOLD=$'\033[1;36m'
+ DIM=$'\033[2m'
+ RESET=$'\033[0m'
+else
+ BOLD=''
+ DIM=''
+ RESET=''
+fi
+
+section() {
+ printf "\n%s═══ %s ═══%s\n" "$BOLD" "$1" "$RESET"
+}
+
+# Verify NFS server exists
+if ! kubectl get svc -n "$NAMESPACE" nfs-server >/dev/null 2>&1; then
+ echo "Error: nfs-server service not found in namespace '$NAMESPACE'."
+ echo "Did you run setup-nfs-minikube.sh?"
+ exit 1
+fi
+
+# ─── NFS server pod ────────────────────────────────────────────────────
+section "NFS Server Pod"
+POD_NAME=$(kubectl get pods -n "$NAMESPACE" -l app=nfs-server -o jsonpath='{.items[0].metadata.name}')
+POD_INFO=$(kubectl get pod -n "$NAMESPACE" "$POD_NAME" -o json)
+
+printf "  %-14s %s\n" "Name:" "$POD_NAME"
+printf "  %-14s %s\n" "Namespace:" "$NAMESPACE"
+printf "  %-14s %s\n" "Status:" "$(echo "$POD_INFO" | jq -r '.status.phase')"
+printf "  %-14s %s\n" "Node:" "$(echo "$POD_INFO" | jq -r '.spec.nodeName')"
+printf "  %-14s %s\n" "Pod IP:" "$(echo "$POD_INFO" | jq -r '.status.podIP')"
+printf "  %-14s %s\n" "Image:" "$(echo "$POD_INFO" | jq -r '.spec.containers[0].image')"
+printf "  %-14s %s\n" "Restarts:" "$(echo "$POD_INFO" | jq -r '.status.containerStatuses[0].restartCount')"
+printf "  %-14s %s\n" "Started:" "$(echo "$POD_INFO" | jq -r '.status.startTime')"
+
+# ─── Service / Network ─────────────────────────────────────────────────
+section "Service / Network"
+NFS_IP=$(kubectl get svc -n "$NAMESPACE" nfs-server -o jsonpath='{.spec.clusterIP}')
+NFS_DNS="nfs-server.${NAMESPACE}.svc.${CLUSTER_DOMAIN}"
+
+printf "  %-14s %s\n" "ClusterIP:" "$NFS_IP"
+printf "  %-14s %s %s(usable from in-cluster pods only)%s\n" "DNS:" "$NFS_DNS" "$DIM" "$RESET"
+echo "  Ports:"
+kubectl get svc -n "$NAMESPACE" nfs-server -o json |
+ jq -r '.spec.ports[] | "    \(.name):\t\(.port)/\(.protocol)"'
+
+# ─── Backing storage (NFS server's own PVC) ────────────────────────────
+section "NFS Server Backing Storage"
+BACKING=$(kubectl get pvc -n "$NAMESPACE" nfs-server-storage -o json 2>/dev/null || echo "")
+if [[ -n "$BACKING" ]]; then
+ printf "  %-14s %s\n" "PVC:" "nfs-server-storage"
+ printf "  %-14s %s\n" "Capacity:" "$(echo "$BACKING" | jq -r '.status.capacity.storage')"
+ printf "  %-14s %s\n" "Status:" "$(echo "$BACKING" | jq -r '.status.phase')"
+ printf "  %-14s %s\n" "Volume:" "$(echo "$BACKING" | jq -r '.spec.volumeName')"
+ printf "  %-14s %s\n" "StorageClass:" "$(echo "$BACKING" | jq -r '.spec.storageClassName // "(default)"')"
+else
+ echo "  (not found)"
+fi
+
+# ─── Shared PVs (NFS-backed, RWX) ──────────────────────────────────────
+section "Shared PVs (backed by this NFS server)"
+PVS=$(kubectl get pv -o json | jq -r --arg ip "$NFS_IP" '
+    .items[] |
+    select(.spec.nfs != null and .spec.nfs.server == $ip) |
+    .metadata.name')
+
+if [[ -z "$PVS" ]]; then
+ echo "  None found."
+else
+ printf "  %-32s %-10s %-10s %s\n" "NAME" "CAPACITY" "STATUS" "BOUND TO"
+ printf "  %-32s %-10s %-10s %s\n" "────" "────────" "──────" "────────"
+ while IFS= read -r pv; do
+  info=$(kubectl get pv "$pv" -o json)
+  cap=$(echo "$info" | jq -r '.spec.capacity.storage')
+  status=$(echo "$info" | jq -r '.status.phase')
+  ns=$(echo "$info" | jq -r '.spec.claimRef.namespace // "-"')
+  claim=$(echo "$info" | jq -r '.spec.claimRef.name // "-"')
+  printf "  %-32s %-10s %-10s %s/%s\n" "$pv" "$cap" "$status" "$ns" "$claim"
+ done <<<"$PVS"
+fi
+
+# ─── Pods currently mounting NFS ───────────────────────────────────────
+section "Pods Currently Mounting NFS"
+if [[ -z "$PVS" ]]; then
+ echo "  No NFS-backed PVs found."
+else
+ found_any=false
+ while IFS= read -r pv; do
+  info=$(kubectl get pv "$pv" -o json)
+  ns=$(echo "$info" | jq -r '.spec.claimRef.namespace // empty')
+  claim=$(echo "$info" | jq -r '.spec.claimRef.name // empty')
+  [[ -z "$ns" || -z "$claim" ]] && continue
+
+  consumers=$(kubectl get pods -n "$ns" -o json 2>/dev/null | jq -r --arg c "$claim" '
+            .items[] |
+            select(.spec.volumes[]?.persistentVolumeClaim.claimName == $c) |
+            "    \(.metadata.namespace)/\(.metadata.name)  [\(.status.phase)]  on \(.spec.nodeName // "<pending>")"')
+
+  if [[ -n "$consumers" ]]; then
+   found_any=true
+   echo "  via PVC ${ns}/${claim}:"
+   echo "$consumers"
+  fi
+ done <<<"$PVS"
+ [[ "$found_any" == "false" ]] && echo "  No pods currently mounting NFS PVCs."
+fi
+
+# ─── Filesystem stats (via ephemeral pod) ──────────────────────────────
+section "Filesystem Stats"
+
+POD="nfs-info-$$"
+cleanup() { kubectl delete pod -n "$NAMESPACE" "$POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+echo "  Launching ephemeral pod..."
+kubectl run "$POD" -n "$NAMESPACE" --restart=Never --image=busybox \
+ --overrides="{
+        \"spec\": {
+            \"containers\": [{
+                \"name\": \"$POD\",
+                \"image\": \"busybox\",
+                \"command\": [\"sleep\", \"3600\"],
+                \"volumeMounts\": [{\"name\": \"shared\", \"mountPath\": \"/data\"}]
+            }],
+            \"volumes\": [{
+                \"name\": \"shared\",
+                \"persistentVolumeClaim\": {\"claimName\": \"$PVC\"}
+            }]
+        }
+    }" >/dev/null
+
+kubectl wait -n "$NAMESPACE" --for=condition=ready "pod/$POD" --timeout=60s >/dev/null
+
+echo ""
+echo "  Disk usage:"
+kubectl exec -n "$NAMESPACE" "$POD" -- df -h /data | sed 's/^/    /'
+
+echo ""
+FILES=$(kubectl exec -n "$NAMESPACE" "$POD" -- sh -c 'find /data -type f 2>/dev/null | wc -l' | tr -d ' ')
+DIRS=$(kubectl exec -n "$NAMESPACE" "$POD" -- sh -c 'find /data -mindepth 1 -type d 2>/dev/null | wc -l' | tr -d ' ')
+SYMLINKS=$(kubectl exec -n "$NAMESPACE" "$POD" -- sh -c 'find /data -type l 2>/dev/null | wc -l' | tr -d ' ')
+USED=$(kubectl exec -n "$NAMESPACE" "$POD" -- sh -c 'du -sh /data 2>/dev/null | cut -f1')
+
+printf "  %-14s %s\n" "Files:" "$FILES"
+printf "  %-14s %s\n" "Directories:" "$DIRS"
+printf "  %-14s %s\n" "Symlinks:" "$SYMLINKS"
+printf "  %-14s %s\n" "Used:" "$USED"
+
+echo ""
+echo "  Top-level entries:"
+kubectl exec -n "$NAMESPACE" "$POD" -- ls -lah /data | sed 's/^/    /'
+
+echo ""

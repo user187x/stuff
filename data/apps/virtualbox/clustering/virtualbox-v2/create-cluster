@@ -1,0 +1,181 @@
+#!/bin/bash
+# ==============================================================================
+# Headless Talos Kubernetes VirtualBox Provisioner
+# Features: Smart IP Allocation, Headless Boot, Auto-Discovery, Zero-Interaction
+# ==============================================================================
+set -euo pipefail
+
+# --- Configuration ---
+CLUSTER_NAME=${CLUSTER_NAME:-"talos-cluster"}
+TALOS_VERSION=${TALOS_VERSION:-v1.8.3}
+ISO_NAME="talos-${TALOS_VERSION}-metal-amd64.iso"
+ISO_URL="https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talos-amd64.iso"
+
+CP_NODES=1
+WORKER_NODES=1
+VM_CPUS=2
+VM_MEMORY=2048     # MB
+VM_DISK_SIZE=20480 # MB
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# --- Dependency Check ---
+command -v VBoxManage >/dev/null 2>&1 || {
+ echo >&2 "VBoxManage is required but not installed. Aborting."
+ exit 1
+}
+command -v talosctl >/dev/null 2>&1 || {
+ echo >&2 "talosctl is required but not installed. Aborting."
+ exit 1
+}
+command -v nmap >/dev/null 2>&1 || {
+ echo >&2 "nmap is required for headless IP discovery. Run: sudo apt install nmap. Aborting."
+ exit 1
+}
+
+# --- Smart Network Allocation ---
+log() { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1" >&2; }
+warn() { echo -e "${YELLOW}[WAIT]${NC} $1" >&2; }
+
+allocate_network() {
+ log "Discovering unused /24 subnet for cluster network..."
+ local subnet_octet=56 # Start checking at 192.168.56.0
+
+ while VBoxManage list hostonlyifs | grep -q "192.168.${subnet_octet}.1" || ip route | grep -q "192.168.${subnet_octet}.0"; do
+  subnet_octet=$((subnet_octet + 1))
+  if [ "$subnet_octet" -gt 254 ]; then
+   echo "Error: Could not find an available subnet."
+   exit 1
+  fi
+ done
+
+ SUBNET="192.168.${subnet_octet}"
+ log "Selected unused subnet: ${SUBNET}.0/24"
+
+ log "Creating Host-Only Interface..."
+ local iface_out
+ iface_out=$(VBoxManage hostonlyif create)
+ HOST_ONLY_IF=$(echo "$iface_out" | grep -o "vboxnet[0-9]*")
+
+ VBoxManage hostonlyif ipconfig "$HOST_ONLY_IF" --ip "${SUBNET}.1" --netmask 255.255.255.0
+
+ log "Configuring VirtualBox DHCP Server for $HOST_ONLY_IF..."
+ # Ensure no stale DHCP server exists for this interface
+ VBoxManage dhcpserver remove --ifname "$HOST_ONLY_IF" 2>/dev/null || true
+ VBoxManage dhcpserver add --ifname "$HOST_ONLY_IF" \
+  --ip "${SUBNET}.2" --netmask 255.255.255.0 \
+  --lowerip "${SUBNET}.10" --upperip "${SUBNET}.50" --enable
+
+ success "Network established on $HOST_ONLY_IF (${SUBNET}.1)"
+}
+
+# --- VM Provisioning ---
+provision_vm() {
+ local vm_name=$1
+ log "Provisioning VM: $vm_name"
+
+ VBoxManage createvm --name "$vm_name" --ostype "Linux26_64" --register --basefolder "$(pwd)" >/dev/null
+ VBoxManage modifyvm "$vm_name" --cpus "$VM_CPUS" --memory "$VM_MEMORY" --vram 16 --graphicscontroller vmsvga \
+  --nic1 nat --nic2 hostonly --hostonlyadapter2 "$HOST_ONLY_IF"
+
+ VBoxManage createmedium disk --filename "$(pwd)/$vm_name/$vm_name.vdi" --size "$VM_DISK_SIZE" >/dev/null
+ VBoxManage storagectl "$vm_name" --name "SATA Controller" --add sata --controller IntelAhci
+ VBoxManage storageattach "$vm_name" --storagectl "SATA Controller" --port 0 --device 0 --type hdd --medium "$(pwd)/$vm_name/$vm_name.vdi"
+
+ VBoxManage storagectl "$vm_name" --name "IDE Controller" --add ide
+ VBoxManage storageattach "$vm_name" --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium "$ISO_NAME"
+
+ VBoxManage modifyvm "$vm_name" --boot1 disk --boot2 dvd --boot3 none --boot4 none
+
+ log "Booting $vm_name headlessly..."
+ VBoxManage startvm "$vm_name" --type headless >/dev/null
+}
+
+# --- IP Discovery ---
+discover_talos_ip() {
+ local exclude_ip=${1:-""}
+ local discovered_ip=""
+
+ while [ -z "$discovered_ip" ]; do
+  # Scan the DHCP range for open Talos API ports (50000)
+  local scan_results
+  scan_results=$(nmap -p 50000 -T4 --open "${SUBNET}.10-50" -oG - | grep "50000/open" | awk '{print $2}')
+
+  for ip in $scan_results; do
+   if [ "$ip" != "$exclude_ip" ]; then
+    discovered_ip=$ip
+    break
+   fi
+  done
+
+  if [ -z "$discovered_ip" ]; then
+   warn "Waiting for Talos to boot and acquire IP..."
+   sleep 5
+  fi
+ done
+ echo "$discovered_ip"
+}
+
+# --- Main Execution ---
+if [ ! -f "$ISO_NAME" ]; then
+ log "Downloading Talos ISO..."
+ echo ">> $ISO_NAME @ $ISO_ULR"
+ wget -q --show-progress -O "$ISO_NAME" "$ISO_URL"
+fi
+
+allocate_network
+
+# 1. Boot Control Plane
+provision_vm "${CLUSTER_NAME}-cp-1"
+CP_IP=$(discover_talos_ip)
+success "Control Plane found at: $CP_IP"
+
+# 2. Boot Workers
+WORKER_IPS=()
+for i in $(seq 1 $WORKER_NODES); do
+ provision_vm "${CLUSTER_NAME}-worker-$i"
+ # Find the new IP (excluding the CP IP)
+ W_IP=$(discover_talos_ip "$CP_IP")
+ WORKER_IPS+=("$W_IP")
+ success "Worker $i found at: $W_IP"
+done
+
+# 3. Talos Configuration
+log "Generating Talos cluster configuration..."
+mkdir -p cluster-output
+talosctl gen config "$CLUSTER_NAME" "https://$CP_IP:6443" --talos-version "$TALOS_VERSION" --output-dir cluster-output >/dev/null
+
+log "Applying Control Plane configuration..."
+talosctl apply-config --insecure --nodes "$CP_IP" --endpoints "$CP_IP" --file cluster-output/controlplane.yaml
+
+for W_IP in "${WORKER_IPS[@]}"; do
+ log "Applying Worker configuration to $W_IP..."
+ talosctl apply-config --insecure --nodes "$W_IP" --endpoints "$CP_IP" --file cluster-output/worker.yaml
+done
+
+# 4. Bootstrap
+warn "Waiting for Talos node to reboot and load new certificates..."
+# Dynamically wait for the API to accept our newly generated talosconfig
+until talosctl --talosconfig cluster-output/talosconfig --nodes "$CP_IP" --endpoints "$CP_IP" version >/dev/null 2>&1; do
+ sleep 5
+done
+
+log "Bootstrapping Kubernetes..."
+talosctl bootstrap --nodes "$CP_IP" --endpoints "$CP_IP" --talosconfig cluster-output/talosconfig
+
+warn "Waiting for Kubernetes API to become ready (this can take 2-3 minutes)..."
+until talosctl kubeconfig --nodes "$CP_IP" --endpoints "$CP_IP" --talosconfig cluster-output/talosconfig . 2>/dev/null; do
+ sleep 10
+done
+
+success "Cluster provisioning complete!"
+echo "================================================="
+echo "Access your GitOps-ready cluster:"
+echo "  export KUBECONFIG=\$(pwd)/kubeconfig"
+echo "  kubectl get nodes"
+echo "================================================="

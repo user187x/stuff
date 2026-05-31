@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# edit your existing ArgoCD IngressRoute to include the middleware line:
+
+middlewares:
+  - name: dynamic-user-auth

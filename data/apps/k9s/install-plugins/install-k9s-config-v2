@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Identify the current context
+CUR_CONTEXT=$(kubectl config current-context 2>/dev/null)
+CUR_CONTEXT="${CUR_CONTEXT:-default}"
+
+# Set the base config directory
+SYSTEM_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+K9S_CONFIG_DIR="$SYSTEM_CONFIG_DIR/k9s"
+CONTEXT_CONFIG_DIR="$K9S_CONFIG_DIR/clusters"
+
+mkdir -p "$CONTEXT_CONFIG_DIR"
+
+mkdir -p "$CONTEXT_CONFIG_DIR/$CUR_CONTEXT"
+
+cat <<EOF > "$CONTEXT_CONFIG_DIR/$CUR_CONTEXT/config.yaml"
+k9s:
+  cluster: $CUR_CONTEXT
+  namespace:
+    active: all
+    favorites:
+    - all
+    - default
+  view:
+    active: pods
+EOF
+
+echo "--- ✅ Fixed K9s context config at: $CONTEXT_CONFIG_DIR/$CUR_CONTEXT/config.yaml ---"

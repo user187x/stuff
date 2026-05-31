@@ -1,0 +1,35 @@
+#!/bin/bash
+
+MOUNT_PATH=""
+MOUNT_NAME=""
+
+LOCAL_PATH=""
+PVC_CLAIM_NAME=""
+
+# Create temporary pod to copy model into PVC
+kubectl -n vllm apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-file-putter
+spec:
+  containers:
+    - name: shell
+      image: busybox
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: models
+          mountPath: $MOUNT_PATH
+  volumes:
+    - name: models
+      persistentVolumeClaim:
+        claimName: $PVC_CLAIM_NAME
+EOF
+
+# wait until its ready
+kubectl -n "$NAMESPACE" wait --for=condition=Ready pod/model-loader --timeout=60s
+
+# Copy the image into the PVC
+kubectl -n "$NAMESPACE" cp "$LOCAL_PATH" "$MOUNT_PATH/$MOUNT_NAME"
+
+kubectl -n "$NAMESPACE" delete pod "$POD_NAME"

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "Enabeling Minikube addons"
+
+addons=("nvidia-device-plugin" "metrics-server" "ingress" "dashboard")
+
+for addon in "${addons[@]}"; do
+ if minikube addons enable "$addon" > /dev/null 2>&1; then
+  echo "Failure enabeling addon: $addon"
+ fi
+done
+
+echo "Showing other available"
+minikube addons list
+
+# to start with gpu support

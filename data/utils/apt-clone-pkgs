@@ -1,0 +1,9 @@
+#!/bin/bash
+
+echo "Installing apt-clone"
+sudo apt install apt-clone -y
+
+BACKUP_PATH="$HOME/apt-packge-bakup"
+
+echo "Backing up all installed packages..."
+sudo apt-clone clone "$BACKUP_PATH"

@@ -1,0 +1,98 @@
+# =============================================================================
+# auth-shim chart values
+#
+# Quick start (production):
+#   1. Create the validator CA secret in the same namespace as this chart:
+#        kubectl create secret generic validator-tls-secret \
+#          --from-file=tls.crt=/path/to/validator-ca.crt -n <ns>
+#   2. Create the mTLS client CA bundle secret in the SAME namespace:
+#        kubectl create secret generic client-ca-bundle \
+#          --from-file=tls.crt=/path/to/client-ca.crt -n <ns>
+#   3. Set traefik.tlsOption.caSecretNames to ["client-ca-bundle"].
+#   4. Reference the resulting TLSOption from your IngressRoute under
+#      spec.tls.options.name.
+#
+# Or just run ./bootstrap.sh which does all of the above.
+# =============================================================================
+
+# nameOverride: ""
+# fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: auth-shim
+  tag: "" # leave blank to use chart appVersion
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+extraEnv: []
+ - name: JAVA_TOOL_OPTIONS
+   value: "-XX:+UseG1GC -XX:MaxRAMPercentage=75"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# Traefik integration
+# -----------------------------------------------------------------------------
+traefik:
+  enabled: true
+  middlewareNamespace: ""
+  middlewareName: auth-shim-forward-auth
+
+  authResponseHeaders:
+    - X-Forwarded-User-Dn
+    - X-Auth-Correlation
+  trustForwardHeader: true
+
+  tlsOption:
+    enabled: true
+    name: auth-shim-mtls
+    minVersion: VersionTLS12
+    sniStrict: false
+    clientAuthType: RequireAndVerifyClientCert
+    caSecretNames: []
+    #  - client-ca-bundle
+
+# -----------------------------------------------------------------------------
+# External validator API the auth-shim calls to authorize a DN.
+# -----------------------------------------------------------------------------
+validator:
+  url: "https://auth-api.local/verify"
+  tlsSecretName: "validator-tls-secret"
+
+# -----------------------------------------------------------------------------
+# Pre-install / pre-upgrade hook
+#
+# Runs a Job before the main chart resources are applied to verify that the
+# required secrets exist and have the expected keys. Catches misconfigurations
+# early instead of letting pods come up and silently 401 every request.
+# -----------------------------------------------------------------------------
+preflight:
+  enabled: true
+  image:
+    repository: rancher/kubectl
+    tag: "latest"

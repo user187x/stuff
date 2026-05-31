@@ -1,0 +1,40 @@
+<resources>
+    <string name="app_name">Server</string>
+    <string name="start_server">Start HTTP</string>
+    <string name="stop_server">Stop HTTP</string>
+    <string name="start_webSocketServer">Start Socket</string>
+    <string name="stop_webSocketServer">Stop Socket</string>
+
+    <string name="server_status_running">Status: Running at %s</string>
+    <string name="server_status_stopped">Stopped</string>
+    <string name="ip_address">IP Address</string>
+    <string name="port">Port</string>
+    <string name="select_directory">Select Root</string>
+
+    <string name="redirect_to_index">Redirect to index.html if present</string>
+    <string name="render_folder_content">Render folder content</string>
+    <string name="allow_file_uploads">Allow file uploads</string>
+
+    <string name="restrict_interfaces">Restrict network interfaces</string>
+    <string name="whitelist_ips">Whitelist client IPs</string>
+    <string name="basic_auth">Enable basic authentication</string>
+    <string name="tls_https">Enable TLS (HTTPS)</string>
+
+    <string name="autostart_on_boot">Autostart on boot</string>
+    <string name="custom_headers">Add custom response headers</string>
+    <string name="active">Active</string>
+
+    <string name="custom_response_headers">Custom Response Headers</string>
+    <string name="add_custom_http_headers_to_server_responses">Add custom HTTP headers to server responses</string>
+
+    <string name="websocket_off">Socket OFF</string>
+    <string name="websocket_on">Socket ON</string>
+
+    <string name="websocket">WebSocket</string>
+    <string name="webserver">WebServer</string>
+
+    <string name="title_chat">Chat</string>
+    <string name="title_logs">Logs</string>
+    <string name="title_server">Server</string>
+
+</resources>

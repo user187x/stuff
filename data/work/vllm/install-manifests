@@ -1,0 +1,19 @@
+#!/bin/bash
+
+export MODEL_PATH="/data"
+export MODEL_NAME="gemma-4.gguf"
+export MODEL_SERVED_NAME="gemma-4"
+export MAX_LEN="4096"
+
+MANIFESTS_PATH="$PWD/manifests"
+
+kubectl apply -f "$MANIFESTS_PATH"/namespace.yaml
+kubectl apply -f "$MANIFESTS_PATH"/pvc.yaml
+
+# Install the gguf models into the PVC
+./install-models
+
+envsubst '${MODEL_PATH} ${MODEL_NAME} ${MODEL_SERVED_NAME} ${MAX_LEN}' \
+  < "$MANIFESTS_PATH"/deployment.yaml | kubectl apply -f -
+
+kubectl apply -f "$MANIFESTS_PATH"/service.yaml

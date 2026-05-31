@@ -1,0 +1,21 @@
+dynamic route builder (GET, POST)
+add server log slide-down
+add evict websocket user
+provide self-signed cert download if selected
+gray websocket server settings when disable is selected
+add password for secure websocket
+
+enable vibrate on request
+enable sound on request
+
+double tab slide log up. stop auto scrolling
+
+show uptime
+total data sent/received
+transmission rate
+total connections
+
+QR code generator
+File count(Beside root directory)
+Add storage
+Add public folder

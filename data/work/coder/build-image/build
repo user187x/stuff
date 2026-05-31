@@ -1,0 +1,19 @@
+#!/bin/bash
+
+IMAGE_NAME="coder"
+
+# Follwing version of coder within Dockerfile
+VERSION=$(grep -i "CODER_PROVIDER_VERSION=" ./Dockerfile | cut -d '=' -f 2)
+IMAGE_VERSION="${VERSION:-latest}"
+
+IMAGE_FILE="${IMAGE_NAME}-${IMAGE_VERSION}.tar"
+
+echo "Building docker image ${IMAGE_NAME}:${IMAGE_VERSION}"
+docker build -t "${IMAGE_NAME}:${IMAGE_VERSION}" .
+
+echo "Saving docker image: ${IMAGE_FILE}"
+docker save -o "${IMAGE_FILE}" "${IMAGE_NAME}:${IMAGE_VERSION}"
+
+echo -e "To load image run: \e[92mdocker load -i ${IMAGE_FILE}\e[0m"
+echo "Complete!"
+

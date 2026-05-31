@@ -1,0 +1,152 @@
+#!/bin/bash
+
+# Default to empty so we know if we need to trigger fzf
+NAMESPACE=""
+PVC_NAME=""
+
+# Simple argument parsing to allow bypassing fzf if desired
+while [[ "$#" -gt 0 ]]; do
+ case $1 in
+ --name)
+  PVC_NAME="$2"
+  shift
+  ;;
+ --namespace)
+  NAMESPACE="$2"
+  shift
+  ;;
+ *)
+  echo "Unknown parameter passed: $1"
+  exit 1
+  ;;
+ esac
+ shift
+done
+
+# Ensure fzf is installed
+if ! command -v fzf &>/dev/null; then
+ echo "Error: 'fzf' is required but not installed. Please install it first."
+ exit 1
+fi
+
+# 1. Interactive Namespace Selection (if not provided via flag)
+if [ -z "$NAMESPACE" ]; then
+ NAMESPACE=$(kubectl get namespaces -o custom-columns=":metadata.name" --no-headers | fzf --prompt="Select Namespace > ")
+
+ # Exit if user cancels fzf
+ if [ -z "$NAMESPACE" ]; then
+  echo "Namespace selection cancelled. Exiting."
+  exit 0
+ fi
+fi
+
+# 2. Interactive PVC Selection (if not provided via flag)
+if [ -z "$PVC_NAME" ]; then
+ # Check if there are any PVCs in the selected namespace first
+ PVC_COUNT=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
+ if [ "$PVC_COUNT" -eq 0 ]; then
+  echo "No PVCs found in namespace: $NAMESPACE. Exiting."
+  exit 0
+ fi
+
+ PVC_NAME=$(kubectl get pvc -n "$NAMESPACE" -o custom-columns=":metadata.name" --no-headers | fzf --prompt="Select PVC in '$NAMESPACE' > ")
+
+ # Exit if user cancels fzf
+ if [ -z "$PVC_NAME" ]; then
+  echo "PVC selection cancelled. Exiting."
+  exit 0
+ fi
+fi
+
+echo
+echo "Mounting PVC: $PVC_NAME (Namespace: $NAMESPACE)"
+echo
+
+POD_NAME="pvc-inspector-$(date +%s)"
+
+VOLUME_TARGET="xxx"
+MOUNT_PATH="/mnt"
+
+# Create the temporary pod
+cat <<EOF | kubectl apply -n "$NAMESPACE" -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $POD_NAME
+spec:
+  containers:
+  - name: inspector
+    image: busybox
+    command: ["sh", "-c", "sleep infinity"]
+    volumeMounts:
+    - name: $VOLUME_TARGET
+      mountPath: $MOUNT_PATH
+  volumes:
+  - name: $VOLUME_TARGET
+    persistentVolumeClaim:
+      claimName: $PVC_NAME
+EOF
+
+# Wait for readiness
+echo "Waiting for pod to be ready..."
+kubectl wait -n "$NAMESPACE" --for=condition=Ready pod/"$POD_NAME" --timeout=30s
+
+# Calculate actual content size using 'du' before dropping into shell
+CONTENT_SIZE=$(kubectl exec -n "$NAMESPACE" "$POD_NAME" -- du -sh "$MOUNT_PATH" | awk '{print $1}')
+
+# Calculate total file count
+FILE_COUNT=$(kubectl exec -n "$NAMESPACE" "$POD_NAME" -- sh -c "find \"$MOUNT_PATH\" -type f | wc -l")
+
+# Fetch all required fields as a single JSON string
+PVC_DATA=$(kubectl get pvc "$PVC_NAME" -n "$NAMESPACE" -o json)
+
+# Parse the JSON into individual bash variables
+BOUND_STATUS=$(echo "$PVC_DATA" | jq -r '.status.phase // "N/A"')
+VOLUME_NAME=$(echo "$PVC_DATA" | jq -r '.spec.volumeName // "N/A"')
+ACCESS_MODE=$(echo "$PVC_DATA" | jq -r '.status.accessModes[0] // "N/A"')
+PVC_UID=$(echo "$PVC_DATA" | jq -r '.metadata.uid // "N/A"')
+CAPACITY=$(echo "$PVC_DATA" | jq -r '.status.capacity.storage // "N/A"')
+STORAGE_CLASS=$(echo "$PVC_DATA" | jq -r '.spec.storageClassName // "N/A"')
+
+# Find which pods are using this PVC (excluding the inspector pod itself)
+USED_BY_PODS=$(kubectl get pods -n "$NAMESPACE" -o json | jq -r --arg PVC "$PVC_NAME" --arg INSPECTOR "$POD_NAME" '
+  .items[] | 
+  select(.metadata.name != $INSPECTOR) | 
+  select(any(.spec.volumes[]?; .persistentVolumeClaim?.claimName == $PVC)) | 
+  .metadata.name
+' | paste -sd ", " -)
+
+# Default to "None" if empty
+if [ -z "$USED_BY_PODS" ]; then
+ USED_BY_PODS="None"
+fi
+
+echo
+echo "--------------------------------------------------------"
+echo -e "\e[1;27mPVC Information\e[0m"
+echo "--------------------------------------------------------"
+echo
+echo "Claim Name : $PVC_NAME"
+echo "Namespace  : $NAMESPACE"
+echo "PVC UID    : $PVC_UID"
+echo "Status     : $BOUND_STATUS"
+echo "Volume     : $VOLUME_NAME"
+echo "Mode       : $ACCESS_MODE"
+echo "Size       : $CAPACITY"
+echo "Class      : $STORAGE_CLASS"
+echo "Data Size  : $CONTENT_SIZE"
+echo "File Count : $FILE_COUNT"
+echo "Mount Path : $MOUNT_PATH"
+echo "Used By    : $USED_BY_PODS"
+echo
+echo "--------------------------------------------------------"
+echo "Type 'exit' to leave and delete the inspector pod."
+echo "--------------------------------------------------------"
+echo
+
+# Drop user into interactive shell starting at the mount path
+kubectl exec -it -n "$NAMESPACE" "$POD_NAME" -- sh -c "cd \"$MOUNT_PATH\" && exec sh"
+
+# Cleanup after exit
+echo "Destroying pod..."
+kubectl delete pod -n "$NAMESPACE" "$POD_NAME" --wait=false

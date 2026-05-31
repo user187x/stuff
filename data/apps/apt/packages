@@ -1,0 +1,1173 @@
+#!/bin/bash
+
+# Update repositories
+echo "--- 🔄 Updating Package Lists ---"
+sudo apt update -y && sudo apt upgrade -y
+
+# ==========================================
+# APT Package Catalog
+# ------------------------------------------
+# Each entry is either a bare package name or "binary:package1:package2..."
+# where the binary is checked with `command -v` and the package variants are
+# tried in order until one installs.
+# ==========================================
+
+# -- Build & Compilation Toolchain --------------------------------------------
+# "everything you need to turn source code into running software"
+build_toolchain=(
+ "build-essential"          # "meta-package: gcc, g++, make, libc headers — the works"
+ "make"                     # "the classic build automator"
+ "gcc"                      # "the gnu c compiler"
+ "clang"                    # "LLVM's C/C++ compiler, catches things gcc misses"
+ "cmake"                    # "the de facto modern C/C++ build generator"
+ "ninja-build"              # "ultra-fast build executor, pairs with cmake"
+ "meson"                    # "modern, friendlier alternative to autotools"
+ "pkg-config"               # "tells compilers which flags a library needs"
+ "autoconf"                 # "generates portable ./configure scripts"
+ "automake"                 # "writes Makefile.in so you don't have to"
+ "libtool-bin"              # "portable shared-library wrapper"
+ "checkinstall"             # "wrap make install into a real .deb so you can uninstall cleanly"
+ "ccache"                   # "caches compile output, drastically speeds up rebuilds"
+ "gdb"                      # "the GNU debugger"
+ "lldb"                     # "LLVM's debugger, friendlier for Clang-built binaries"
+ "valgrind"                 # "memory leak and error detector"
+ "strace"                   # "trace system calls a process makes"
+ "ltrace"                   # "trace library calls instead of syscalls"
+ "bpftrace"                 # "high-level tracing language built on eBPF"
+ "musl"                     # "tiny, fast, standards-compliant libc"
+ "install-stuff"            # "(custom/placeholder — leave or remove as needed)"
+)
+
+# -- Development Libraries ----------------------------------------------------
+# "the -dev headers other tools link against when compiling"
+dev_libraries=(
+ "libssl-dev"               # "openssl headers for tls and crypto"
+ "libzip-dev"               # "read and write zip archives from c"
+ "libcurl4-openssl-dev"     # "curl headers built against openssl"
+ "libnss3-tools"            # "mozilla nss certificate utilities (certutil, pk12util)"
+ "zlib1g-dev"               # "the zlib compression headers, depended on by half the world"
+ "libreadline-dev"          # "line editing for interactive CLIs"
+ "libsqlite3-dev"           # "embed sqlite into your app"
+ "libpq-dev"                # "postgres client headers"
+ "libffi-dev"               # "call C functions from other languages"
+ "libbz2-dev"               # "bzip2 compression headers"
+ "liblzma-dev"              # "xz/lzma compression headers"
+ "libncurses-dev"           # "build terminal UIs"
+ "libxml2-dev"              # "XML parsing headers"
+ "libyaml-dev"              # "YAML parsing headers"
+ "libplist-dev"             # "parse apple property-list files"
+ "libimobiledevice-glue-dev" # "shared helpers for the libimobiledevice stack"
+ "libusbmuxd-dev"           # "talk to iOS devices over USB"
+ "libirecovery-1.0-dev"     # "talk to iOS devices stuck in recovery/DFU"
+ "usbmuxd"                  # "the daemon that actually muxes USB traffic to iOS"
+ "libglib2.0-dev-bin"       # "development tools utilities for glib Gnome apps"
+)
+
+# -- Version Control ----------------------------------------------------------
+# "track every change, blame every line"
+version_control=(
+ "git"                      # "the distributed version control system"
+ "lazygit"                  # "a fast, keyboard-driven TUI for git"
+ "delta:git-delta"          # "syntax-highlighted, side-by-side git diffs"
+ "tig"                      # "ncurses TUI for browsing git history"
+ "git-lfs"                  # "large file storage extension for git"
+ "git-extras"               # "dozens of useful git subcommands"
+ "hg:mercurial"             # "the other distributed VCS"
+)
+
+# -- Editors ------------------------------------------------------------------
+# "where text actually gets written"
+editors=(
+ "vim"                      # "the immortal modal editor"
+ "nvim:neovim"              # "modernized, lua-scriptable vim fork"
+ "nano"                     # "the editor your past self thanks you for installing"
+ "micro"                    # "modern terminal editor with sane keybindings"
+ "emacs"                    # "the operating system disguised as an editor"
+ "pluma"                    # "MATE's lightweight gedit fork"
+ "gedit"                    # "gnome's no-frills text editor"
+)
+
+# -- Terminals & Multiplexers -------------------------------------------------
+# "the windows you stare at all day"
+terminals=(
+ "tmux"                     # "split, detach, reattach — sessions that never die"
+ "kitty"                    # "gpu-accelerated, ligature-loving terminal"
+ "alacritty"                # "minimal, GPU-accelerated terminal"
+ "zellij"                   # "modern multiplexer with discoverable keybindings"
+ "screen"                   # "the original terminal multiplexer, predates tmux"
+ "gnome-terminal"           # "gnome's default terminal emulator"
+ "terminator"               # "tile multiple terminals in one window"
+ "tilix"                    # "tiling GTK terminal"
+)
+
+# -- Shell Utilities ----------------------------------------------------------
+# "modern replacements and helpers for everyday CLI work"
+shell_utilities=(
+ "bat"                      # "cat with syntax highlighting and git integration"
+ "eza"                      # "a modern, colorized ls successor"
+ "rg:ripgrep"               # "blazing-fast recursive grep, respects .gitignore"
+ "fd:fd-find"               # "a user-friendly alternative to find"
+ "fzf"                      # "fuzzy finder for anything streamable"
+ "zoxide"                   # "cd that learns where you actually go"
+ "thefuck"                  # "auto-corrects the previous mistyped command"
+ "jq"                       # "command-line JSON surgeon"
+ "yq"                       # "jq's sibling for YAML, XML, and TOML"
+ "jc"                       # "converts command output into JSON"
+ "xmllint:libxml2-utils"    # "xml parsing and xpath from the shell"
+ "glow"                     # "render markdown beautifully in the terminal"
+ "pv"                       # "watch data flow through a pipe with a progress bar"
+ "tree"                     # "directory listing as an indented tree"
+ "rename"                   # "perl-powered batch file renaming"
+ "expect"                   # "script answers to interactive prompts"
+ "direnv"                   # "auto-loads env vars when you cd into a directory"
+ "entr"                     # "run a command when files change"
+ "parallel"                 # "GNU parallel, executes jobs across cores"
+ "moreutils"                # "sponge, ts, vidir, chronic and other unix gems"
+ "http:httpie"              # "human-friendly curl alternative"
+ "tldr"                     # "community-driven simplified man pages"
+ "socat"                    # "netcat on steroids, multitool for sockets"
+ "bc"                       # "arbitrary precision calculator language"
+ "dateutils.dadd:dateutils" # "date arithmetic from the shell"
+ "gettext-base"             # "ships envsubst and friends for template substitution"
+ "util-linux-extra"         # "extra small utilities from the util-linux project"
+ "openssl"                  # "the tls/crypto swiss army knife"
+)
+
+# -- File Managers ------------------------------------------------------------
+# "navigate the filesystem without leaving the terminal"
+file_managers=(
+ "yazi"                     # "blazing-fast, async terminal file manager"
+ "ya"                       # "yazi's package/plugin CLI companion"
+ "ranger"                   # "vim-keybinding TUI file manager with previews"
+ "mc"                       # "midnight commander — the classic two-pane TUI"
+ "nnn"                      # "tiny, lightning-fast file manager"
+ "vifm"                     # "vim-keybinding file manager with dual panes"
+)
+
+# -- System Monitors & Disk Usage --------------------------------------------
+# "find out what's eating your CPU, RAM, and disk"
+system_monitors=(
+ "htop"                     # "interactive process viewer"
+ "btop"                     # "htop with graphs and a prettier face"
+ "bmon"                     # "live bandwidth monitor per interface"
+ "duf"                      # "df, but readable and colored"
+ "ncdu"                     # "ncurses disk usage analyzer"
+ "gdu"                      # "go-built disk usage analyzer, fast on SSDs"
+ "diskonaut"                # "navigate disk space visually like a map"
+ "fastfetch"                # "neofetch-style system info, way faster"
+ "indicator-multiload"      # "panel applet graphing system load"
+ "stacer"                   # "all-in-one GUI system optimizer and monitor"
+ "iotop"                    # "top, but for disk I/O per process"
+ "nethogs"                  # "bandwidth usage broken down per process"
+ "iftop"                    # "live bandwidth per connection"
+ "glances"                  # "cross-platform all-in-one system monitor"
+ "sar:sysstat"              # "ships sar, iostat, mpstat, pidstat"
+ "lsof"                     # "list every open file (and socket) on the system"
+ "powertop"                 # "find what's draining your battery"
+ "s-tui"                    # "stress test and monitor CPU thermals"
+)
+
+# -- Networking ---------------------------------------------------------------
+# "move bytes between machines and inspect what's flowing"
+networking=(
+ "curl"                     # "transfer data with URLs, the universal http client"
+ "wget"                     # "the non-interactive batch downloader"
+ "nmap"                     # "scan networks and audit security"
+ "netstat:net-tools"        # "classic netstat/ifconfig/route utilities"
+ "inotifywait:inotify-tools" # "watch filesystem events from the shell"
+ "ab:apache2-utils"         # "ships ab, htpasswd, and other http helpers"
+ "mtr"                      # "traceroute and ping combined, live updating"
+ "traceroute"               # "classic network path tracer"
+ "tcpdump"                  # "command-line packet capture"
+ "tshark"                   # "wireshark's CLI sibling"
+ "iperf3"                   # "measure network bandwidth between two hosts"
+ "dig:dnsutils"             # "dig, nslookup, host — DNS troubleshooting"
+ "whois"                    # "look up domain registration info"
+ "wg:wireguard-tools"       # "modern, fast VPN tooling"
+ "mosh"                     # "shell that survives roaming and bad networks"
+ "ngrep"                    # "grep but for network traffic"
+ "ettercap:ettercap-graphical" # "MITM framework with TUI/GUI"
+)
+
+# -- Remote Desktop / VNC -----------------------------------------------------
+# "see and control another machine's screen"
+remote_desktop=(
+ "wayvnc"                   # "vnc server for wlroots-based wayland compositors"
+ "tigervnc-common"          # "shared files for the TigerVNC suite"
+ "tigervnc-viewer"          # "TigerVNC client"
+ "tigervnc-tools"           # "TigerVNC helper utilities"
+ "tigervnc-standalone-server" # "TigerVNC server that runs without an Xorg session"
+ "remmina"                  # "swiss-army remote desktop client (RDP/VNC/SSH/SPICE)"
+ "x11vnc"                   # "share your existing X session over VNC"
+ "xfreerdp:freerdp2-x11"    # "free RDP client for connecting to Windows"
+ "xrdp"                     # "RDP server, lets Windows clients connect to Linux"
+ "barrier"                  # "software KVM, share keyboard/mouse across machines"
+)
+
+# -- Virtualization -----------------------------------------------------------
+# "run other operating systems alongside yours"
+virtualization=(
+ "qemu-kvm"                 # "hardware-accelerated machine emulator"
+ "qemu-utils"               # "qemu-img and other disk-image helpers"
+ "qemu-system-x86_64:qemu-system-x86" # "the x86_64 qemu emulator binaries"
+ "libvirt-daemon-system"    # "libvirt's system-level VM management daemon"
+ "libvirt-clients"          # "virsh and other libvirt CLI tools"
+ "bridge-utils"             # "configure ethernet bridges for VM networking"
+ "virt-manager"             # "GTK GUI for managing libvirt VMs"
+ "ovmf"                     # "UEFI firmware images for VMs"
+ "podman"                   # "daemonless, rootless container engine"
+ "docker:docker.io"         # "docker engine from the Ubuntu archive"
+ "lxc"                      # "system-container runtime"
+ "dnsmasq"                  # "lightweight DHCP/DNS, libvirt uses it for NAT networks"
+)
+
+# -- Media: Audio, Video, Images ---------------------------------------------
+# "play, convert, and manipulate every kind of media"
+media=(
+ "mpv"                      # "minimalist, scriptable media player"
+ "ffmpeg"                   # "the audio/video swiss army knife"
+ "ffmpegthumbnailer"        # "lightweight video thumbnail generator"
+ "imagemagick"              # "command-line image manipulation toolkit"
+ "cava"                     # "console audio visualizer that dances to your music"
+ "pulseaudio-utils"         # "pactl and friends for pulseaudio control"
+ "jp2a"                     # "render JPEGs as ASCII art"
+ "poppler-utils"            # "pdftotext, pdfimages, and other PDF tools"
+ "tesseract-ocr"            # "extract text from images with OCR"
+ "vlc"                      # "the media player that plays literally anything"
+ "audacity"                 # "multitrack audio editor"
+ "gimp"                     # "raster image editor"
+ "inkscape"                 # "vector graphics editor"
+ "obs:obs-studio"           # "streaming and screen recording"
+ "kdenlive"                 # "non-linear video editor"
+ "HandBrakeCLI:handbrake-cli" # "video transcoder with sensible presets"
+ "sox"                      # "swiss army knife of audio processing"
+ "mediainfo"                # "inspect codec, bitrate, and metadata of any media file"
+ "exiftool:libimage-exiftool-perl" # "read/write metadata in any media file"
+)
+
+# -- Archives & Compression ---------------------------------------------------
+# "squeeze files smaller, pull them back out"
+archives=(
+ "7zip"                     # "high-ratio archiver with broad format support"
+ "bzip:bzip2"               # "block-sorting compressor"
+ "unrar"                    # "extract .rar archives"
+ "rpm2cpio"                 # "convert .rpm packages to cpio archives"
+ "cpio"                     # "copy files to and from archives"
+ "alien"                    # "convert between .deb, .rpm, .tgz, and friends"
+ "file-roller"              # "gnome's gui archive manager"
+ "zip"                      # "basic zip create"
+ "unzip"                    # "basic zip extract"
+ "xz:xz-utils"              # "xz and lzma compression"
+ "zstd"                     # "facebook's fast modern compressor"
+ "pigz"                     # "parallel gzip, uses all your cores"
+ "pbzip2"                   # "parallel bzip2"
+ "lz4"                      # "extremely fast compression for hot paths"
+)
+
+# -- Disk & Partitioning ------------------------------------------------------
+# "carve, format, and resize drives safely"
+disk_tools=(
+ "gparted"                  # "gui partition editor"
+ "rsync"                    # "the universal file syncer, arguably essential"
+ "parted"                   # "scriptable CLI partition editor"
+ "gdisk"                    # "fdisk for GPT partition tables"
+ "lvm:lvm2"                 # "logical volume manager for flexible storage"
+ "cryptsetup"               # "LUKS full-disk encryption tooling"
+ "smartctl:smartmontools"   # "SMART self-test and health monitoring"
+ "hdparm"                   # "query and tune SATA/IDE drive parameters"
+ "nvme:nvme-cli"            # "manage and inspect NVMe SSDs"
+ "mkfs.ext4:e2fsprogs"      # "create and check ext2/3/4 filesystems"
+ "xfsprogs"                 # "XFS filesystem utilities"
+ "btrfs:btrfs-progs"        # "Btrfs tooling: subvolumes, snapshots, scrub"
+ "mkfs.fat:dosfstools"      # "create and check FAT/exFAT filesystems"
+ "ntfs-3g"                  # "read/write NTFS partitions"
+ "exfatprogs"               # "modern exFAT tools"
+ "testdisk"                 # "recover lost partitions; ships photorec for file recovery"
+ "ddrescue:gddrescue"       # "fault-tolerant copy for failing drives"
+ "udisksctl:udisks2"        # "high-level disk management daemon"
+ "rclone"                   # "rsync for cloud storage (S3, Drive, Dropbox, etc.)"
+ "lsscsi"                   # "list SCSI/SATA/NVMe devices in a readable form"
+ "secure-delete"            # "wipe files, swap, and free space securely"
+)
+
+# -- Package Management -------------------------------------------------------
+# "install software from every ecosystem under the sun"
+package_management=(
+ "snapd"                    # "daemon for canonical's snap packages"
+ "flatpak"                  # "sandboxed cross-distro application packaging"
+ "gnome-software-plugin-flatpak" # "flatpak support inside gnome software"
+ "synaptic"                 # "graphical front-end for apt"
+ "apt-clone"                # "snapshot and restore the apt install set"
+ "pipx"                     # "install python apps in isolated venvs"
+ "npm"                      # "node package manager"
+ "node:nodejs"              # "javascript runtime"
+ "aptitude"                 # "interactive ncurses front-end for apt"
+ "gdebi"                    # "install local .deb files with dependency resolution"
+ "dpkg-dev"                 # "build your own .deb packages"
+)
+
+# -- Code Quality & Linting ---------------------------------------------------
+# "keep code and configs clean before they bite you"
+linters=(
+ "shfmt"                    # "format shell scripts consistently"
+ "shellcheck"               # "static analyzer that catches shell footguns"
+ "yamllint"                 # "lint YAML for syntax and style"
+ "colordiff"                # "diff with color so changes pop"
+ "cppcheck"                 # "static analyzer for C/C++"
+ "clang-tidy"               # "LLVM linter with auto-fixes"
+ "clang-format"             # "style-enforced formatter for C/C++/Obj-C"
+ "pylint:python3-pylint"    # "Python linter"
+ "flake8:python3-flake8"    # "lightweight Python linter"
+ "black:python3-black"      # "the uncompromising Python formatter"
+ "mypy:python3-mypy"        # "static type checker for Python"
+ "flawfinder"               # "scan C/C++ source for risky function usage"
+ "rats"                     # "rough auditing tool for security, multi-language"
+)
+
+# -- Java ---------------------------------------------------------------------
+# "jvm and tooling for everything java-shaped"
+java=(
+ "java:default-jdk"         # "the default JDK for this distro"
+ "visualvm"                 # "graphical JVM profiler and heap inspector"
+ "mvn:maven"                # "the XML-driven Java build tool"
+ "gradle"                   # "the groovy/kotlin-DSL Java build tool"
+ "ant"                      # "the original Java build tool"
+ "procyon-decompiler"       # "Java decompiler with strong Java 8+ support"
+)
+
+# -- GNOME / Desktop Tweaks ---------------------------------------------------
+# "bend the desktop environment to your will"
+desktop_tweaks=(
+ "gnome-tweaks"             # "expose hidden gnome settings"
+ "gdm-settings"             # "adjust login logo, sounds, and themes"
+ "gtk-common-themes"
+ "gnome-shell-extension-manager" # "browse, install, and toggle gnome extensions"
+ "dconf-editor"             # "registry-style editor for gnome's settings tree"
+ "gufw"                     # "graphical front-end for the ufw firewall"
+ "zenity"                   # "spawn GTK dialogs from shell scripts"
+ "notify-send:libnotify-bin" # "fire off desktop notifications from the CLI"
+ "wmctrl"                   # "scriptable window manager control"
+ "xdotool"                  # "automate X11 keyboard and mouse"
+ "ydotool"                  # "xdotool's Wayland equivalent"
+ "xdg-open:xdg-utils"       # "xdg-open and other freedesktop helpers"
+ "redshift"                 # "shift screen color temperature at night"
+ "caffeine"                 # "prevent the screen from sleeping during media"
+)
+
+# -- Browsers -----------------------------------------------------------------
+# "the window to the rest of the internet"
+browsers=(
+ "chromium:chromium-browser" # "the open-source base behind chrome"
+ "firefox"                  # "mozilla's browser"
+ "lynx"                     # "text-mode browser for shells and scripts"
+ "w3m"                      # "another text-mode browser, with image support"
+)
+
+# -- Clipboard ----------------------------------------------------------------
+# "bridge the CLI and the system clipboard"
+clipboard=(
+ "xclip"                    # "read and write the X11 clipboard from the shell"
+ "wl-copy:wl-clipboard"     # "wl-copy and wl-paste for wayland"
+ "xsel"                     # "alternative to xclip with different syntax"
+ "copyq"                    # "feature-rich clipboard manager with history"
+ "gpaste-client:gpaste-2"   # "gnome-integrated clipboard manager"
+)
+
+# -- TUI Toys & Banners -------------------------------------------------------
+# "for when the terminal needs a little personality"
+tui_toys=(
+ "tty-clock"                # "fullscreen terminal clock"
+ "lolcat"                   # "rainbow-color any text passed in"
+ "figlet"                   # "ASCII-art banner generator"
+ "toilet"                   # "figlet's flashier cousin, with color and unicode"
+ "sysvbanner"               # "the original 1970s banner program"
+ "cmatrix"                  # "the matrix rain in your terminal"
+ "whiptail"                 # "newt-based dialog boxes for shell scripts"
+ "qrencode"                 # "generate QR codes from the command line"
+ "python3-segno"            # "QR and data-matrix generator (python library)"
+ "cowsay"                   # "ASCII cow says what you tell it"
+ "fortune:fortune-mod"      # "random fortune cookies for your MOTD"
+ "boxes"                    # "wrap text in ASCII boxes of every shape"
+ "sl"                       # "steam locomotive that punishes typos of ls"
+ "asciiquarium"             # "ASCII fish tank for your terminal"
+ "bsdgames"                 # "ancient text games: adventure, hangman, robots"
+ "nyancat"                  # "the meme, in your terminal, forever"
+)
+
+# -- Binary Analysis: Disassemblers, Decompilers, Hex Editors ----------------
+# "look at compiled code and figure out what it actually does"
+binary_analysis=(
+ "radare2"                  # "open-source RE framework: disassembler, debugger, hex editor in one"
+ "rizin"                    # "modern fork of radare2 with cleaner internals"
+ "cutter"                   # "Qt GUI on top of rizin, IDA-like experience"
+ "hexedit"                  # "in-terminal hex editor with searchable buffer"
+ "ghex"                     # "GTK hex editor for desktop use"
+ "bless"                    # "feature-rich GTK hex editor with multi-level undo"
+ "wxhexeditor:wxhexeditor"  # "huge-file-capable hex editor (TB-scale)"
+ "hexdump:bsdmainutils"     # "classic BSD hexdump and other utilities"
+)
+
+# -- Binary Patching & ELF Manipulation --------------------------------------
+# "modify compiled binaries in place"
+binary_patching=(
+ "upx:upx-ucl"              # "ultimate packer; also unpacks UPX-packed binaries"
+ "patchelf"                 # "modify rpath and interpreter of an existing ELF"
+ "chrpath"                  # "older but simpler ELF rpath editor"
+ "eu-readelf:elfutils"      # "eu-readelf, eu-strip, and other modern ELF utilities"
+)
+
+# -- Android / APK Reverse Engineering ---------------------------------------
+# "decompile, repackage, and inspect Android applications"
+android_re=(
+ "apktool"                  # "decompile and rebuild APK resources and smali"
+ "dex2jar"                  # "convert Android DEX bytecode to Java JAR"
+ "androguard"               # "Python framework for static APK analysis"
+ "adb:android-tools-adb:adb" # "Android Debug Bridge for talking to devices"
+ "fastboot:android-tools-fastboot:fastboot" # "flash and unlock Android bootloaders"
+ "aapt:aapt"                # "Android Asset Packaging Tool (manifest and resource inspection)"
+)
+
+# -- Forensics: Disk, Memory, File Carving -----------------------------------
+# "extract evidence from images, dumps, and suspect filesystems"
+forensics=(
+ "binwalk"                  # "find and extract embedded firmware images and filesystems"
+ "foremost"                 # "carve files out of raw images by header signatures"
+ "bulk-extractor"           # "pull emails, URLs, credit cards, etc. out of disk images"
+ "scalpel"                  # "fast header/footer-based file carver"
+ "fls:sleuthkit"            # "filesystem-level forensic analysis library and CLI"
+ "autopsy"                  # "GUI digital-forensics platform built on sleuthkit"
+ "dc3dd"                    # "patched dd from DC3 with forensic logging and hashing"
+ "ewfinfo:ewf-tools"        # "read and write EnCase Expert Witness Format (E01) images"
+ "affinfo:afflib-tools"     # "Advanced Forensic Format tools and library"
+)
+
+# -- Malware Identification & System Integrity -------------------------------
+# "fingerprint suspicious files and detect compromise"
+malware_id=(
+ "yara"                     # "the standard for pattern-matching rules over files and memory"
+ "clamscan:clamav"          # "open-source antivirus engine, useful for IOC scanning"
+ "pev"                      # "PE header dumper for Windows binaries on Linux"
+ "ssdeep"                   # "context-triggered piecewise hashing for fuzzy file matching"
+ "chkrootkit"               # "scan for known rootkit signatures"
+ "rkhunter"                 # "rootkit, backdoor, and local exploit scanner"
+ "aide"                     # "advanced intrusion detection environment, file integrity DB"
+)
+
+# -- Web Application Pentesting ----------------------------------------------
+# "probe and exploit web apps for security findings"
+web_pentest=(
+ "zap:zaproxy"              # "OWASP ZAP, the open-source web app scanner"
+ "nikto"                    # "web server vulnerability scanner"
+ "sqlmap"                   # "automated SQL injection detection and exploitation"
+ "wfuzz"                    # "web fuzzer for hidden paths, params, and auth"
+ "gobuster"                 # "fast directory/DNS/vhost brute-forcer"
+ "dirb"                     # "classic web directory brute-forcer"
+ "mitmproxy"                # "interactive TLS-capable proxy, scriptable in Python"
+)
+
+# -- Password & Hash Recovery ------------------------------------------------
+# "crack hashes and brute-force logins"
+password_recovery=(
+ "hashcat"                  # "GPU-accelerated hash cracker"
+ "john"                     # "John the Ripper, classic CPU hash cracker"
+ "hydra"                    # "parallelized network login brute-forcer"
+ "hashid"                   # "identify what kind of hash you're staring at"
+)
+
+# -- Fuzzing -----------------------------------------------------------------
+# "feed garbage to programs and watch them crash"
+fuzzing=(
+ "afl-fuzz:afl++"           # "American Fuzzy Lop+, coverage-guided fuzzer for native code"
+ "honggfuzz"                # "security-oriented fuzzer with sanitizer integration"
+ "radamsa"                  # "general-purpose mutational input fuzzer"
+)
+
+# ==========================================
+# Combined APT Package Array
+# ------------------------------------------
+# Every category above gets concatenated into the single `packages` array
+# that the install/cache loops iterate over below.
+# ==========================================
+packages=(
+ "${build_toolchain[@]}"
+ "${dev_libraries[@]}"
+ "${version_control[@]}"
+ "${editors[@]}"
+ "${terminals[@]}"
+ "${shell_utilities[@]}"
+ "${file_managers[@]}"
+ "${system_monitors[@]}"
+ "${networking[@]}"
+ "${remote_desktop[@]}"
+ "${virtualization[@]}"
+ "${media[@]}"
+ "${archives[@]}"
+ "${disk_tools[@]}"
+ "${package_management[@]}"
+ "${linters[@]}"
+ "${java[@]}"
+ "${desktop_tweaks[@]}"
+ "${browsers[@]}"
+ "${clipboard[@]}"
+ "${tui_toys[@]}"
+ "${binary_analysis[@]}"
+ "${binary_patching[@]}"
+ "${android_re[@]}"
+ "${forensics[@]}"
+ "${malware_id[@]}"
+ "${web_pentest[@]}"
+ "${password_recovery[@]}"
+ "${fuzzing[@]}"
+)
+
+# ==========================================
+# pipx-Installed Python Tools
+# ------------------------------------------
+# Tools whose canonical distribution is PyPI and whose apt versions tend
+# to lag badly. pipx installs each in its own venv with a shim on PATH.
+#
+# Format: "binary_name" or "binary_name:pypi_package_name"
+# ==========================================
+pipx_tools=(
+ "frida:frida-tools"        # "dynamic instrumentation toolkit — hook running apps live"
+ "vol:volatility3"          # "the standard memory-image analysis framework"
+ "unblob"                   # "modern firmware extractor, handles 30+ formats"
+ "semgrep"                  # "pattern-based static analysis across most languages"
+)
+
+# ==========================================
+# GitHub-Released Tools (single binary)
+# ------------------------------------------
+# These tools are not reliably distributed via the default Ubuntu archives;
+# their canonical release channel is GitHub releases. The github_install
+# helper below queries the GitHub API for the latest tagged release and
+# picks the best asset for this architecture (.deb / tarball / .zip / raw).
+#
+# Format: ["binary_name"]="owner/repo"
+# ==========================================
+declare -A github_tools=(
+ # Kubernetes ecosystem
+ ["k9s"]="derailed/k9s"                    # "fast TUI dashboard for clusters"
+ ["kind"]="kubernetes-sigs/kind"           # "run k8s clusters inside docker for local testing"
+ ["minikube"]="kubernetes/minikube"        # "single-node k8s for local dev"
+ ["kubectx"]="ahmetb/kubectx"              # "switch contexts (clusters) instantly"
+ ["kubens"]="ahmetb/kubectx"               # "switch namespaces instantly"
+ ["stern"]="stern/stern"                   # "tail logs from multiple pods at once"
+ ["kustomize"]="kubernetes-sigs/kustomize" # "template-free YAML customization for k8s"
+ ["helm"]="helm/helm"                      # "the package manager for kubernetes"
+ ["kubecolor"]="kubecolor/kubecolor"       # "colorize kubectl output for readability"
+ # GitHub / dev tooling
+ ["gh"]="cli/cli"                          # "official GitHub CLI"
+ # File managers
+ ["lf"]="gokcehan/lf"                      # "ranger-inspired file manager in Go"
+ ["xplr"]="sayanarijit/xplr"               # "hackable, minimal TUI file explorer"
+ # Network & web pentest
+ ["bettercap"]="bettercap/bettercap"       # "modern MITM and network attack framework"
+ ["httpx"]="projectdiscovery/httpx"        # "fast HTTP probe for live host/tech detection"
+)
+
+# ==========================================
+# GitHub-Released Applications (zip + launcher, or jar wrapper)
+# ------------------------------------------
+# These don't fit the single-binary mold. Installed via github_install_app
+# into /opt/<binary>/ with a launcher in /usr/local/bin.
+#
+# Format: "binary|owner/repo|asset_regex|launcher"
+#   launcher is the path relative to the extracted root (e.g. "ghidraRun",
+#   "bin/jadx") OR the literal "@jar" to wrap a downloaded jar with a
+#   shell script that calls `java -jar`.
+# ==========================================
+github_apps=(
+ # Disassembly / decompilation suites
+ "ghidra|NationalSecurityAgency/ghidra|^ghidra_.*_PUBLIC_.*\\.zip\$|ghidraRun"          # "NSA's flagship decompiler, gold standard for free RE"
+ "jadx|skylot/jadx|^jadx-[0-9].*\\.zip\$|bin/jadx"                                       # "decompile DEX and JAR back to readable Java"
+ "cfr|leibnitz27/cfr|^cfr-.*\\.jar\$|@jar"                                               # "single-jar Java decompiler that handles modern bytecode"
+ "bytecode-viewer|Konloch/bytecode-viewer|[Bb]ytecode-?[Vv]iewer.*\\.jar\$|@jar"         # "GUI bundling CFR, Procyon, Krakatau, JADX"
+ "recaf|Col-E/Recaf|^recaf.*\\.jar\$|@jar"                                               # "modern Java RE workbench, live bytecode editing"
+)
+
+# ==========================================
+# Tracking arrays for run summary
+# ==========================================
+installed=()
+failed=()
+
+echo
+echo "--- 📦 Starting APT Package Installation ---"
+
+function install-packages {
+
+ echo ""
+ echo "--- 📦 Starting APT Package Installation ---"
+
+ for item in "${packages[@]}"; do
+  # Split the string by colon into an array called 'parts'
+  IFS=':' read -r -a parts <<<"$item"
+
+  # The first element is always the command/binary to check
+  binary="${parts[0]}"
+
+  # The remaining elements are the package names to try
+  if [[ ${#parts[@]} -eq 1 ]]; then
+   # If there are no colons, the binary name is also the package name
+   pkg_variations=("$binary")
+  else
+   # Slice the array to get everything after the first element
+   pkg_variations=("${parts[@]:1}")
+  fi
+
+  # 1. Check if binary already exists
+  if ! command -v "$binary" >/dev/null 2>&1; then
+   echo "Installing $binary..."
+   success=false
+
+   # 2. Loop through each package variation and try to install it
+   for pkg in "${pkg_variations[@]}"; do
+    if sudo apt install "$pkg" -y; then
+     echo -e "Tool [\e[1;92m$binary\e[0m] Installed (via '$pkg')"
+     installed+=("$binary")
+     success=true
+     break # Exit the inner loop on success
+    else
+     echo -e "⚠️ Attempt to install via [\e[1;93m$pkg\e[0m] failed. Trying next..."
+    fi
+   done
+
+   # 3. If the loop finished and success is still false, it failed completely
+   if [ "$success" = false ]; then
+    echo -e "Tool [\e[1;91m$binary\e[0m] failed to install completely."
+    failed+=("$binary")
+   fi
+  else
+   echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+   installed+=("$binary")
+  fi
+ done
+}
+
+function cache-packages {
+
+ # Define the target cache directory
+ local target_dir="${XDG_CACHE_DIR:-$HOME/.cache}/apt-package-backups"
+
+ # 📁 Ensuring cache directory exists
+ mkdir -p "$target_dir"
+
+ # Change into the target directory so apt-get downloads the files directly here
+ pushd "$target_dir" >/dev/null || {
+  echo "Failed to access cache directory"
+  return 1
+ }
+
+ echo
+ echo "Caching packages..."
+
+ for item in "${packages[@]}"; do
+  # Split the string by colon to handle fallbacks
+  IFS=':' read -r -a parts <<<"$item"
+
+  if [[ ${#parts[@]} -eq 1 ]]; then
+   pkg_variations=("${parts[0]}")
+  else
+   # If there are colons, skip the binary name (index 0) and use the package names
+   pkg_variations=("${parts[@]:1}")
+  fi
+
+  local success=false
+
+  # Try downloading the package (and any fallbacks)
+  for pkg in "${pkg_variations[@]}"; do
+   # 'apt-get download' fetches the .deb into the current working directory
+   if apt-get download "$pkg" >/dev/null 2>&1; then
+    echo -e "✅ Cached: [\e[1;92m$pkg\e[0m]"
+    success=true
+    break # Move on to the next item in the main packages array once successful
+   else
+    echo -e "⚠️ Attempt to cache [\e[1;93m$pkg\e[0m] failed."
+   fi
+  done
+
+  if [ "$success" = false ]; then
+   echo -e "❌ \e[1;91mFailed completely to cache:\e[0m $item"
+  fi
+ done
+
+ # Return to the original directory
+ popd >/dev/null
+ echo "🏁 Caching Complete"
+}
+
+function install-cached {
+
+ # Accept an argument for the path, or default to the standard cache location
+ local cache_dir="${1:-${XDG_CACHE_DIR:-$HOME/.cache}/apt-package-backups}"
+
+ echo "📂 Checking for cached packages in: $cache_dir"
+
+ # 1. Verify the directory actually exists
+ if [[ ! -d "$cache_dir" ]]; then
+  echo -e "❌ \e[1;91mError:\e[0m Cache directory does not exist."
+  return 1
+ fi
+
+ # We use nullglob so if no files match, the array is empty instead of containing a literal "*.deb" string
+ shopt -s nullglob
+ local deb_files=("$cache_dir"/*.deb)
+ shopt -u nullglob # Turn nullglob back off to avoid messing with other script functions
+
+ # 3. Check if we actually found anything
+ if [[ ${#deb_files[@]} -eq 0 ]]; then
+  echo -e "⚠️ \e[1;93mNo .deb files found in the cache directory.\e[0m"
+  return 0
+ fi
+
+ echo "📦 Found ${#deb_files[@]} package(s). Starting bulk installation..."
+
+ # apt will attempt to fetch any missing dependencies automatically.
+ if sudo apt install -y "${deb_files[@]}"; then
+  echo -e "✅ \e[1;92mSuccessfully installed cached packages!\e[0m"
+  return 0
+ else
+  echo -e "❌ \e[1;91mErrors occurred during installation.\e[0m"
+  echo "   (If offline, this usually means a required dependency wasn't cached)."
+  return 1
+ fi
+}
+
+# ==========================================
+# pipx Installer
+# ------------------------------------------
+# Installs python tools in isolated venvs. pipx itself comes from apt.
+# ==========================================
+function install-pipx-tools {
+
+ echo
+ echo "--- 🐍 Starting pipx Tool Installation ---"
+
+ if ! command -v pipx >/dev/null 2>&1; then
+  echo -e "❌ \e[1;91mpipx not found.\e[0m Run install-packages first."
+  return 1
+ fi
+
+ # Ensure pipx's bin dir is on PATH for the current shell
+ pipx ensurepath >/dev/null 2>&1 || true
+ export PATH="$HOME/.local/bin:$PATH"
+
+ for item in "${pipx_tools[@]}"; do
+  IFS=':' read -r -a parts <<<"$item"
+  local binary="${parts[0]}"
+  local pkg="${parts[1]:-$binary}"
+
+  if command -v "$binary" >/dev/null 2>&1; then
+   echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+   installed+=("$binary")
+   continue
+  fi
+
+  echo "Installing $binary (pipx: $pkg)..."
+  if pipx install "$pkg" >/dev/null 2>&1; then
+   echo -e "Tool [\e[1;92m$binary\e[0m] Installed (pipx '$pkg')"
+   installed+=("$binary")
+  else
+   echo -e "Tool [\e[1;91m$binary\e[0m] failed to install via pipx"
+   failed+=("$binary")
+  fi
+ done
+
+ echo "🏁 pipx installations complete"
+}
+
+# ==========================================
+# GitHub Release Installer (single binary)
+# ------------------------------------------
+# Queries https://api.github.com/repos/{owner}/{repo}/releases/latest and
+# tries to install the right asset for this machine in three stages:
+#   1. .deb matching the system architecture       → dpkg -i
+#   2. Archive (tar/zip) matching arch             → extract binary to /usr/local/bin
+#   3. Raw binary asset matching arch              → install to /usr/local/bin
+#
+# Usage: github_install "owner/repo" [binary_name]
+#   binary_name defaults to the repo name. Override when they differ
+#   (e.g. github_install "helix-editor/helix" "hx").
+#
+# Requires: curl, jq, tar, unzip, sudo. All are in the APT catalog above so
+# they must be installed before this function runs.
+#
+# Note: the unauthenticated GitHub API allows 60 requests per hour per IP.
+# Set GITHUB_TOKEN in your environment to bump that to 5000/hour.
+# ==========================================
+function github_install {
+
+ local repo="$1"
+ local binary_name="${2:-${repo##*/}}"
+
+ # 0. Skip if the binary is already on PATH
+ if command -v "$binary_name" >/dev/null 2>&1; then
+  echo -e "Tool [\e[1;92m$binary_name\e[0m] already installed"
+  installed+=("$binary_name")
+  return 0
+ fi
+
+ # Map dpkg architecture → regex of names release assets might use
+ local arch arch_pattern
+ arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+ case "$arch" in
+  amd64) arch_pattern="amd64|x86_64|x64" ;;
+  arm64) arch_pattern="arm64|aarch64" ;;
+  armhf) arch_pattern="armv7|armhf" ;;
+  *)     arch_pattern="$arch" ;;
+ esac
+
+ echo
+ echo -e "🔍 Querying GitHub for latest release of \e[1;94m$repo\e[0m..."
+
+ # Build auth header if GITHUB_TOKEN is set (raises rate limit to 5000/hr)
+ local auth_header=()
+ [[ -n "${GITHUB_TOKEN:-}" ]] && auth_header=(-H "Authorization: Bearer $GITHUB_TOKEN")
+
+ local api_url="https://api.github.com/repos/${repo}/releases/latest"
+ local release_json
+ if ! release_json=$(curl -fsSL -H "Accept: application/vnd.github+json" "${auth_header[@]}" "$api_url"); then
+  echo -e "❌ \e[1;91mFailed to query GitHub API\e[0m for $repo (rate limit? bad repo?)"
+  failed+=("$binary_name")
+  return 1
+ fi
+
+ local tag
+ tag=$(echo "$release_json" | jq -r '.tag_name // "unknown"')
+ echo -e "📌 Latest release: \e[1;95m$tag\e[0m"
+
+ # -- Stage 1: prefer .deb -----------------------------------------------------
+ local deb_url
+ deb_url=$(echo "$release_json" | jq -r --arg arch "$arch_pattern" '
+  [.assets[]
+   | select(.name | test("\\.deb$"; "i"))
+   | select(.name | test($arch; "i"))
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$deb_url" ]]; then
+  echo "📦 Found .deb: ${deb_url##*/}"
+  local tmp_deb
+  tmp_deb=$(mktemp --suffix=.deb)
+  if curl -fsSL "$deb_url" -o "$tmp_deb"; then
+   if sudo dpkg -i "$tmp_deb" >/dev/null 2>&1; then
+    sudo apt install -fy >/dev/null 2>&1   # fix any missing deps
+    rm -f "$tmp_deb"
+    echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag)"
+    installed+=("$binary_name")
+    return 0
+   fi
+  fi
+  rm -f "$tmp_deb"
+  echo -e "⚠️  .deb install failed for $binary_name, trying archive..."
+ fi
+
+ # -- Stage 2: archive (tarball or zip) ---------------------------------------
+ local archive_url
+ archive_url=$(echo "$release_json" | jq -r --arg arch "$arch_pattern" '
+  [.assets[]
+   | select(.name | test("linux"; "i"))
+   | select(.name | test($arch; "i"))
+   | select(.name | test("\\.(tar\\.(gz|xz|bz2)|tgz|zip)$"; "i"))
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$archive_url" ]]; then
+  local archive_name="${archive_url##*/}"
+  echo "📦 Found archive: $archive_name"
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local archive_path="${tmp_dir}/${archive_name}"
+  local extracted=false
+
+  if curl -fsSL "$archive_url" -o "$archive_path"; then
+   case "$archive_name" in
+    *.zip)   unzip -q "$archive_path" -d "$tmp_dir" 2>/dev/null && extracted=true ;;
+    *.tar|*.tar.gz|*.tgz|*.tar.xz|*.tar.bz2) tar -xf "$archive_path" -C "$tmp_dir" 2>/dev/null && extracted=true ;;
+   esac
+  fi
+
+  if $extracted; then
+   # Find the binary by exact name, executable first
+   local binary_path
+   binary_path=$(find "$tmp_dir" -type f -name "$binary_name" -executable 2>/dev/null | head -1)
+   [[ -z "$binary_path" ]] && binary_path=$(find "$tmp_dir" -type f -name "$binary_name" 2>/dev/null | head -1)
+
+   if [[ -n "$binary_path" ]]; then
+    sudo install -m 755 "$binary_path" "/usr/local/bin/$binary_name"
+    rm -rf "$tmp_dir"
+    echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag) → /usr/local/bin"
+    installed+=("$binary_name")
+    return 0
+   fi
+   echo -e "⚠️  Binary '\e[1;93m$binary_name\e[0m' not found inside archive"
+  fi
+  rm -rf "$tmp_dir"
+ fi
+
+ # -- Stage 3: raw binary asset ------------------------------------------------
+ local bin_url
+ bin_url=$(echo "$release_json" | jq -r --arg bin "$binary_name" --arg arch "$arch_pattern" '
+  [.assets[]
+   | select(.name | test("linux"; "i"))
+   | select(.name | test($arch; "i"))
+   | select(.name | test($bin; "i"))
+   | select(.name | test("\\.(tar|zip|deb|rpm|sig|asc|sha|sbom|txt|json|md)"; "i") | not)
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$bin_url" ]]; then
+  echo "📦 Found raw binary: ${bin_url##*/}"
+  local tmp_bin
+  tmp_bin=$(mktemp)
+  if curl -fsSL "$bin_url" -o "$tmp_bin"; then
+   sudo install -m 755 "$tmp_bin" "/usr/local/bin/$binary_name"
+   rm -f "$tmp_bin"
+   echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag) → /usr/local/bin"
+   installed+=("$binary_name")
+   return 0
+  fi
+  rm -f "$tmp_bin"
+ fi
+
+ echo -e "Tool [\e[1;91m$binary_name\e[0m] failed — no compatible asset in $repo"
+ failed+=("$binary_name")
+ return 1
+}
+
+function install-github-tools {
+
+ echo
+ echo "--- 🐙 Starting GitHub Release Installations ---"
+
+ # Verify dependencies are present (they should be — apt step ran first)
+ local missing_deps=()
+ for dep in curl jq tar unzip; do
+  command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
+ done
+ if (( ${#missing_deps[@]} > 0 )); then
+  echo -e "❌ \e[1;91mMissing dependencies for GitHub installs:\e[0m ${missing_deps[*]}"
+  echo "   Run install-packages first."
+  return 1
+ fi
+
+ for binary in "${!github_tools[@]}"; do
+  github_install "${github_tools[$binary]}" "$binary"
+ done
+
+ echo
+ echo "🏁 GitHub installations complete"
+}
+
+# ==========================================
+# GitHub Application Installer (zip + launcher, or jar wrapper)
+# ------------------------------------------
+# For multi-file applications that don't fit the single-binary mold.
+# Installs into /opt/<binary>/ with a launcher symlink or shell wrapper in
+# /usr/local/bin.
+#
+# Two install patterns are supported:
+#
+#   1. Archive with internal launcher (ghidra, jadx)
+#      Asset is a .zip/.tar that contains a runnable script or binary at a
+#      known relative path. Function extracts to /opt/<binary>/ and symlinks
+#      that launcher into /usr/local/bin.
+#
+#   2. Standalone JAR (cfr, bytecode-viewer, recaf)
+#      Asset is a .jar. Function copies it to /opt/<binary>/<binary>.jar
+#      and writes a shell wrapper to /usr/local/bin/<binary> that calls
+#      `java -jar`.
+#
+# Usage: github_install_app "binary" "owner/repo" "asset_regex" "launcher_or_@jar"
+#   launcher: path relative to extracted root (e.g. "ghidraRun", "bin/jadx")
+#             OR the literal "@jar" to use jar-wrapping mode
+# ==========================================
+function github_install_app {
+
+ local binary="$1"
+ local repo="$2"
+ local asset_pattern="$3"
+ local launcher="$4"
+
+ # 0. Skip if the binary is already on PATH
+ if command -v "$binary" >/dev/null 2>&1; then
+  echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+  installed+=("$binary")
+  return 0
+ fi
+
+ echo
+ echo -e "🔍 Querying GitHub for latest release of \e[1;94m$repo\e[0m..."
+
+ local auth_header=()
+ [[ -n "${GITHUB_TOKEN:-}" ]] && auth_header=(-H "Authorization: Bearer $GITHUB_TOKEN")
+
+ local api_url="https://api.github.com/repos/${repo}/releases/latest"
+ local release_json
+ if ! release_json=$(curl -fsSL -H "Accept: application/vnd.github+json" "${auth_header[@]}" "$api_url"); then
+  echo -e "❌ \e[1;91mFailed to query GitHub API\e[0m for $repo"
+  failed+=("$binary")
+  return 1
+ fi
+
+ local tag
+ tag=$(echo "$release_json" | jq -r '.tag_name // "unknown"')
+ echo -e "📌 Latest release: \e[1;95m$tag\e[0m"
+
+ # Find the matching asset
+ local asset_url asset_name
+ asset_url=$(echo "$release_json" | jq -r --arg pattern "$asset_pattern" '
+  [.assets[] | select(.name | test($pattern; "i")) | .browser_download_url][0] // empty
+ ')
+
+ if [[ -z "$asset_url" ]]; then
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — no asset matched: $asset_pattern"
+  failed+=("$binary")
+  return 1
+ fi
+
+ asset_name="${asset_url##*/}"
+ echo "📦 Found asset: $asset_name"
+
+ local install_dir="/opt/$binary"
+ local tmp_dir
+ tmp_dir=$(mktemp -d)
+ local downloaded="${tmp_dir}/${asset_name}"
+
+ if ! curl -fsSL "$asset_url" -o "$downloaded"; then
+  rm -rf "$tmp_dir"
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — download error"
+  failed+=("$binary")
+  return 1
+ fi
+
+ # ---- Pattern A: standalone jar with shell wrapper --------------------------
+ if [[ "$launcher" == "@jar" ]]; then
+  if ! command -v java >/dev/null 2>&1; then
+   echo -e "⚠️  java not found — install default-jdk first; $binary will not run"
+  fi
+  sudo mkdir -p "$install_dir"
+  sudo install -m 644 "$downloaded" "$install_dir/$binary.jar"
+  # Write a launcher; needs to expand $install_dir at write time but defer $@
+  sudo tee "/usr/local/bin/$binary" >/dev/null << WRAPPER
+#!/bin/sh
+exec java -jar "${install_dir}/${binary}.jar" "\$@"
+WRAPPER
+  sudo chmod 755 "/usr/local/bin/$binary"
+  rm -rf "$tmp_dir"
+  echo -e "Tool [\e[1;92m$binary\e[0m] Installed from $repo ($tag) → $install_dir + /usr/local/bin/$binary"
+  installed+=("$binary")
+  return 0
+ fi
+
+ # ---- Pattern B: archive with internal launcher -----------------------------
+ local stage="${tmp_dir}/stage"
+ mkdir -p "$stage"
+ case "$asset_name" in
+  *.zip)
+   unzip -q "$downloaded" -d "$stage" 2>/dev/null ;;
+  *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar)
+   tar -xf "$downloaded" -C "$stage" 2>/dev/null ;;
+  *)
+   echo -e "Tool [\e[1;91m$binary\e[0m] failed — unknown archive format: $asset_name"
+   rm -rf "$tmp_dir"
+   failed+=("$binary")
+   return 1 ;;
+ esac
+
+ # Find the launcher anywhere inside the extracted tree
+ local launcher_path
+ launcher_path=$(find "$stage" -path "*/$launcher" -type f 2>/dev/null | head -1)
+ [[ -z "$launcher_path" ]] && launcher_path=$(find "$stage" -name "$(basename "$launcher")" -type f 2>/dev/null | head -1)
+
+ if [[ -z "$launcher_path" ]]; then
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — launcher '$launcher' not found in archive"
+  rm -rf "$tmp_dir"
+  failed+=("$binary")
+  return 1
+ fi
+
+ # Determine the real install root: the dir that contains $launcher_path at the
+ # $launcher relative path. Strip the $launcher suffix from launcher_path.
+ local real_root="${launcher_path%/$launcher}"
+ [[ "$real_root" == "$launcher_path" ]] && real_root="$(dirname "$launcher_path")"
+
+ # Wipe any prior install and move the staged tree into place
+ sudo rm -rf "$install_dir"
+ sudo mkdir -p "$(dirname "$install_dir")"
+ sudo mv "$real_root" "$install_dir"
+ sudo chmod +x "$install_dir/$launcher" 2>/dev/null || true
+
+ # Create the /usr/local/bin symlink → install_dir/launcher
+ sudo ln -sf "$install_dir/$launcher" "/usr/local/bin/$binary"
+
+ rm -rf "$tmp_dir"
+ echo -e "Tool [\e[1;92m$binary\e[0m] Installed from $repo ($tag) → $install_dir + /usr/local/bin/$binary"
+ installed+=("$binary")
+ return 0
+}
+
+function install-github-apps {
+
+ echo
+ echo "--- 📦 Starting GitHub Application Installations ---"
+
+ # Verify dependencies are present
+ local missing_deps=()
+ for dep in curl jq tar unzip; do
+  command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
+ done
+ if (( ${#missing_deps[@]} > 0 )); then
+  echo -e "❌ \e[1;91mMissing dependencies for GitHub apps:\e[0m ${missing_deps[*]}"
+  echo "   Run install-packages first."
+  return 1
+ fi
+
+ for entry in "${github_apps[@]}"; do
+  IFS='|' read -r binary repo asset_pattern launcher <<<"$entry"
+  github_install_app "$binary" "$repo" "$asset_pattern" "$launcher"
+ done
+
+ echo
+ echo "🏁 GitHub app installations complete"
+}
+
+# ==========================================
+# Run Summary
+# ==========================================
+function print-summary {
+ echo
+ echo "=========================================="
+ echo "📊 Installation Summary"
+ echo "=========================================="
+ echo -e "✅ \e[1;92mInstalled / already present:\e[0m ${#installed[@]}"
+ echo -e "❌ \e[1;91mFailed:\e[0m ${#failed[@]}"
+ if (( ${#failed[@]} > 0 )); then
+  echo
+  echo "Failed tools:"
+  printf '   - %s\n' "${failed[@]}"
+ fi
+}
+
+# ==========================================
+# Main Execution
+# ==========================================
+
+# 1. install apt packages to system (provides curl, jq, tar, unzip, pipx, java)
+install-packages
+
+# 2. install pipx-distributed python tools (needs pipx)
+install-pipx-tools
+
+# 3. install GitHub-released single-binary tools (needs curl/jq/tar/unzip)
+install-github-tools
+
+# 4. install GitHub-released applications (needs curl/jq/unzip + java for jars)
+install-github-apps
+
+# 5. cache apt packages locally for offline restore
+cache-packages
+
+# 6. final run summary
+print-summary

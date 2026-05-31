@@ -1,0 +1,16 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-route
+  namespace: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`argocd.acme.feed.org`)
+      kind: Rule
+      middlewares:
+        - name: enrich-user-middleware # <--- ADD THIS
+      services:
+        - name: argocd-server
+          port: 80

@@ -1,0 +1,129 @@
+#!/bin/bash
+
+set -e
+
+WORKSPACE_DIR="./storage"
+
+mkdir -p "$WORKSPACE_DIR"
+cd "$WORKSPACE_DIR"
+
+echo "🛠️ Creating Dockerfile..."
+
+cat <<'EOF' >Dockerfile
+FROM ubuntu:26.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV USER=xxx
+ENV HOME=/home/xxx
+
+# Install core utilities, desktop environment (XFCE4), VNC, and noVNC
+RUN apt-get update && apt-get install -y \
+  xfce4 xfce4-goodies \
+  tigervnc-standalone-server tigervnc-common \
+  novnc websockify \
+  curl wget git sudo nano dbus-x11 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Filebrowser
+RUN curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
+
+# Adding neovim/git/curl as well to make the terminal a capable IDE
+RUN apt-get update && apt-get install -y \
+  kitty neovim tmux \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root developer user
+RUN useradd -m -s /bin/bash -G sudo xxx \
+  && echo "xxx:xxx" | chpasswd \
+  && echo "xxx ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Copy the entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER xxx
+WORKDIR /home/xxx
+
+EXPOSE 8080 8081
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+EOF
+
+echo "📜 Creating Entrypoint Script..."
+
+cat <<'EOF' >entrypoint.sh
+#!/bin/bash
+
+# 1. Setup VNC password (password: developer)
+mkdir -p ~/.vnc
+echo "developer" | vncpasswd -f > ~/.vnc/passwd
+chmod 600 ~/.vnc/passwd
+
+# 2. Create the xstartup file to boot the desktop
+cat << 'VNC_EOF' > ~/.vnc/xstartup
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+VNC_EOF
+chmod +x ~/.vnc/xstartup
+
+# 3. Autostart Kitty on desktop login
+mkdir -p ~/.config/autostart
+cat << 'AUTOSTART_EOF' > ~/.config/autostart/kitty.desktop
+[Desktop Entry]
+Type=Application
+Exec=kitty
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Kitty IDE
+AUTOSTART_EOF
+
+# 4. Clean up lock files just in case the container restarted
+rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 ~/.vnc/*.pid
+
+# 5. Start the VNC server
+vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
+
+# 6. Start websockify (Bridging VNC to the Web)
+websockify --web /usr/share/novnc/ 0.0.0.0:8080 localhost:5901 &
+
+# 7. Start Filebrowser
+filebrowser -r /home/xxx -p 8081 -a 0.0.0.0 --noauth &
+
+echo "🚀 Workspace is up and running!"
+echo "Desktop (noVNC): http://localhost:8080/vnc.html"
+echo "Filebrowser:     http://localhost:8081"
+
+# Keep container alive
+sleep infinity
+
+EOF
+
+echo "🐳 Rebuilding the Docker Image (ubuntu-web-workspace)..."
+docker build -t ubuntu-web-workspace .
+
+echo "🏃 Restarting the Docker Container..."
+docker rm -f dev-workspace 2>/dev/null || true
+
+docker run -d \
+ --name dev-workspace \
+ -p 8080:8080 \
+ -p 8081:8081 \
+ -v "$(pwd)/storage:/home/xxx/storage" \
+ ubuntu-web-workspace
+
+echo
+echo "======================================================="
+echo "✅                 SUCCESS!                            "
+echo "======================================================="
+echo
+echo "🌐 Desktop Access : http://localhost:8080/vnc.html     "
+echo "   Pssword        : developer                          "
+echo
+echo "📁 File Manager   : http://localhost:8081              "
+echo "======================================================="
+echo

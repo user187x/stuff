@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  install-docker.sh — Zero-to-Hero Docker Engine Installer
+#  Supports: Ubuntu, Debian, Linux Mint, Kali, Raspbian (apt-based distros)
+#  Installs: Docker Engine (latest), CLI, containerd, Buildx, Compose plugin
+# ==============================================================================
+
+set -euo pipefail
+
+# ── Colours ───────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info() { echo -e "${CYAN}${BOLD}[INFO]${RESET}  $*"; }
+success() { echo -e "${GREEN}${BOLD}[ OK ]${RESET}  $*"; }
+warn() { echo -e "${YELLOW}${BOLD}[WARN]${RESET}  $*"; }
+error() {
+ echo -e "${RED}${BOLD}[ERR ]${RESET}  $*" >&2
+ exit 1
+}
+step() { echo -e "\n${BOLD}━━━  $* ${RESET}"; }
+
+# ── Root check ────────────────────────────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+ error "Run as root or with sudo:  sudo bash $0"
+fi
+
+INSTALL_USER="${SUDO_USER:-$USER}"
+[[ "$INSTALL_USER" == "root" ]] && warn "Running as root — docker group step will be skipped."
+
+# ── Detect distro ─────────────────────────────────────────────────────────────
+step "Detecting system"
+
+if [[ ! -f /etc/os-release ]]; then
+ error "/etc/os-release not found. Cannot detect distro."
+fi
+
+source /etc/os-release
+
+DISTRO_ID="${ID,,}"
+DISTRO_LIKE="${ID_LIKE,,}"
+
+# Map distro → Docker's upstream repo target
+case "$DISTRO_ID" in
+ ubuntu | linuxmint | pop) DOCKER_DISTRO="ubuntu" ;;
+ debian | kali | raspbian) DOCKER_DISTRO="debian" ;;
+ *)
+  if [[ "$DISTRO_LIKE" == *"ubuntu"* ]]; then
+   DOCKER_DISTRO="ubuntu"
+  elif [[ "$DISTRO_LIKE" == *"debian"* ]]; then
+   DOCKER_DISTRO="debian"
+  else
+   error "Unsupported distro: $DISTRO_ID. This script supports Debian/Ubuntu-based systems only."
+  fi
+  ;;
+esac
+
+# Resolve the correct VERSION_CODENAME (handles Mint, etc.)
+CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+[[ -z "$CODENAME" ]] && CODENAME="$(lsb_release -cs 2>/dev/null)" ||
+ true
+[[ -z "$CODENAME" ]] && error "Could not determine distro codename."
+
+ARCH="$(dpkg --print-architecture)"
+
+info "Distro   : $PRETTY_NAME"
+info "Codename : $CODENAME"
+info "Arch     : $ARCH"
+info "Docker repo target: $DOCKER_DISTRO"
+
+# ── Remove old / conflicting packages ────────────────────────────────────────
+step "Removing old Docker installations"
+
+OLD_PKGS=(
+ docker docker-engine docker.io docker-compose docker-compose-v2
+ docker-doc podman-docker containerd runc
+)
+
+REMOVED=()
+for pkg in "${OLD_PKGS[@]}"; do
+ if dpkg -l "$pkg" &>/dev/null 2>&1; then
+  apt-get remove -y "$pkg" &>/dev/null && REMOVED+=("$pkg")
+ fi
+done
+
+if [[ ${#REMOVED[@]} -gt 0 ]]; then
+ success "Removed: ${REMOVED[*]}"
+else
+ info "No conflicting packages found."
+fi
+
+# ── System update + prerequisites ─────────────────────────────────────────────
+step "Installing prerequisites"
+
+apt-get update -qq
+apt-get install -y -qq \
+ ca-certificates \
+ curl \
+ gnupg \
+ lsb-release \
+ apt-transport-https \
+ software-properties-common
+
+success "Prerequisites installed."
+
+# ── Docker GPG key ────────────────────────────────────────────────────────────
+step "Adding Docker GPG key"
+
+KEYRING_DIR="/usr/share/keyrings"
+KEYRING_FILE="${KEYRING_DIR}/docker.gpg"
+
+install -m 0755 -d "$KEYRING_DIR"
+
+curl -fsSL "https://download.docker.com/linux/${DOCKER_DISTRO}/gpg" |
+ gpg --dearmor -o "$KEYRING_FILE"
+
+chmod a+r "$KEYRING_FILE"
+success "GPG key saved to $KEYRING_FILE"
+
+# ── Docker apt repository ─────────────────────────────────────────────────────
+step "Adding Docker apt repository"
+
+SOURCES_FILE="/etc/apt/sources.list.d/docker.list"
+
+echo \
+ "deb [arch=${ARCH} signed-by=${KEYRING_FILE}] \
+https://download.docker.com/linux/${DOCKER_DISTRO} \
+${CODENAME} stable" |
+ tee "$SOURCES_FILE" >/dev/null
+
+success "Repo written to $SOURCES_FILE"
+
+# ── Install Docker Engine ─────────────────────────────────────────────────────
+step "Installing Docker Engine (latest)"
+
+apt-get update -qq
+
+apt-get install -y \
+ docker-ce \
+ docker-ce-cli \
+ containerd.io \
+ docker-buildx-plugin \
+ docker-compose-plugin
+
+success "Docker Engine installed."
+
+# ── Enable & start Docker service ─────────────────────────────────────────────
+step "Enabling Docker service"
+
+systemctl enable --now docker
+systemctl enable --now containerd
+
+if systemctl is-active --quiet docker; then
+ success "Docker daemon is running."
+else
+ error "Docker daemon failed to start. Check: journalctl -xeu docker"
+fi
+
+# ── Add user to docker group ──────────────────────────────────────────────────
+step "Configuring docker group"
+
+if [[ "$INSTALL_USER" != "root" ]]; then
+ if ! getent group docker | grep -qw "$INSTALL_USER"; then
+  usermod -aG docker "$INSTALL_USER"
+  success "User '$INSTALL_USER' added to the 'docker' group."
+  NEEDS_RELOGIN=true
+ else
+  info "User '$INSTALL_USER' is already in the 'docker' group."
+  NEEDS_RELOGIN=false
+ fi
+else
+ warn "Skipping group step (running as root)."
+ NEEDS_RELOGIN=false
+fi
+
+# ── Add user to docker group ──────────────────────────────────────────────────
+step "Increating Docker ulimit"
+
+echo "Updating default limits"
+cat << EOF >>'/etc/docker/daemon.json'
+{
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 64000,
+      "Soft": 64000
+    }
+  }
+}
+EOF
+
+# ── Verify installation ───────────────────────────────────────────────────────
+step "Verifying installation"
+
+DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "unknown")
+COMPOSE_VERSION=$(docker compose version --short 2>/dev/null || echo "unknown")
+BUILDX_VERSION=$(docker buildx version 2>/dev/null | awk '{print $2}' || echo "unknown")
+
+success "Docker Engine   : v${DOCKER_VERSION}"
+success "Compose plugin  : v${COMPOSE_VERSION}"
+success "Buildx plugin   : ${BUILDX_VERSION}"
+
+# Run hello-world as the install user (or root)
+info "Running hello-world container..."
+if [[ "$INSTALL_USER" != "root" ]]; then
+ su -s /bin/sh "$INSTALL_USER" -c "docker run --rm hello-world" 2>&1 |
+  grep -E "Hello|Cannot" || true
+else
+ docker run --rm hello-world 2>&1 | grep "Hello" || true
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════╗"
+echo -e "║     Docker Engine installed successfully!    ║"
+echo -e "╚══════════════════════════════════════════════╝${RESET}"
+echo ""
+echo -e "  ${BOLD}Engine  ${RESET}: v${DOCKER_VERSION}"
+echo -e "  ${BOLD}Compose ${RESET}: v${COMPOSE_VERSION}"
+echo -e "  ${BOLD}Buildx  ${RESET}: ${BUILDX_VERSION}"
+echo ""
+
+if [[ "${NEEDS_RELOGIN:-false}" == "true" ]]; then
+ echo -e "${YELLOW}${BOLD}ACTION REQUIRED:${RESET}"
+ echo -e "  Log out and back in (or run ${BOLD}newgrp docker${RESET}) so"
+ echo -e "  '$INSTALL_USER' can use Docker without sudo.\n"
+fi
+
+echo -e "  ${BOLD}Quick test:${RESET}  docker run --rm hello-world"
+echo -e "  ${BOLD}Compose:${RESET}     docker compose version"
+echo -e "  ${BOLD}Docs:${RESET}        https://docs.docker.com\n"

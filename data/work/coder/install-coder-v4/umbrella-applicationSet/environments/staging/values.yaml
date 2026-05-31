@@ -1,0 +1,59 @@
+# =============================================================================
+# environments/staging/values.yaml — overrides for STAGING
+# =============================================================================
+
+cloudnative-pg:
+  enabled: false                     # operator installed cluster-wide
+
+postgres:
+  enabled: true
+  name: coder-pg
+  instances: 2                       # 1 primary + 1 replica
+  database: coder
+  owner: coder
+
+  storage:
+    size: 30Gi
+    storageClass: gp3                # CHANGE ME
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "512MB"
+
+  monitoring:
+    enabled: true
+
+coder:
+  coder:
+    env:
+      - name: CODER_PG_CONNECTION_URL
+        valueFrom:
+          secretKeyRef:
+            name: coder-pg-app
+            key: uri
+      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+        value: "false"
+      - name: CODER_ACCESS_URL
+        value: "https://staging.coder.example.com"      # CHANGE ME
+
+    replicaCount: 2
+
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+    service:
+      type: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"

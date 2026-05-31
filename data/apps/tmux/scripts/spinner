@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# Global variable to track the background spinner process
+_SPINNER_PID=""
+
+# --- THE SPINNER ENGINE ---
+_spinner_loop() {
+ local style=$1
+ local msg=$2
+
+ local delay
+ local -a frames
+ local -a colors
+
+ # Define styles based on input presets
+ case "$style" in
+  braille)
+   delay=0.08
+   [[ -z "$msg" ]] && msg="Initializing Core..."
+   frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+   colors=("\033[38;5;33m" "\033[38;5;39m" "\033[38;5;45m" "\033[38;5;51m" "\033[38;5;50m" "\033[38;5;49m" "\033[38;5;48m" "\033[38;5;46m" "\033[38;5;48m" "\033[38;5;49m" "\033[38;5;50m" "\033[38;5;51m" "\033[38;5;45m" "\033[38;5;39m")
+   ;;
+  wave)
+   delay=0.05
+   [[ -z "$msg" ]] && msg="Uploading Data..."
+   frames=(" " "▂" "▃" "▄" "▅" "▆" "▇" "█" "▇" "▆" "▅" "▄" "▃" " ")
+   colors=("\033[38;5;33m" "\033[38;5;39m" "\033[38;5;45m" "\033[38;5;51m" "\033[38;5;50m" "\033[38;5;49m" "\033[38;5;48m" "\033[38;5;46m" "\033[38;5;48m" "\033[38;5;49m" "\033[38;5;50m" "\033[38;5;51m" "\033[38;5;45m" "\033[38;5;39m")
+   ;;
+  pulse)
+   delay=0.2
+   [[ -z "$msg" ]] && msg=""
+   frames=("     " "━    " "━━   " "━━━  " "━━━━ " "━━━━━")
+   colors=("\033[1;37m")
+   ;;
+ esac
+
+ tput civis # Hide cursor
+
+ # Clean up gracefully if the background process is killed
+ trap 'tput cnorm; printf "\r\033[K"; exit 0' TERM INT
+
+ local i=0
+ while true; do
+  local frame_idx=$((i % ${#frames[@]}))
+  local color_idx=$((i % ${#colors[@]}))
+
+  local frame="${frames[$frame_idx]}"
+  local current_color="${colors[$color_idx]}"
+
+  # Print the spinner
+  printf "\r${current_color}%s\033[0m %s" "$frame" "$msg"
+
+  sleep "$delay"
+  ((i++))
+ done
+}
+
+# --- ONE-SHOT FRAME (for status bars, prompts, tmux, etc.) ---
+# Prints a single frame and exits. No color, no message, no cursor changes,
+# no trailing newline. Designed to slot directly into $(...) capture.
+#
+# Usage:
+#   spinner frame <style>                          # forward, clock-derived
+#   spinner frame <style> <direction>              # forward|reverse, clock-derived
+#   spinner frame <style> <index>                  # forward, explicit index
+#   spinner frame <style> <direction> <index>      # explicit direction + index
+#
+# direction: forward (default) walks the frame array in order;
+#            reverse walks it backward, producing an animation that runs
+#            the opposite way (counter-rotation for braille, phase-shifted
+#            wave, shrinking-instead-of-growing pulse, etc.).
+_spinner_frame() {
+ local style=$1
+ local direction="forward"
+ local idx=""
+
+ # Second positional arg may be a direction OR a legacy index.
+ case "$2" in
+  forward|reverse) direction=$2; idx=$3 ;;
+  *)               idx=$2 ;;
+ esac
+
+ local -a frames
+ local delay_ms
+ case "$style" in
+  braille) frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'); delay_ms=80 ;;
+  wave)    frames=(" " "▂" "▃" "▄" "▅" "▆" "▇" "█" "▇" "▆" "▅" "▄" "▃" " "); delay_ms=50 ;;
+  pulse)   frames=("     " "━    " "━━   " "━━━  " "━━━━ " "━━━━━"); delay_ms=200 ;;
+  *) return 1 ;;
+ esac
+
+ # If no explicit index given, derive one from absolute wall-clock time so
+ # the spinner advances at its intended rate regardless of polling cadence.
+ # date +%s%N → nanoseconds since epoch; divide by (delay_ms × 1,000,000)
+ # to get a monotonic frame counter.
+ if [[ -z "$idx" ]]; then
+  local now_ns
+  now_ns=$(date +%s%N)
+  idx=$(( now_ns / (delay_ms * 1000000) ))
+ fi
+
+ local n=${#frames[@]}
+ local pos=$(( idx % n ))
+
+ if [[ "$direction" == "reverse" ]]; then
+  pos=$(( (n - 1 - pos + n) % n ))
+ fi
+
+ printf '%s' "${frames[$pos]}"
+}
+
+# --- MAIN EXPORTED FUNCTION ---
+spinner() {
+ local action=$1
+ local msg=$2
+
+ # Handle one-shot frame requests (used by status bars, tmux, etc.)
+ if [[ "$action" == "frame" ]]; then
+  _spinner_frame "$2" "$3" "$4"
+  return $?
+ fi
+
+ # 1. Handle stopping the spinner
+ if [[ "$action" == "stop" ]]; then
+  if [[ -n "$_SPINNER_PID" ]]; then
+   kill "$_SPINNER_PID" 2>/dev/null
+   wait "$_SPINNER_PID" 2>/dev/null
+   _SPINNER_PID=""
+
+   # Clear the line and restore cursor
+   printf "\r\033[K"
+   tput cnorm
+  fi
+  return 0
+ fi
+
+ # 2. If a spinner is already running, stop it before starting a new one
+ if [[ -n "$_SPINNER_PID" ]]; then
+  spinner stop
+ fi
+
+ # 3. Start the requested spinner
+ if [[ "$action" =~ ^(braille|wave|pulse)$ ]]; then
+  # Send to background and capture PID
+  _spinner_loop "$action" "$msg" &
+  _SPINNER_PID=$!
+ else
+  echo "Invalid option. Choose: braille, wave, pulse, frame, or stop" >&2
+  return 1
+ fi
+}
+
+# --- ENTRY POINT (only when executed directly, not when sourced) ---
+# Lets the script be used two ways:
+#   1) source ./spinner; spinner braille "Working..."   (interactive)
+#   2) ./spinner frame braille forward                  (one-shot, scriptable)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+ spinner "$@"
+fi

@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# setup-tmux-cheatsheet.sh
+#
+# Sets up a popup-based cheatsheet for tmux:
+#   * Creates ~/.tmux/cheatsheet.md
+#   * Adds a `prefix + H` binding to ~/.tmux.conf that opens it in bat
+#   * Reloads tmux if a server is running
+#
+# Safe to re-run: existing files are backed up with a timestamp suffix,
+# and the tmux.conf block is bracketed by markers so it won't be duplicated.
+
+set -euo pipefail
+
+PREFIX_KEY="<Ctrl+Space>"
+
+# === paths & constants ================================================
+CHEATSHEET_DIR="$HOME/.tmux"
+CHEATSHEET_FILE="$CHEATSHEET_DIR/cheatsheet.md"
+TMUX_CONF="$HOME/.tmux.conf"
+MARKER_START="# >>> cheatsheet popup (managed by setup-tmux-cheatsheet.sh) >>>"
+MARKER_END="# <<< cheatsheet popup <<<"
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+
+# === output helpers ===================================================
+if [[ -t 1 ]]; then
+ BLUE=$'\033[1;34m'
+ YELLOW=$'\033[1;33m'
+ GREEN=$'\033[1;32m'
+ RESET=$'\033[0m'
+else
+ BLUE=""
+ YELLOW=""
+ GREEN=""
+ RESET=""
+fi
+info() { printf '%s==>%s %s\n' "$BLUE" "$RESET" "$*"; }
+warn() { printf '%s!!%s  %s\n' "$YELLOW" "$RESET" "$*" >&2; }
+ok() { printf '%s✓%s   %s\n' "$GREEN" "$RESET" "$*"; }
+
+# === dependency checks ================================================
+if ! command -v tmux >/dev/null 2>&1; then
+ warn "tmux is not in PATH - install it before this binding will work"
+fi
+
+# On Debian/Ubuntu the bat binary is 'batcat' (name conflict with another package).
+# Detect what's installed and reference the right one in the tmux binding.
+if command -v bat >/dev/null 2>&1; then
+ BAT_BIN="bat"
+elif command -v batcat >/dev/null 2>&1; then
+ BAT_BIN="batcat"
+ info "Detected Debian-flavored 'batcat' - using that in the binding"
+else
+ BAT_BIN="bat"
+ warn "bat is not installed - the popup will fail until you install it:"
+ warn "  Debian/Ubuntu:  sudo apt install bat   (then run this script again)"
+ warn "  macOS:          brew install bat"
+ warn "  Arch:           sudo pacman -S bat"
+fi
+
+# === write cheatsheet =================================================
+mkdir -p "$CHEATSHEET_DIR"
+
+if [[ -f "$CHEATSHEET_FILE" ]]; then
+ backup="$CHEATSHEET_FILE.$TIMESTAMP.bak"
+ cp "$CHEATSHEET_FILE" "$backup"
+ info "Backed up existing cheatsheet -> $backup"
+fi
+
+cat >"$CHEATSHEET_FILE" <<'CHEATSHEET_EOF'
+# Dev Environment Cheatsheet
+
+> Tmux prefix is <Cntrl+Space> unless rebound.
+
+## Tmux — Sessions
+
+| Keys              | Action                          |
+|-------------------|---------------------------------|
+| `prefix d`        | Detach from session             |
+| `prefix s`        | List sessions (interactive)     |
+| `prefix $`        | Rename current session          |
+| `tmux ls`         | List sessions (shell)           |
+| `tmux a -t name`  | Attach to named session         |
+
+## Tmux — Windows
+
+| Keys           | Action                  |
+|----------------|-------------------------|
+| `prefix c`     | Create new window       |
+| `prefix ,`     | Rename window           |
+| `prefix n / p` | Next / previous window  |
+| `prefix 0-9`   | Jump to window by index |
+| `prefix &`     | Kill window             |
+
+## Tmux — Panes
+
+| Keys             | Action                       |
+|------------------|------------------------------|
+| `prefix |`       | Split horizontal (custom)    |
+| `prefix -`       | Split vertical (custom)      |
+| `prefix arrows`  | Move between panes           |
+| `prefix z`       | Toggle zoom on current pane  |
+| `prefix {` / `}` | Swap pane with prev / next   |
+| `prefix x`       | Kill pane                    |
+| `prefix S`       | Toggle synchronize-panes     |
+
+## Tmux — Copy Mode
+
+| Keys             | Action                |
+|------------------|-----------------------|
+| `prefix [`       | Enter copy mode       |
+| `/` or `?`       | Search forward / back |
+| `space`          | Start selection       |
+| `enter`          | Yank selection        |
+| `prefix ]`       | Paste                 |
+
+## Tmux — Notes & Gotchas
+
+- **Sync-panes** (`prefix S`) broadcasts keystrokes to every pane in the window —
+  great for multi-host ops, dangerous near password prompts. Toggle it off
+  before typing anything sensitive.
+
+- **Zoom** (`prefix z`) is your friend for tailing logs; the indicator in the
+  status bar reminds you you're zoomed.
+- **Reload config**: `prefix r` if bound, otherwise `tmux source ~/.tmux.conf`.
+
+- **Nested sessions** (tmux inside tmux over SSH): press `prefix` twice to send
+  the key to the inner session.
+
+---
+
+## Vim — Window Focus (NerdTree ⇄ Main View)
+
+NerdTree opens as a vertical split on the **left** by default. Bouncing focus
+between the tree and your code is just vim's standard window-movement commands
+— no NerdTree-specific keys needed.
+
+| Keys         | Action                                            |
+|--------------|---------------------------------------------------|
+| `Ctrl+n`     | Toggle NerdTree open/closed (custom binding)      |
+| `Ctrl+w h`   | Move focus **left** → into NerdTree               |
+| `Ctrl+w l`   | Move focus **right** → back to the main view      |
+| `Ctrl+w w`   | Cycle through all windows in order                |
+| `Ctrl+w p`   | Jump to the **previous** window (toggle-style)    |
+| `Ctrl+w =`   | Equalize all window sizes                         |
+| `Ctrl+w o`   | Close every window except the current one         |
+
+### The fast pattern
+
+`Ctrl+w` followed by `h`/`l` is the muscle-memory move — same hand position as
+hjkl navigation, just with `Ctrl+w` as the prefix. If you live in NerdTree,
+`Ctrl+w p` is even faster: it always toggles to the last window you were in,
+so once you've moved from tree → file once, `Ctrl+w p` bounces you back and
+forth indefinitely.
+
+### Inside NerdTree (when focus IS on the tree)
+
+| Keys     | Action                                     |
+|----------|--------------------------------------------|
+| `o`      | Open file / toggle directory expansion     |
+| `t`      | Open file in a **new tab**                 |
+| `s`      | Open file in a **vertical split**          |
+| `i`      | Open file in a **horizontal split**        |
+| `p`      | Jump to parent directory                   |
+| `R`      | Refresh the tree                           |
+| `m`      | Open the NerdTree menu (add/move/delete)   |
+| `?`      | NerdTree's own built-in help               |
+
+### Optional one-key focus jump
+
+If `Ctrl+w h` still feels like too many keys, drop this into your vimrc to
+get a single-leader jump that *also* opens NerdTree if it's closed:
+
+```vim
+nnoremap <leader>e :NERDTreeFocus<CR>
+```
+
+Now `Space+e` puts you in the tree from anywhere, and `Ctrl+w p` (or
+`Ctrl+w l`) takes you back to the code.
+
+## My Custom Bindings
+
+_Edit this section as you grow your config._
+
+- `prefix H` — this cheatsheet
+- `prefix |` / `prefix -` — splits (intuitive direction)
+- `prefix r` — reload config
+- `Ctrl+n` (vim) — toggle NerdTree
+- `Space+x` (vim) — chmod +x current shell/python file
+CHEATSHEET_EOF
+
+ok "Wrote $CHEATSHEET_FILE"
+
+# === update tmux.conf =================================================
+touch "$TMUX_CONF"
+
+if grep -qF "$MARKER_START" "$TMUX_CONF"; then
+ info "Cheatsheet binding already present in $TMUX_CONF (skipping append)"
+else
+ backup="$TMUX_CONF.$TIMESTAMP.bak"
+ cp "$TMUX_CONF" "$backup"
+ info "Backed up tmux.conf -> $backup"
+
+ # printf gives precise control over backslash and % escaping.
+ # %% -> literal %, \\ -> literal \, \n -> newline.
+ {
+  printf '\n%s\n' "$MARKER_START"
+  printf 'bind-key -N "Show dev cheatsheet" H display-popup -E -w 90%% -h 85%% \\\n'
+  printf '    "%s --paging=always --style=plain --language=md --theme=gruvbox-dark %s"\n' \
+   "$BAT_BIN" "$CHEATSHEET_FILE"
+  printf '%s\n' "$MARKER_END"
+ } >>"$TMUX_CONF"
+
+ ok "Appended cheatsheet binding to $TMUX_CONF"
+fi
+
+# === reload tmux if a server is running ===============================
+if command -v tmux >/dev/null 2>&1 && tmux info >/dev/null 2>&1; then
+ if tmux source-file "$TMUX_CONF" 2>/dev/null; then
+  ok "Reloaded tmux config"
+ else
+  warn "Couldn't reload tmux (config may have errors) - try: tmux source $TMUX_CONF"
+ fi
+else
+ info "No tmux server running - config will load on next start"
+fi
+
+echo
+ok "All set! In tmux: press prefix + H ($PREFIX_KEY then H) to view the cheatsheet."

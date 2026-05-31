@@ -1,0 +1,92 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'com.xxx.server'
+    compileSdkVersion 36
+
+    defaultConfig {
+        applicationId "com.xxx.server"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable true
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+
+    buildFeatures {
+        //dataBinding true
+        viewBinding true
+    }
+
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/ASL2.0'
+        exclude 'META-INF/INDEX.LIST'
+        exclude 'META-INF/io.netty.versions.properties'
+    }
+}
+
+dependencies {
+    // Core Android dependencies
+    implementation libs.androidx.appcompat
+    implementation 'androidx.core:core:1.12.0' // Stays as a specific version if not in TOML
+    implementation 'androidx.activity:activity:1.8.2'
+    implementation 'androidx.fragment:fragment:1.6.2'
+    implementation libs.androidx.constraintlayout
+
+    // Material Design Components
+    implementation libs.material
+
+    // Preference
+    implementation libs.androidx.preference
+
+    // Document File (for file access)
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+
+    // Vert.x Core and Web dependencies
+    implementation libs.vertx.core
+    implementation libs.vertx.web
+
+    implementation 'com.google.zxing:core:3.5.1'
+
+    //Database
+    implementation 'com.h2database:h2:2.2.224'
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // For graphing
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
+
+    // Jackson for JSON processing (pulled in by vertx-web, explicit declaration for clarity)
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.16.1'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+
+    // Logging (SLF4J with Android implementation)
+    implementation 'org.slf4j:slf4j-android:1.7.36'
+
+    // Optional: For HTTPS/TLS support
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
+    implementation 'org.bouncycastle:bcpkix-jdk18on:1.81'
+    implementation 'com.github.bumptech.glide:glide:4.12.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.12.0'
+}

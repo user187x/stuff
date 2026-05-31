@@ -1,0 +1,232 @@
+Copying all data types to the clipboard
+==============================================
+
+There already exists an escape code to allow terminal programs to
+read/write plain text data from the system clipboard, *OSC 52*.
+kitty introduces a more advanced protocol that supports:
+
+* Copy arbitrary data including images, rich text documents, etc.
+* Allow terminals to ask the user for permission to access the clipboard and
+  report permission denied
+
+The escape code is *OSC 5522*, an extension of *OSC 52*. The basic format
+of the escape code is::
+
+    <OSC>5522;metadata;payload<ST>
+
+Here, *metadata* is a colon separated list of key-value pairs and payload is
+base64 encoded data. :code:`OSC` is :code:`<ESC>[`.
+:code:`ST` is the string terminator, :code:`<ESC>\\`.
+
+Reading data from the system clipboard
+----------------------------------------
+
+To read data from the system clipboard, the escape code is::
+
+    <OSC>5522;type=read;<base 64 encoded space separated list of mime types to read><ST>
+
+For example, to read plain text and PNG data, the payload would be::
+
+    text/plain image/png
+
+encoded as base64. To read from the primary selection instead of the
+clipboard, add the key ``loc=primary`` to the metadata section.
+
+To get the list of MIME types available on the clipboard the payload must be
+just a period (``.``), encoded as base64.
+
+The terminal emulator will reply with a sequence of escape codes of the form::
+
+    <OSC>5522;type=read:status=OK<ST>
+    <OSC>5522;type=read:status=DATA:mime=<base 64 encoded mime type>;<base64 encoded data><ST>
+    <OSC>5522;type=read:status=DATA:mime=<base 64 encoded mime type>;<base64 encoded data><ST>
+    .
+    .
+    .
+    <OSC>5522;type=read:status=DONE<ST>
+
+Here, the ``status=DATA`` packets deliver the data (as base64 encoded bytes)
+associated with each MIME type. The terminal emulator should chunk up the data
+for an individual type, into chunks of size **no more** than 4096 bytes (4096
+is the size of a chunk *before* base64 encoding). All
+the chunks for a given type must be transmitted sequentially and only once they
+are done the chunks for the next type, if any, should be sent. The end of data
+is indicated by a ``status=DONE`` packet.
+
+If an error occurs, instead of the opening ``status=OK`` packet the terminal
+must send a ``status=ERRORCODE`` packet. The error code must be one of:
+
+``status=ENOSYS``
+    Sent if the requested clipboard type is not available. For example, primary
+    selection is not available on all systems and ``loc=primary`` was used.
+
+``status=EPERM``
+    Sent if permission to read from the clipboard was denied by the system or
+    the user.
+
+``status=EBUSY``
+    Sent if there is some temporary problem, such as multiple clients in a
+    multiplexer trying to access the clipboard simultaneously.
+
+Terminals should ask the user for permission before allowing a read request.
+However, if a read request only wishes to list the available data types on the
+clipboard, it should be allowed without a permission prompt. This is so that
+the user is not presented with a double permission prompt for reading the
+available MIME types and then reading the actual data.
+
+
+Writing data to the system clipboard
+----------------------------------------
+
+To write data to the system clipboard, the terminal programs sends the
+following sequence of packets::
+
+    <OSC>5522;type=write<ST>
+    <OSC>5522;type=wdata:mime=<base64 encoded mime type>;<base 64 encoded chunk of data for this type><ST>
+    <OSC>5522;type=wdata:mime=<base64 encoded mime type>;<base 64 encoded chunk of data for this type><ST>
+    .
+    .
+    .
+    <OSC>5522;type=wdata<ST>
+
+The final packet with no mime and no data indicates end of transmission. The
+data for every MIME type should be split into chunks of no more than 4096
+bytes (4096 is the size of the data before base64 encoding).
+All the chunks for a given MIME type must be sent sequentially, before
+sending chunks for the next MIME type. After the transmission is complete, the
+terminal replies with a single packet indicating success::
+
+    <OSC>5522;type=write:status=DONE<ST>
+
+If an error occurs the terminal can, at any time, send an error packet of the
+form::
+
+    <OSC>5522;type=write:status=ERRORCODE<ST>
+
+Here ``ERRORCODE`` must be one of:
+
+``status=EIO``
+    An I/O error occurred while processing the data
+``status=EINVAL``
+    One of the packets was invalid, usually because of invalid base64 encoding.
+``status=ENOSYS``
+    The client asked to write to the primary selection with (``loc=primary``) and that is not
+    available on the system
+``status=EPERM``
+    Sent if permission to write to the clipboard was denied by the system or
+    the user.
+``status=EBUSY``
+    Sent if there is some temporary problem, such as multiple clients in a
+    multiplexer trying to access the clipboard simultaneously.
+
+Once an error occurs, the terminal must ignore all further OSC 5522 write related packets until it
+sees the start of a new write with a ``type=write`` packet.
+
+The client can send to the primary selection instead of the clipboard by adding
+``loc=primary`` to the initial ``type=write`` packet.
+
+Finally, clients have the ability to *alias* MIME types when sending data to
+the clipboard. To do that, the client must send a ``type=walias`` packet of the
+form::
+
+    <OSC>5522;type=walias;mime=<base64 encoded target MIME type>;<base64 encoded, space separated list of aliases><ST>
+
+The effect of an alias is that the system clipboard will make available all the
+aliased MIME types, with the same data as was transmitted for the target MIME
+type. This saves bandwidth, allowing the client to only transmit one copy of
+the data, but create multiple references to it in the system clipboard. Alias
+packets can be sent anytime after the initial write packet and before the end
+of data packet.
+
+.. _clipboard_repeated_permission:
+
+Avoiding repeated permission prompts
+--------------------------------------
+
+.. versionadded:: 0.42.2
+     using a password to avoid repeated confirmations
+
+If a program like an editor wants to make use of the system clipboard, by
+default, the user is prompted on every read request. This can become quite
+fatiguing. To avoid this situation, this protocol allows sending a password
+and human friendly name with ``type=write`` and ``type=read`` requests. The
+terminal can then ask the user to allow all future requests using that
+password. If the user agrees, future requests on the same tty will be
+automatically allowed by the terminal. The editor or other program using
+this facility should ideally use a password randomly generated at startup,
+such as a UUID4. However, terminals may implement permanent/stored passwords.
+Users can then configure terminal programs they trust to use these password.
+
+The password and the human name are encoded using the ``pw`` and ``name`` keys
+in the metadata. The values are UTF-8 strings that are base64 encoded.
+Specifying a password without a human friendly name is equivalent to not
+specifying a password and the terminal must treat the request as though
+it had no password.
+
+Allowing terminal applications to respond to paste events
+--------------------------------------------------------------
+
+.. versionadded:: 0.44.1
+     paste events via the 5522 mode
+
+If a TUI application wants to handle paste events (like the user pressing the
+paste key shortcut used by the terminal or selecting paste from a terminal UI menu)
+it can enable the *paste events* private mode (5522), as described in this `ancillary
+specification <https://rockorager.dev/misc/bracketed-paste-mime/>`__. When that
+mode is set, the terminal will send the application a list of MIME types on the
+clipboard every time the user triggers a paste action. The application is then
+free to request whatever MIME data it wants from the list of types.
+
+The mode can be enabled using the standard DECSET or DECRST control sequences.
+``CSI ? 5522 h`` to enable the mode. ``CSI ? 5522 l`` to disable the mode.
+
+The terminal *should* send a one time password with the list of mime
+types, as the ``pw`` key (base64 encoded). The application can then use this
+password to request data from the clipboard without needing a permission
+prompt. The human name *should* be set to ``Paste event`` (base64 encoded) when
+the application uses this one time password.
+
+Detecting support for this protocol
+-----------------------------------------
+
+Applications can detect if a terminal supports this protocol with a standard
+DECRQM query:
+
+.. code::
+
+    CSI ? 5522 $ p
+
+To which the terminal will respond with a DECRPM response:
+
+.. code::
+
+    CSI ? 5522 ; Ps $ y
+
+A Ps value of 0 or 4 means the mode is not supported.
+
+
+Support for terminal multiplexers
+------------------------------------
+
+Since this protocol involves two way communication between the terminal
+emulator and the client program, multiplexers need a way to know which window
+to send responses from the terminal to. In order to make this possible, the
+metadata portion of this escape code includes an optional ``id`` field. If
+present the terminal emulator must send it back unchanged with every response.
+Valid ids must include only characters from the set: ``[a-zA-Z0-9-_+.]``. Any
+other characters must be stripped out from the id by the terminal emulator
+before retransmitting it.
+
+Note that when using a terminal multiplexer it is possible for two different
+programs to overwrite each other's clipboard requests. This is fundamentally
+unavoidable since the system clipboard is a single global shared resource.
+However, there is an additional complication where responses from this protocol
+could get lost if, for instance, multiple write requests are received
+simultaneously. It is up to well designed multiplexers to ensure that only a
+single request is in flight at a time. The multiplexer can abort requests by
+sending back the ``EBUSY`` error code indicating some other window is trying
+to access the clipboard.
+
+When the terminal sends an unsolicited paste event because the user triggered
+a paste and the 5522 mode is enabled, there will be no associated id. In this
+case, the multiplexer must forward the event to the currently active window.

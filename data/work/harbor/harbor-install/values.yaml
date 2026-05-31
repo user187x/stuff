@@ -1,0 +1,69 @@
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: harbor-ingress-tls
+  ingress:
+    hosts:
+      core: harbor.local
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+externalURL: https://harbor.local
+
+harborAdminPassword: "Harbor12345"
+
+# Persistence — sized for a Minikube dev VM. Tune via env vars.
+persistence:
+  enabled: true
+  resourcePolicy: keep
+  persistentVolumeClaim:
+    registry:
+      storageClass: standard
+      size: 20Gi
+    jobservice:
+      jobLog:
+        storageClass: standard
+        size: 1Gi
+    database:
+      storageClass: standard
+      size: 2Gi
+    redis:
+      storageClass: standard
+      size: 1Gi
+    trivy:
+      storageClass: standard
+      size: 5Gi
+
+trivy:
+  enabled: true
+
+# Keep resource requests small — Minikube isn't a prod cluster.
+core:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+jobservice:
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+registry:
+  registry:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+  controller:
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+portal:
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+database:
+  internal:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+redis:
+  internal:
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }

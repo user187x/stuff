@@ -1,0 +1,21 @@
+#!/bin/bash
+
+docker build -t custom-ubuntu-vnc:latest .
+
+echo "Now we can add the following"
+
+cat <<EOF >terraform-patch.tf
+container {
+          name              = "dev"
+          image             = "custom-ubuntu-vnc:latest" # Use our new baked image
+          image_pull_policy = "Never" # Crucial: tells Minikube to use the local image
+          
+          # We can skip the apt-get stuff now! Just run the Coder init script.
+          command           = ["sh", "-c", coder_agent.main.init_script]
+          working_dir       = "/home/coder"
+          
+          # Run securely as the 'coder' user we created in the Dockerfile
+          security_context {
+            run_as_user = "1000"
+          }
+EOF

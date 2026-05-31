@@ -1,0 +1,86 @@
+#!/bin/bash
+
+BASE_DIR=""
+
+function _parse_arguments {
+
+ while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -d | --base-directory)
+   BASE_DIR="$2"
+   shift 2
+   ;;
+  -h | --help)
+   echo "Usage: parse_arguments [-d|--base-directory <path>]"
+   return 0
+   ;;
+  -*)
+   echo "Error: Unknown option $1" >&2
+   return 1
+   ;;
+  *)
+   # If BASE_DIR isn't set yet, assume this positional argument is the directory
+   if [[ -z "$BASE_DIR" ]]; then
+    BASE_DIR="$1"
+   else
+    echo "Ignoring extra positional argument: $1"
+   fi
+   shift 1
+   ;;
+  esac
+ done
+}
+
+function fix-links {
+
+ _parse_arguments "$@"
+
+ if [[ -z "$BASE_DIR" ]]; then
+  echo "No base directory provided. Aborting..."
+  exit 1
+ fi
+
+ echo -e "${INFO} Scanning for broken symlinks in ${BASE_DIR}..."
+
+ # Find all broken symlinks (ignoring .git to save time/noise) and process them safely
+ while IFS= read -r -d $'\0' broken_link; do
+
+  # Extract link details
+  local link_target=$(readlink "$broken_link")
+  local link_name=$(basename "$broken_link")
+  local link_dir=$(dirname "$broken_link")
+
+  echo -e "\n${WARN} Broken link detected: ${RED}${broken_link}${END}"
+  echo -e "   -> Previously pointed to: ${GRAY}${link_target}${END}"
+
+  # Search for a replacement target using fzf
+  # We pipe all files in BASE_DIR (excluding .git) into fzf
+  local selected_file=$(find "$BASE_DIR" -type f -not -path "*/.git/*" 2>/dev/null | fzf \
+   --prompt="Select new target for $link_name> " \
+   --header="Fixing: $broken_link (Press ESC to skip)" \
+   --layout=reverse \
+   --border="rounded" \
+   --preview="bat --color=always --style=numbers {} 2>/dev/null || head -n 50 {}")
+
+  # If the user presses ESC, fzf returns empty. Skip to the next link.
+  if [[ -z "$selected_file" ]]; then
+   echo -e "   ${YELLOW}Skipped by user.${END}"
+   continue
+  fi
+
+  # Calculate the relative path from the link's directory to the newly selected file
+  local relative_target=$(realpath -m --relative-to="$link_dir" "$selected_file")
+
+  # Remove the broken link
+  rm "$broken_link"
+
+  # Create the new symlink using the relative path
+  ln -s "$relative_target" "$broken_link"
+
+  echo -e "   ${GREEN}Fixed!${END} Re-linked to: ${BLUE}${relative_target}${END}"
+
+  #done < <(find "$BASE_DIR" -xtype l -not -path "*/.git/*" -print0)
+ done < <(find "$BASE_DIR" -xtype l -print0)
+
+ echo -e "\n${INFO} Symlink repair complete."
+}

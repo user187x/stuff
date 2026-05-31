@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+# Paths and PID setup
+CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"                                                                                                              
+CURRENT_PATH="${CURRENT_DIR}/spinner"
+
+PID_FILE="/tmp/tmux-spin-$USER.pid"
+SPINNER_SCRIPT="${CURRENT_PATH}"
+
+# Kill any existing instance of this daemon cleanly
+if [ -f "$PID_FILE" ]; then
+ kill $(cat "$PID_FILE") 2>/dev/null
+fi
+
+# Trap the termination signal (Signal 15) so we exit cleanly without tmux throwing an error
+trap "exit 0" TERM
+
+# Save current process ID
+echo $$ >"$PID_FILE"
+
+# Run the animation loop as long as the tmux server is alive
+while tmux has-session 2>/dev/null; do
+ # Fetch the next frame for both left and right sides
+ l=$(bash "$SPINNER_SCRIPT" frame braille forward 2>/dev/null)
+ r=$(bash "$SPINNER_SCRIPT" frame braille reverse 2>/dev/null)
+
+ # Push the frames into tmux variables
+ tmux set-option -gq @spinner_l "$l" 2>/dev/null
+ tmux set-option -gq @spinner_r "$r" 2>/dev/null
+
+ # Trigger UI update
+ tmux refresh-client 2>/dev/null
+
+ sleep 0.1
+done
+
+# Clean up the PID file if the loop naturally exits (e.g., tmux server shutdown)
+rm -f "$PID_FILE"

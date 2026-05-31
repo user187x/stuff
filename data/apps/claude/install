@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# 1. Create a directory for global packages
+mkdir ~/.npm-global
+
+# 2. Configure npm to use this new directory path
+npm config set prefix '~/.npm-global'
+
+# 3. Add the directory to your path (add this to your ~/.bashrc or ~/.zshrc)
+export PATH=~/.npm-global/bin:$PATH
+
+# 4. Refresh your shell variables
+source ~/.bashrc # or source ~/.zshrc
+
+# 5. Run the install normally without sudo
+npm install -g @anthropic-ai/claude-code
+
+echo "Apply the following : export ANTHROPIC_API,_KEY=<your-key-here>"

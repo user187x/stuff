@@ -1,0 +1,69 @@
+# =============================================================================
+# Traefik Helm values  (compatible with traefik-helm-chart v40.x+)
+#
+# Assumes a secret named `traefik-ingress-tls` already exists in the
+# `traefik-auth` namespace containing the server certificate (signed by
+# your private CA) and the private key:
+#
+#   kubectl create secret tls traefik-ingress-tls \
+#     --cert=server.crt --key=server.key -n traefik-auth
+#
+# And a separate secret holding the CA bundle so Traefik can trust
+# upstream services that present certs from the same private CA:
+#
+#   kubectl create secret generic traefik-private-ca \
+#     --from-file=ca.crt=ca.crt -n traefik-auth
+# =============================================================================
+
+deployment:
+  replicas: 2
+
+ports:
+  web:
+    port: 8000
+    exposedPort: 80
+    expose:
+      default: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    port: 8443
+    exposedPort: 443
+    expose:
+      default: true
+    # TLS is enabled by default on the websecure entrypoint; the default
+    # TLSStore (in this namespace) supplies the certificate.
+
+# Mount the private CA cert bundle so Traefik trusts upstream
+# services issued by the same CA.
+volumes:
+  - name: traefik-private-ca
+    mountPath: /certs/ca
+    type: secret
+
+# Tell Traefik where the trusted root CA lives (for outbound TLS to
+# backends that present private-CA-signed certs).
+additionalArguments:
+  - "--serversTransport.rootCAs=/certs/ca/ca.crt"
+
+# Service account, RBAC, and IngressRoute CRDs are installed by default.
+providers:
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: true
+  kubernetesIngress:
+    enabled: true
+
+logs:
+  general:
+    level: INFO
+  access:
+    enabled: true
+
+ingressRoute:
+  dashboard:
+    enabled: true 

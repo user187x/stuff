@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">BarGirl</string>
+    <string name="title">Profile</string>
+    <string name="secondary_text">Bio</string>
+    <string name="action_1">Info</string>
+    <string name="action_2">Edit</string>
+    <string name="expand_button">Expand card</string>
+    <string name="action_flip">Flip</string>
+    <string name="action_flip_back">Flip</string>
+    <string name="card_back_title">LINE App</string>
+    <string name="card_back_info">Contact</string>
+    <string name="content_description_media">Description</string>
+    <string name="flip_text">Flip to QR Code</string>
+    <string name="create_profile">Create Profile</string>
+    <string name="exit">Exit</string>
+    <string name="save">Save</string>
+    <string name="switch_view">Switch View</string>
+</resources>

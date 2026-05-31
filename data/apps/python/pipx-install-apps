@@ -1,0 +1,6 @@
+#!/bin/bash
+
+sudo pipx ensurepath --global
+sudo pipx install staticx --global
+sudo pipx install shfmt-py --global
+pipx list

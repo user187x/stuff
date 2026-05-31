@@ -1,0 +1,41 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.local/cache}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+declare -A RESOURCE_PATH
+
+RESOURCE_PATH["TMUX_SRC"]="$PWD/tmux"
+RESOURCE_PATH["TMUX_DST"]="${CONFIG_HOME}/tmux"
+RESOURCE_PATH["TPM_SCRIPT"]="${RESOURCE_PATH[TMUX_DST]}/plugins/tpm/bin/install_plugins"
+
+function setup_tmux {
+
+ echo -e "Configuring Tmux..."
+
+ # Link the main configuration directory
+ ln -s "${RESOURCE_PATH[TMUX_SRC]}" "${RESOURCE_PATH[TMUX_DST]}"
+
+ if [[ -x "${RESOURCE_PATH[TPM_SCRIPT]}" ]]; then
+
+  echo -e "$INFO Running Tmux Plugin-Manager installation..."
+
+  # Running inside a subshell to avoid directory changing side-effects
+  ("${RESOURCE_PATH[TPM_SCRIPT]}")
+
+ else
+  echo -e "$ERROR TPM installer not found at path: ${RESOURCE_PATH[TPM_SCRIPT]}"
+  exit 1
+ fi
+}
+
+if ! command -v tmux >/dev/null 2>&1; then
+ echo "Installing Snap..."
+ sudo apt install tmux -y
+ setup-tmux
+else
+ echo "Tmux is already installed!"
+fi

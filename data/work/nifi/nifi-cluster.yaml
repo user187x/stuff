@@ -1,0 +1,64 @@
+# nifi-cluster.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nifi-admin-credentials
+  namespace: nifi
+type: Opaque
+stringData:
+  # The keys must be strictly 'username' and 'password'
+  username: "admin"
+  password: "SuperSecretPassword123!"
+---
+apiVersion: nifi.konpyutaika.com/v1
+kind: NifiCluster
+metadata:
+  name: nifikop-cluster
+  namespace: nifi
+spec:
+  clusterImage: "apache/nifi:1.24.0"
+  zkAddress: "zookeeper.zookeeper.svc.cluster.local:2181"
+  zkPath: "/nifi"
+  service:
+    headlessEnabled: true
+  nodeUserIdentityTemplate: "node-%d-nifikop"
+  nodes:
+    - id: 1
+      nodeConfigGroup: "default"
+  nodeConfigGroups:
+    default:
+      isNode: true
+      storageConfigs:
+        - mountPath: "/opt/nifi/nifi-current/logs"
+          name: logs
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+            storageClassName: standard
+  listenersConfig:
+    internalListeners:
+      - containerPort: 8443
+        name: https
+        protocol: TCP
+        type: https
+      - containerPort: 6007
+        name: cluster
+        protocol: TCP
+        type: cluster
+      - containerPort: 10000
+        name: s2s
+        protocol: TCP
+        type: s2s
+  singleUserConfiguration:
+    enabled: true
+    authorizerEnabled: true
+    secretKeys:
+      username: username
+      password: password
+    secretRef:
+      name: nifi-admin-credentials
+      namespace: nifi

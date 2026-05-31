@@ -1,0 +1,62 @@
+#!/bin/bash
+# tmux stats daemon — Using logic from your specific plugin files
+
+# --- Configuration ---
+: "${STATS_DELAY:=1}" # Match your network interval
+: "${STATS_PID_FILE:=/tmp/tmux-stats-$USER.pid}"
+: "${NET_INTERFACE:=wlp192s0}" # From your tmux.conf
+
+# 1. CPU Logic (Derived from your cpu_info.sh)
+get_cpu() {
+ top -bn2 -d 0.01 | grep "[C]pu(s)" | tail -1 | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}'
+}
+
+# 2. RAM Logic (Derived from your ram_info.sh)
+get_ram() {
+ free -h | awk 'NR==2 {print $3 "/" $2}' | sed 's/i/B/g'
+}
+
+# 3. GPU Logic (Derived from your gpu_usage.sh)
+get_gpu() {
+ if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | awk '{printf "%d%%", $1}'
+ else
+  echo "0%"
+ fi
+}
+
+# 4. Network Logic (Derived from your network_bandwidth.sh)
+# This requires two samples to calculate "per second"
+get_net() {
+ local rx1=$(cat "/sys/class/net/$NET_INTERFACE/statistics/rx_bytes")
+ local tx1=$(cat "/sys/class/net/$NET_INTERFACE/statistics/tx_bytes")
+ sleep 1
+ local rx2=$(cat "/sys/class/net/$NET_INTERFACE/statistics/rx_bytes")
+ local tx2=$(cat "/sys/class/net/$NET_INTERFACE/statistics/tx_bytes")
+
+ # Simple conversion to KB/s
+ local down=$(((rx2 - rx1) / 1024))
+ local up=$(((tx2 - tx1) / 1024))
+ echo "↓ ${down}K • ↑ ${up}K"
+}
+
+stop_prior_daemon() {
+ [[ -f "$STATS_PID_FILE" ]] && kill $(cat "$STATS_PID_FILE") 2>/dev/null
+ echo $$ >"$STATS_PID_FILE"
+}
+
+run_loop() {
+ while tmux has-session 2>/dev/null; do
+  # Update all variables
+  tmux set-option -gq @daemon_cpu "$(get_cpu)"
+  tmux set-option -gq @daemon_ram "$(get_ram)"
+  tmux set-option -gq @daemon_gpu "$(get_gpu)"
+  tmux set-option -gq @daemon_net "$(get_net)"
+
+  tmux refresh-client -S
+  # Note: sleep is handled inside get_net to ensure 1s sample
+ done
+}
+
+stop_prior_daemon
+run_loop

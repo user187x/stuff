@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# ==========================================
+# Prerequisites Check
+# ==========================================
+for cmd in kubectl fzf; do
+ if ! command -v "$cmd" &>/dev/null; then
+  echo "❌ Error: '$cmd' is not installed or not in your PATH."
+  exit 1
+ fi
+done
+
+# ==========================================
+# 1. Interactive Selection
+# ==========================================
+# Fetch namespaces and pipe to fzf
+NAMESPACE=$(kubectl get namespaces -o custom-columns=":metadata.name" --no-headers |
+ fzf --prompt="Select Namespace ❯ " --height=40% --layout=reverse --border --inline-info)
+
+if [[ -z "$NAMESPACE" ]]; then
+ echo "⚠️ No namespace selected. Exiting."
+ exit 0
+fi
+
+# Fetch pods in the selected namespace and pipe to fzf
+POD=$(kubectl get pods -n "$NAMESPACE" -o custom-columns=":metadata.name" --no-headers |
+ fzf --prompt="Select Pod in [$NAMESPACE] ❯ " --height=40% --layout=reverse --border --inline-info)
+
+if [[ -z "$POD" ]]; then
+ echo "⚠️ No pod selected. Exiting."
+ exit 0
+fi
+
+# ==========================================
+# 2. Configuration
+# ==========================================
+# Generate a unique debug pod name using a random 5-character string
+RANDOM_SUFFIX=$(LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 5)
+DEBUG_POD="${POD}-debug-${RANDOM_SUFFIX}"
+
+# Using netshoot instead of plain busybox for built-in network/API troubleshooting tools
+IMAGE="nicolaka/netshoot"
+
+echo "======================================================"
+echo "🎯 Target Namespace: $NAMESPACE"
+echo "🎯 Target Pod:       $POD"
+echo "🛠️  Debug Pod:        $DEBUG_POD"
+echo "======================================================"
+
+# ==========================================
+# 3. Cleanup Trap
+# ==========================================
+# This ensures the debug pod is deleted when the script exits, even if you Ctrl+C
+cleanup() {
+ echo -e "\n🧹 Exiting session. Cleaning up debug pod '$DEBUG_POD'..."
+ kubectl delete pod "$DEBUG_POD" -n "$NAMESPACE" --ignore-not-found=true --wait=false
+ echo "✅ Cleanup initiated. The pod will be removed from the cluster."
+}
+trap cleanup EXIT
+
+# ==========================================
+# 4. Launch Debug Pod
+# ==========================================
+echo "🚀 Copying pod configuration and attaching PVCs..."
+echo "⚠️  Note: If your PVC uses ReadWriteOnce (RWO), it may take a moment to attach, or it might stay in 'Pending' if your CSI driver strictly forbids dual-attachment on the same node."
+
+# Execute the debug command
+# --copy-to clones the pod (including volumes)
+# -it attaches our terminal
+kubectl debug "$POD" -n "$NAMESPACE" -it \
+ --copy-to="$DEBUG_POD" \
+ --container=debugger \
+ --image="$IMAGE" \
+ -- bash

@@ -1,0 +1,51 @@
+#!/bin/bash
+
+sudo apt install pipx
+
+pipx ensurepath
+
+pipx install yt-dlp
+
+read -p "Bulk/Single Mode (b/s) ? : " mode
+
+if [[ "$mode" == "b" ]]; then
+
+ read -e -r -p "Enter Bulk download, new-line delimited URL file: " src
+
+ if [[ ! -f "$src" ]]; then
+  echo "File $src not found"
+  exit 1
+ fi
+
+ read -e -r -p "Enter Save Path: " dst
+ mkdir -p "$dst" > /dev/null 2>&1
+
+ yt-dlp --extract-audio \
+  --progress \
+  --newline \
+  --console-title \
+  --audio-format mp3 \
+  --audio-quality 0 \
+  --embed-thumbnail  \
+  --embed-metadata \
+  --batch-file "$src" \
+  --output "$dst/%(title)s.%(ext)s"
+
+else
+   
+ read -e -r -p "Enter URL: " src
+ read -e -r -p "Enter Save Destination: " dst
+
+ mkdir -p "$dst" > /dev/null 2>&1 
+ 
+ yt-dlp --extract-audio \
+  --progress \
+  --newline \
+  --console-title \
+  --audio-format mp3 \
+  --audio-quality 0 \
+  --embed-thumbnail  \
+  --embed-metadata \
+  --output "$dst/%(title)s.%(ext)s" \
+  "$src"
+fi

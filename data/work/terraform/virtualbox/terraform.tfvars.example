@@ -1,0 +1,29 @@
+# --- Example: boot from a local ISO --------------------------------------
+image_source   = "local"
+local_iso_path = "/absolute/path/to/ubuntu-24.04-live-server-amd64.iso"
+
+# --- Example: boot from a remote ISO (uncomment and adjust) --------------
+# image_source        = "remote"
+# remote_iso_url      = "https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso"
+# remote_iso_checksum = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+# image_cache_dir     = "./.iso_cache"
+
+# --- VM sizing -----------------------------------------------------------
+vm_count       = 2
+vm_name_prefix = "lab"
+vm_ostype      = "Ubuntu_64"
+vm_cpus        = 2
+vm_memory_mb   = 4096
+vm_disk_mb     = 32768
+vm_vram_mb     = 16
+
+# --- Networking ----------------------------------------------------------
+vm_network_mode = "nat"
+# vm_network_mode    = "bridged"
+# vm_bridge_adapter  = "en0: Wi-Fi"
+# vm_network_mode    = "hostonly"
+# vm_hostonly_adapter = "vboxnet0"
+
+# --- Misc ----------------------------------------------------------------
+vm_headless = true
+# vm_base_folder = "/Users/me/VirtualBox VMs"

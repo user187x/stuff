@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+#
+# Sets up Longhorn (replicated block storage with built-in RWX support)
+# in a multi-node Minikube cluster, then deploys an example HA fileserver
+# that consumes a ReadWriteMany PVC.
+#
+# Unlike NFS-on-a-pod, Longhorn replicates data synchronously across
+# multiple nodes, so losing one node does not lose the data.
+#
+# Usage:
+#   ./setup-longhorn-minikube.sh         # deploy
+#   ./setup-longhorn-minikube.sh down    # tear down demo (Longhorn stays)
+#
+# Env overrides:
+#   NODES              Required Minikube nodes (default: 3)
+#   NAMESPACE          Demo namespace (default: longhorn-demo)
+#   LONGHORN_VERSION   Longhorn version (default: v1.11.1)
+#
+# Prerequisites:
+#   - Minikube started with --nodes=$NODES on a VM-based driver
+#       minikube start --driver=kvm2     --nodes=3   # Linux
+#       minikube start --driver=hyperkit --nodes=3   # Older macOS
+#       minikube start --driver=qemu     --nodes=3   # Apple Silicon
+#     The docker driver works in some configurations but is fragile for
+#     Longhorn (iscsi/mount-propagation limits inside containers).
+
+set -euo pipefail
+
+NODES="${NODES:-3}"
+NAMESPACE="${NAMESPACE:-longhorn-demo}"
+LONGHORN_VERSION="${LONGHORN_VERSION:-v1.11.1}"
+
+teardown() {
+ echo "==> Tearing down demo (Longhorn itself stays installed)..."
+ kubectl delete namespace "$NAMESPACE" --ignore-not-found
+ echo "Done."
+ cat <<EOF
+
+To remove Longhorn entirely (destructive — deletes all volumes):
+  kubectl create -f https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/uninstall/uninstall.yaml
+  kubectl wait --for=condition=complete --timeout=300s job/longhorn-uninstall -n longhorn-system
+  kubectl delete -f https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/deploy/longhorn.yaml
+EOF
+ exit 0
+}
+
+[[ "${1:-}" == "down" ]] && teardown
+
+# ─── Driver warning ────────────────────────────────────────────────────
+DRIVER=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[0].Config.Driver // "unknown"' 2>/dev/null || echo "unknown")
+if [[ "$DRIVER" == "docker" ]]; then
+ cat <<EOF
+
+⚠  You are using the Minikube 'docker' driver. Longhorn requires iscsi
+   and mount propagation, which are restricted inside container drivers.
+   The install may succeed but volumes can fail to attach.
+
+   Recommended:
+     minikube delete
+     minikube start --driver=kvm2 --nodes=${NODES}
+       (use --driver=hyperkit on older macOS, --driver=qemu on Apple Silicon)
+
+EOF
+ read -r -p "Continue with docker driver anyway? [y/N] " confirm
+ [[ "$confirm" != "y" && "$confirm" != "Y" ]] && exit 0
+fi
+
+# ─── Node-count check ──────────────────────────────────────────────────
+echo "==> Checking Minikube..."
+if ! minikube status >/dev/null 2>&1; then
+ echo "Minikube is not running. Start it first:"
+ echo "  minikube start --driver=kvm2 --nodes=${NODES}"
+ exit 1
+fi
+
+current_nodes=$(kubectl get nodes -o name | wc -l | tr -d ' ')
+if [[ "$current_nodes" -lt "$NODES" ]]; then
+ echo "Have $current_nodes node(s); need $NODES for replicated storage."
+ echo "  Add nodes:    for i in \$(seq $((NODES - current_nodes))); do minikube node add; done"
+ echo "  Or recreate:  minikube delete && minikube start --nodes=${NODES}"
+ exit 1
+fi
+echo "  ${current_nodes} nodes detected."
+
+# ─── Install prerequisites on each node ────────────────────────────────
+echo "==> Installing open-iscsi and nfs-common on each node..."
+for node in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'); do
+ printf "  -> %-25s " "$node"
+ minikube ssh -n "$node" -- 'bash -c "
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update -qq >/dev/null 2>&1 || true
+        sudo apt-get install -y -qq open-iscsi nfs-common >/dev/null 2>&1
+        sudo modprobe iscsi_tcp 2>/dev/null || true
+        sudo systemctl enable --now iscsid >/dev/null 2>&1
+        echo ok
+    "' 2>/dev/null | tail -1
+done
+
+# ─── Install Longhorn ──────────────────────────────────────────────────
+echo "==> Installing Longhorn ${LONGHORN_VERSION}..."
+kubectl apply -f "https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/deploy/longhorn.yaml"
+
+echo "==> Waiting for longhorn-manager DaemonSet (this can take 3–5 min)..."
+# Give it a moment for the namespace and resources to register
+sleep 15
+kubectl -n longhorn-system rollout status daemonset/longhorn-manager --timeout=600s
+
+echo "==> Waiting for Longhorn StorageClass..."
+while ! kubectl get storageclass longhorn >/dev/null 2>&1; do
+ sleep 3
+done
+
+echo "==> Waiting for Longhorn deployments..."
+kubectl -n longhorn-system wait --for=condition=available --timeout=600s deployment --all
+
+echo "==> Longhorn ready."
+kubectl get storageclass | grep -E "NAME|longhorn" | sed 's/^/  /'
+
+# ─── Demo namespace + RWX PVC ──────────────────────────────────────────
+echo "==> Creating namespace '$NAMESPACE' with RWX PVC..."
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -n "$NAMESPACE" -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# ─── HA fileserver, spread across nodes ────────────────────────────────
+echo "==> Deploying HA fileserver (3 replicas, spread across nodes)..."
+kubectl apply -n "$NAMESPACE" -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fileserver
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: fileserver }
+  template:
+    metadata:
+      labels: { app: fileserver }
+    spec:
+      # Encourage one pod per node so we genuinely test multi-node access
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: { app: fileserver }
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: shared
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: shared-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fileserver
+spec:
+  selector: { app: fileserver }
+  ports:
+    - { port: 80, targetPort: 80 }
+EOF
+
+echo "==> Waiting for fileserver..."
+kubectl wait -n "$NAMESPACE" --for=condition=available --timeout=300s deployment/fileserver
+
+cat <<EOF
+
+==> Done! Longhorn-backed HA fileserver is running in '$NAMESPACE'.
+
+Verify pods landed on different nodes:
+  kubectl get pods -n $NAMESPACE -o wide
+
+Quick test (write from one pod, read via service):
+  kubectl exec -n $NAMESPACE deploy/fileserver -- \\
+    sh -c 'echo "hello from longhorn" > /usr/share/nginx/html/index.html'
+
+  kubectl run -n $NAMESPACE curltest --rm -it --restart=Never \\
+    --image=curlimages/curl -- curl -s http://fileserver/
+
+Inspect data replication across nodes:
+  kubectl -n longhorn-system get volume.longhorn.io
+  kubectl -n longhorn-system get replica.longhorn.io
+  kubectl -n longhorn-system get pods -l longhorn.io/component=share-manager
+
+Open the Longhorn UI (volumes, nodes, replicas, snapshots):
+  kubectl -n longhorn-system port-forward svc/longhorn-frontend 8080:80
+  # then visit http://localhost:8080
+
+Tear down the demo (Longhorn stays installed):
+  $0 down
+EOF

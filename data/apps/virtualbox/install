@@ -1,0 +1,70 @@
+#!/bin/bash
+
+if command -v vboxmanage >/dev/null 2>&1; then
+ echo "Virtualbox is already installed $(vboxmanage -v)"
+ return 0
+fi
+
+# Required for virutalization
+sudo apt install -y make gcc dkms build-essential libxcb-cursor0 qt6-wayland linux-headers-$(uname -r) >/dev/null 2>&1
+
+# 1. Detect OS
+local OS
+OS=$(uname -s)
+
+local ARCH
+ARCH=$(uname -m)
+
+if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ] && [ "$OS" != "Darwin" ]; then
+ echo "Error: VirtualBox primarily supports x86_64 architecture."
+ return 1
+fi
+
+echo "Fetching the latest VirtualBox version..."
+local VERSION
+VERSION=$(curl -s https://download.virtualbox.org/virtualbox/LATEST.TXT)
+
+if [ -z "$VERSION" ]; then
+ echo "Error: Failed to fetch the latest version."
+ return 1
+fi
+
+echo "Latest version identified as ${VERSION}."
+
+# 3. Scrape the download page to find the exact filename (since it includes a dynamic build number)
+echo "Locating the correct installer for your OS..."
+local PAGE
+PAGE=$(curl -s "https://download.virtualbox.org/virtualbox/${VERSION}/")
+
+local FILE=""
+FILE=$(echo "$PAGE" | grep -oE 'VirtualBox-[0-9\.]+-[0-9]+-Linux_amd64\.run' | head -1)
+
+if [ -z "$FILE" ]; then
+ echo "Error: Could not determine the exact file name for your OS."
+ return 1
+fi
+
+# 4. Construct download URL and temporary directory
+local DOWNLOAD_URL="https://download.virtualbox.org/virtualbox/${VERSION}/${FILE}"
+local TMP_DIR
+TMP_DIR=$(mktemp -d)
+
+echo "Downloading ${FILE}..."
+if ! curl -fsSL -o "${TMP_DIR}/${FILE}" "$DOWNLOAD_URL"; then
+ echo "Error: Download failed."
+ rm -rf "$TMP_DIR"
+ return 1
+fi
+
+chmod +x "${TMP_DIR}/${FILE}"
+if sudo "${TMP_DIR}/${FILE}"; then
+ echo "✅ VirtualBox ${VERSION} successfully installed!"
+else
+ echo "Error: Installation failed."
+fi
+
+# 6. Cleanup
+rm -rf "$TMP_DIR"
+
+# Verify installation
+vboxmanage -v

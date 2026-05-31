@@ -1,0 +1,39 @@
+# auth-shim.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-shim
+  namespace: traefik-system
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: auth-shim
+---
+# Simple deployment (pseudo-code representation)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-shim
+  namespace: traefik-system
+spec:
+  selector:
+    matchLabels:
+      app: auth-shim
+  template:
+    metadata:
+      labels:
+        app: auth-shim
+    spec:
+      containers:
+        - name: shim
+          image: python:3.9-slim
+          command: ["/bin/sh", "-c", "pip install flask requests && python /app/app.py"]
+          volumeMounts:
+            - name: code
+              mountPath: /app
+      volumes:
+        - name: code
+          configMap:
+            name: auth-shim-script # You'd create a ConfigMap with the python code above

@@ -1,0 +1,47 @@
+#!/bin/bash
+
+NAMESPACE="vllm"
+MOUNT_PATH="/models"
+MOUNT_NAME="gemma-4.gguf"
+
+PVC_CLAIM="model-cache"
+WORKER_POD="pvc-util"
+
+FILE_PATH="/home/xxx/.lmstudio/models/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+
+if [[ -z "${FILE_PATH}" ]]; then
+ read -e -r -p "Enter model path: " FILE_PATH
+fi
+
+echo "Creating ephemeral worker pod..."
+
+kubectl -n vllm apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $WORKER_POD
+spec:
+  containers:
+    - name: shell
+      image: busybox
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: models
+          mountPath: $MOUNT_PATH
+  volumes:
+    - name: models
+      persistentVolumeClaim:
+        claimName: $PVC_CLAIM
+EOF
+
+echo "Waiting for ephemeral worker pod to be ready"
+kubectl -n "$NAMESPACE" wait --for=condition=Ready pod/"$WORKER_POD" --timeout=60s
+
+echo "Transfering file into PVC"
+kubectl -n "$NAMESPACE" cp "$FILE_PATH" "$NAMESPACE"/"$WORKER_POD":"$MOUNT_PATH/$MOUNT_NAME"
+
+echo "Verifying reults"
+kubectl -n "$NAMESPACE" exec "$WORKER_POD" -- ls -lh "$MOUNT_PATH"/
+
+echo "Cleaning up ephemeral worker pod"
+kubectl -n "$NAMESPACE" delete pod "$WORKER_POD"

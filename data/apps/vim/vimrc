@@ -1,0 +1,238 @@
+" This MUST be the first line in your .vimrc to ensure no side effects.
+set nocompatible
+
+call plug#begin('~/.config/vim/plugged')
+ Plug 'preservim/nerdtree'
+ Plug 'junegunn/fzf'
+ Plug 'junegunn/fzf.vim'
+ Plug 'instant-markdown/vim-instant-markdown'
+ Plug 'https://github.com/itchyny/calendar.vim'
+ Plug 'cespare/vim-toml', { 'branch': 'main' }
+ Plug 'tpope/vim-sensible'
+ Plug 'vim-airline/vim-airline'
+ Plug 'mzlogin/vim-markdown-toc'
+ Plug 'morhetz/gruvbox'
+ Plug 'sheerun/vim-polyglot'
+call plug#end()
+
+" Enable syntax highlighting based on file type
+syntax on
+" Highlight the line currently under the cursor for better visibility
+set cursorline
+" Wrap lines that are longer than the screen width
+set wrap
+" Don't make a backup file before overwriting a file
+set nobackup
+" Don't create a swap file for the current buffer
+set noswapfile
+" Show line numbers on the left sidebar
+" set number
+" Show the line number relative to the line the cursor is on
+" set relativenumber
+" Indentation & Tabs ---
+" Copy indent from the current line when starting a new line
+set autoindent
+" Enable smart indentation (e.g., indenting automatically after a '{')
+set smartindent
+" Convert tabs to spaces (standard for most modern coding styles)
+set expandtab
+" The number of spaces inserted for each indentation level
+set shiftwidth=1
+" The number of spaces a <Tab> counts for
+set tabstop=4
+" When pressing <Tab> or <Backspace>, treat spaces like a tab
+set softtabstop=4
+" Search Behavior ---
+" Highlight all search matches
+set hlsearch
+" Show search matches as you type
+set incsearch
+" Ignore case when searching
+set ignorecase
+" Override 'ignorecase' if the search pattern contains uppercase characters
+set smartcase
+" Usability & Navigation ---
+" Allow hidden buffers (opening a new file without saving current one)
+set hidden
+" Enable system clipboard
+set clipboard=unnamedplus
+" Keep 8 lines of context above/below the cursor when scrolling
+set scrolloff=8
+" Display incomplete commands in the bottom right corner
+set showcmd
+" Enhanced command-line completion menu
+set wildmenu
+" Reduce screen redraws during macros
+set lazyredraw
+" Allow backspacing over auto-indentation, line breaks, and start of insert
+set backspace=indent,eol,start
+
+" Setting Spacebar to Map Leader ---
+let mapleader = " "
+
+inoremap jj <Esc>
+
+" Shortcut for writing as SUDO while in VIM
+cnoremap w!! execute 'silent! write !sudo tee % >/dev/null' <bar> edit!
+command W execute 'silent! write !sudo tee % >/dev/null' | edit!
+
+" Saves the current file when you press Space + w
+nnoremap <leader>w :w<CR>
+
+" Quits the current file or window when you press Space + q.
+nnoremap <leader>q :q<CR>
+
+" Insert comment '#' at the beginning of selected lines in visual mode
+vnoremap <leader>3 :s/^/#/<CR>
+
+" Insert comment '#' at the beginning of selected lines in visual mode
+vnoremap # :s/^/#/<CR>
+
+" Stops highlighting momentary when no longer needed
+nnoremap <leader><space> :nohlsearch<CR>
+
+" Toggle line numbers and relative numbers to __ (double underscore)
+nnoremap __ :set number! relativenumber!<CR>
+
+" NerdTree Toggle
+nnoremap <C-n> :NERDTreeToggle<CR>
+
+autocmd BufEnter *
+  \ if tabpagenr('$') == 1 &&
+  \  winnr('$') == 1 &&
+  \  exists('b:NERDTree') &&
+  \  b:NERDTree.isTabTree() |
+  \  quit |
+  \ endif
+
+" FZF Finder
+nnoremap <C-p> :Files<CR>
+
+" Set netrw home directory to XDG_CONFIG_HOME/vim
+if empty($XDG_CONFIG_HOME)
+ let g:netrw_home = $HOME . '/.config/vim'
+else
+ let g:netrw_home = $XDG_CONFIG_HOME . '/vim'
+endif
+
+" Toogle insert-paste to Control+i
+nnoremap <C-i> :set invpaste<CR>
+inoremap <C-i> <C-O> :set invpaste<CR>
+
+" Shift visual selection left/right with Shift+Arrows and stay in visual mode
+vnoremap <S-Left>  <gv
+vnoremap <S-Right> >gv
+
+" Toggle Visual Mode with Alt+v (Commonly recognized as Meta)
+nnoremap <M-v> v
+vnoremap <M-v> <Esc>
+
+" Binding '==' for formatting code
+augroup ShellFormatting
+ autocmd!
+
+ " Shell Formatting (shfmt)
+ autocmd FileType sh if executable('shfmt') |
+ \ let b:fmt_cmd = 'shfmt -i 1 -ci' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+
+ " Python Formatting (ruff)
+ autocmd FileType python if executable('ruff') |
+ \ let b:fmt_cmd = 'ruff format --stdin-filename % --quiet --no-cache' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+
+ " C and C++ Formatting (clang-format)
+ " Note: '-i' is omitted because equalprg requires reading from stdin and writing to stdout.
+ autocmd FileType c,cpp if executable('clang-format') |
+ \ let b:fmt_cmd = 'clang-format -style=Google' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+
+ " Java Formatting (google-java-format)
+ " Note: The trailing '-' tells the jar to format standard input rather than a file on disk.
+ autocmd FileType java if executable('java') |
+ \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.local/share/java-formatter.jar -' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+
+ " JavaScript and JSON Formatting (prettier)
+ autocmd FileType javascript,json if executable('prettier') |
+ \ let b:fmt_cmd = 'prettier --stdin-filepath %' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+augroup END
+
+" Make current file executable (chmod +x) for shell or python scripts
+" Mapped to <leader>x (Space+X). Saves the buffer first so the file exists on disk.
+function! s:MakeExecutable()
+ if &filetype !=# 'sh' && &filetype !=# 'python'
+  echohl WarningMsg
+  echo "MakeExecutable: only works on shell or python files (current filetype: '" . &filetype . "')"
+  echohl None
+  return
+ endif
+ let l:file = expand('%:p')
+ if empty(l:file)
+  echohl WarningMsg
+  echo "MakeExecutable: buffer has no filename - save it first"
+  echohl None
+  return
+ endif
+ silent! write
+ call system('chmod +x ' . shellescape(l:file))
+ if v:shell_error
+  echohl ErrorMsg
+  echo "MakeExecutable: chmod failed for " . l:file
+  echohl None
+ else
+  echohl Directory
+  echo "MakeExecutable: +x set on " . expand('%:t')
+  echohl None
+ endif
+endfunction
+nnoremap <leader>x :call <SID>MakeExecutable()<CR>
+
+" Theme
+set background=dark
+try
+ colorscheme gruvbox
+catch
+ colorscheme default
+endtry
+
+function! s:ShowStartupHints()
+ let l:beg  = "❯❯❯ "
+ let l:msg  = " ⌨  Press [Ctrl+Spacebar] + H : Cheatsheet ⌨  "
+ let l:end  = " ❮❮❮"
+ call CenterEchoJoin(l:beg, l:msg, l:end)
+endfunction
+
+augroup StartupHints
+ autocmd!
+ autocmd VimEnter * call s:ShowStartupHints()
+augroup END
+
+function! CenterEcho(msg)
+ let l:width = &columns
+ let l:msg_len = strlen(a:msg)
+ let l:padding = (l:width - l:msg_len) / 2
+ if l:padding < 0 | let l:padding = 0 | endif
+ echohl Directory
+ echo repeat(' ', l:padding) . a:msg
+ echohl None
+endfunction
+
+function! CenterEchoJoin(...)
+ call CenterEcho(join(a:000, ' | '))
+endfunction
+
+function! CenterEchoJoinSep(sep, ...)
+ call CenterEcho(join(a:000, a:sep))
+endfunction

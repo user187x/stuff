@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+echo "🚀 Starting Zero-to-Hero Flatpak Installation for Ubuntu..."
+
+echo "📦 Updating system package lists..."
+sudo apt update
+
+echo "🛠️ Installing the Flatpak framework..."
+sudo apt install -y flatpak
+
+echo "🔌 Installing GNOME Software plugin for graphical integration..."
+sudo apt install -y gnome-software-plugin-flatpak
+
+echo "🌍 Adding the Flathub repository..."
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# 6. Completion message
+echo ""
+echo "🎉 SUCCESS! Flatpak and Flathub are now configured."
+echo "--------------------------------------------------------"
+echo "⚠️  IMPORTANT: To ensure all paths and graphical integrations"
+echo "apply correctly, you need to restart your system."
+echo ""
+echo "You can restart immediately by running: sudo reboot"

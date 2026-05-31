@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- MODIFIED: This now correctly points to the external files directory for pictures -->
+    <external-files-path
+        name="my_images"
+        path="Pictures" />
+</paths>

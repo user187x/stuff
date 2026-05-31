@@ -1,0 +1,557 @@
+#!/usr/bin/env bash
+# =============================================================================
+# install-harbor.sh
+#
+# Zero-to-hero Harbor installation on Minikube, wired up to coexist with
+# existing ArgoCD and GitLab installations in the same cluster.
+#
+# What this script does:
+#   1. Pre-flight checks (minikube, kubectl, helm, openssl, docker/jq)
+#   2. Enables required Minikube addons (ingress, storage)
+#   3. Generates a self-signed CA + server cert for harbor.local
+#   4. Installs Harbor via the official Helm chart with sane Minikube defaults
+#   5. Waits for all Harbor components to become Ready
+#   6. Trusts the Harbor CA inside the ArgoCD pods (so ArgoCD can pull
+#      Helm/OCI charts from Harbor over HTTPS)
+#   7. Creates an ArgoCD repository secret for Harbor (Helm OCI)
+#   8. Creates a Kubernetes dockerconfigjson pull secret usable by GitLab
+#      runners / target namespaces
+#   9. Patches /etc/hosts so harbor.local resolves to the minikube IP
+#  10. Prints a summary with credentials and next steps
+#
+# Re-runnable: yes. Helm uses upgrade --install; kubectl uses apply.
+#
+# Usage:
+#   ./install-harbor.sh             # install / upgrade
+#   ./install-harbor.sh uninstall   # tear down Harbor (keeps PVCs by default)
+#   ./install-harbor.sh status      # show component status
+#
+# Override defaults via env vars, e.g.:
+#   HARBOR_HOSTNAME=registry.local HARBOR_ADMIN_PASSWORD='S3cret!' ./install-harbor.sh
+# =============================================================================
+
+set -Eeuo pipefail
+
+# --------------------------- Configuration -----------------------------------
+
+HARBOR_NAMESPACE="${HARBOR_NAMESPACE:-harbor}"
+HARBOR_RELEASE="${HARBOR_RELEASE:-harbor}"
+HARBOR_CHART_VERSION="${HARBOR_CHART_VERSION:-1.14.2}" # app version 2.10.x
+HARBOR_HOSTNAME="${HARBOR_HOSTNAME:-harbor.local}"
+HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:-Harbor12345}"
+HARBOR_STORAGE_CLASS="${HARBOR_STORAGE_CLASS:-standard}"
+HARBOR_REGISTRY_SIZE="${HARBOR_REGISTRY_SIZE:-20Gi}"
+HARBOR_DATABASE_SIZE="${HARBOR_DATABASE_SIZE:-2Gi}"
+HARBOR_REDIS_SIZE="${HARBOR_REDIS_SIZE:-1Gi}"
+HARBOR_TRIVY_SIZE="${HARBOR_TRIVY_SIZE:-5Gi}"
+HARBOR_JOBSERVICE_SIZE="${HARBOR_JOBSERVICE_SIZE:-1Gi}"
+
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+GITLAB_NAMESPACE="${GITLAB_NAMESPACE:-gitlab}"
+
+# A "robot" / pull account that ArgoCD + workloads will use. The script
+# only creates the *secrets*; you still create the matching robot account
+# in the Harbor UI (instructions printed at the end).
+HARBOR_PULL_USER="${HARBOR_PULL_USER:-admin}"
+HARBOR_PULL_PASSWORD="${HARBOR_PULL_PASSWORD:-$HARBOR_ADMIN_PASSWORD}"
+
+WORK_DIR="${WORK_DIR:-$(pwd)/harbor-resources}"
+CERT_DIR="$WORK_DIR/certs"
+VALUES_FILE="$WORK_DIR/values.yaml"
+
+HELM_TIMEOUT="${HELM_TIMEOUT:-15m}"
+
+# --------------------------- Pretty logging ----------------------------------
+
+if [[ -t 1 ]]; then
+ RED=$'\033[0;31m'
+ GRN=$'\033[0;32m'
+ YLW=$'\033[1;33m'
+ BLU=$'\033[0;34m'
+ BLD=$'\033[1m'
+ NC=$'\033[0m'
+else
+ RED=""
+ GRN=""
+ YLW=""
+ BLU=""
+ BLD=""
+ NC=""
+fi
+
+log() { printf '%s[%s]%s %s\n' "$BLU" "$(date +%H:%M:%S)" "$NC" "$*"; }
+ok() { printf '%s[ OK ]%s %s\n' "$GRN" "$NC" "$*"; }
+warn() { printf '%s[WARN]%s %s\n' "$YLW" "$NC" "$*" >&2; }
+err() { printf '%s[ERR ]%s %s\n' "$RED" "$NC" "$*" >&2; }
+hdr() { printf '\n%s%s== %s ==%s\n' "$BLD" "$BLU" "$*" "$NC"; }
+
+trap 'err "Failed at line $LINENO. Aborting."' ERR
+
+# --------------------------- Helpers -----------------------------------------
+
+require() {
+ command -v "$1" >/dev/null 2>&1 || {
+  err "Missing required tool: $1"
+  exit 1
+ }
+}
+
+ns_exists() {
+ kubectl get ns "$1" >/dev/null 2>&1
+}
+
+ensure_ns() {
+ ns_exists "$1" || kubectl create namespace "$1" >/dev/null
+}
+
+minikube_ip() {
+ minikube ip
+}
+
+# --------------------------- Pre-flight --------------------------------------
+
+preflight() {
+ hdr "Pre-flight checks"
+ for t in minikube kubectl helm openssl base64; do require "$t"; done
+
+ if ! minikube status >/dev/null 2>&1; then
+  err "Minikube is not running. Start it first (e.g. 'minikube start --cpus 4 --memory 8192')."
+  exit 1
+ fi
+ ok "Minikube is running ($(minikube_ip))"
+
+ if ! ns_exists "$ARGOCD_NAMESPACE"; then
+  warn "Namespace '$ARGOCD_NAMESPACE' not found — ArgoCD wiring will be skipped."
+ else
+  ok "Found ArgoCD namespace: $ARGOCD_NAMESPACE"
+ fi
+
+ if ! ns_exists "$GITLAB_NAMESPACE"; then
+  warn "Namespace '$GITLAB_NAMESPACE' not found — GitLab pull secret will be skipped."
+ else
+  ok "Found GitLab namespace: $GITLAB_NAMESPACE"
+ fi
+
+ mkdir -p "$WORK_DIR" "$CERT_DIR"
+ ok "Working directory: $WORK_DIR"
+}
+
+# --------------------------- Minikube addons ---------------------------------
+
+enable_addons() {
+ hdr "Enabling Minikube addons"
+ for addon in ingress default-storageclass storage-provisioner; do
+  if minikube addons list -o json 2>/dev/null |
+   grep -q "\"$addon\".*\"Status\": \"enabled\""; then
+   ok "Addon already enabled: $addon"
+  else
+   log "Enabling $addon..."
+   minikube addons enable "$addon" >/dev/null
+   ok "Enabled: $addon"
+  fi
+ done
+
+ # Wait for the ingress-nginx admission webhook to be ready, otherwise
+ # creating Ingress objects races and fails with "connection refused".
+ log "Waiting for ingress-nginx controller..."
+ kubectl -n ingress-nginx wait --for=condition=ready pod \
+  -l app.kubernetes.io/component=controller --timeout=180s >/dev/null
+ ok "ingress-nginx is ready"
+}
+
+# --------------------------- TLS certs ---------------------------------------
+
+generate_certs() {
+ hdr "Generating self-signed TLS for $HARBOR_HOSTNAME"
+
+ local ca_key="$CERT_DIR/ca.key"
+ local ca_crt="$CERT_DIR/ca.crt"
+ local srv_key="$CERT_DIR/tls.key"
+ local srv_csr="$CERT_DIR/tls.csr"
+ local srv_crt="$CERT_DIR/tls.crt"
+ local ext="$CERT_DIR/san.cnf"
+
+ if [[ -s "$srv_crt" && -s "$srv_key" && -s "$ca_crt" ]]; then
+  ok "Reusing existing certificates in $CERT_DIR"
+  return
+ fi
+
+ # CA
+ openssl genrsa -out "$ca_key" 4096 >/dev/null 2>&1
+ openssl req -x509 -new -nodes -sha256 -days 3650 \
+  -subj "/CN=Harbor Local CA/O=Local" \
+  -key "$ca_key" -out "$ca_crt" >/dev/null 2>&1
+
+ # Server cert
+ openssl genrsa -out "$srv_key" 4096 >/dev/null 2>&1
+ cat >"$ext" <<EOF
+[req]
+distinguished_name = dn
+req_extensions = v3_req
+prompt = no
+[dn]
+CN = $HARBOR_HOSTNAME
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt
+[alt]
+DNS.1 = $HARBOR_HOSTNAME
+DNS.2 = notary.$HARBOR_HOSTNAME
+DNS.3 = core.$HARBOR_NAMESPACE.svc
+DNS.4 = core.$HARBOR_NAMESPACE.svc.cluster.local
+IP.1  = $(minikube_ip)
+EOF
+ openssl req -new -key "$srv_key" -out "$srv_csr" -config "$ext" >/dev/null 2>&1
+ openssl x509 -req -in "$srv_csr" -CA "$ca_crt" -CAkey "$ca_key" \
+  -CAcreateserial -out "$srv_crt" -days 825 -sha256 \
+  -extensions v3_req -extfile "$ext" >/dev/null 2>&1
+
+ ok "CA and server certificate generated"
+}
+
+create_tls_secret() {
+ ensure_ns "$HARBOR_NAMESPACE"
+ log "Creating TLS secret in namespace $HARBOR_NAMESPACE"
+ kubectl -n "$HARBOR_NAMESPACE" create secret tls harbor-ingress-tls \
+  --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ # Bundle the CA so workloads can mount it if they want to verify
+ kubectl -n "$HARBOR_NAMESPACE" create configmap harbor-ca \
+  --from-file=ca.crt="$CERT_DIR/ca.crt" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ ok "TLS secret + CA configmap applied"
+}
+
+# --------------------------- Helm install ------------------------------------
+
+write_values() {
+ hdr "Rendering Helm values -> $VALUES_FILE"
+ cat >"$VALUES_FILE" <<EOF
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: harbor-ingress-tls
+  ingress:
+    hosts:
+      core: $HARBOR_HOSTNAME
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+externalURL: https://$HARBOR_HOSTNAME
+
+harborAdminPassword: "$HARBOR_ADMIN_PASSWORD"
+
+# Persistence — sized for a Minikube dev VM. Tune via env vars.
+persistence:
+  enabled: true
+  resourcePolicy: keep
+  persistentVolumeClaim:
+    registry:
+      storageClass: $HARBOR_STORAGE_CLASS
+      size: $HARBOR_REGISTRY_SIZE
+    jobservice:
+      jobLog:
+        storageClass: $HARBOR_STORAGE_CLASS
+        size: $HARBOR_JOBSERVICE_SIZE
+    database:
+      storageClass: $HARBOR_STORAGE_CLASS
+      size: $HARBOR_DATABASE_SIZE
+    redis:
+      storageClass: $HARBOR_STORAGE_CLASS
+      size: $HARBOR_REDIS_SIZE
+    trivy:
+      storageClass: $HARBOR_STORAGE_CLASS
+      size: $HARBOR_TRIVY_SIZE
+
+trivy:
+  enabled: true
+
+# Keep resource requests small — Minikube isn't a prod cluster.
+core:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+jobservice:
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+registry:
+  registry:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+  controller:
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+portal:
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+database:
+  internal:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+redis:
+  internal:
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+EOF
+ ok "Values written"
+}
+
+helm_install() {
+ hdr "Installing Harbor via Helm"
+ helm repo add harbor https://helm.goharbor.io >/dev/null 2>&1 || true
+ helm repo update harbor >/dev/null
+ ok "Harbor Helm repo ready"
+
+ helm upgrade --install "$HARBOR_RELEASE" harbor/harbor \
+  --namespace "$HARBOR_NAMESPACE" \
+  --version "$HARBOR_CHART_VERSION" \
+  --values "$VALUES_FILE" \
+  --wait --timeout "$HELM_TIMEOUT"
+ ok "Harbor release installed"
+}
+
+wait_ready() {
+ hdr "Waiting for Harbor pods"
+ # Helm --wait already waited, but let's be explicit and friendly.
+ kubectl -n "$HARBOR_NAMESPACE" wait --for=condition=ready pod \
+  -l app=harbor --timeout=300s >/dev/null
+ ok "All Harbor pods are Ready"
+}
+
+# --------------------------- /etc/hosts --------------------------------------
+
+patch_hosts() {
+ hdr "Patching /etc/hosts so $HARBOR_HOSTNAME resolves"
+ local ip
+ ip="$(minikube_ip)"
+ local line="$ip $HARBOR_HOSTNAME"
+
+ if grep -qE "^[^#]*[[:space:]]$HARBOR_HOSTNAME(\$|[[:space:]])" /etc/hosts 2>/dev/null; then
+  if grep -qE "^$ip[[:space:]]+$HARBOR_HOSTNAME(\$|[[:space:]])" /etc/hosts; then
+   ok "/etc/hosts already correct"
+   return
+  fi
+  warn "Existing entry for $HARBOR_HOSTNAME points elsewhere — update it manually:"
+  warn "    $line"
+  return
+ fi
+
+ if [[ -w /etc/hosts ]]; then
+  echo "$line" >>/etc/hosts
+  ok "Appended to /etc/hosts"
+ else
+  log "Writing to /etc/hosts requires sudo..."
+  if echo "$line" | sudo tee -a /etc/hosts >/dev/null; then
+   ok "Appended to /etc/hosts (via sudo)"
+  else
+   warn "Could not write /etc/hosts. Add this line manually:"
+   warn "    $line"
+  fi
+ fi
+}
+
+# --------------------------- ArgoCD wiring -----------------------------------
+
+wire_argocd() {
+ ns_exists "$ARGOCD_NAMESPACE" || {
+  warn "Skipping ArgoCD wiring (namespace missing)"
+  return
+ }
+ hdr "Wiring Harbor into ArgoCD ($ARGOCD_NAMESPACE)"
+
+ # 1) Make ArgoCD trust the Harbor CA. The repo-server reads
+ #    /app/config/tls/<host>/cert files mounted from argocd-tls-certs-cm.
+ local ca_pem
+ ca_pem="$(cat "$CERT_DIR/ca.crt")"
+ kubectl -n "$ARGOCD_NAMESPACE" get configmap argocd-tls-certs-cm >/dev/null 2>&1 || {
+  warn "argocd-tls-certs-cm not found; is ArgoCD really installed in $ARGOCD_NAMESPACE?"
+  return
+ }
+ kubectl -n "$ARGOCD_NAMESPACE" patch configmap argocd-tls-certs-cm \
+  --type merge -p "$(
+   cat <<JSON
+{"data":{"$HARBOR_HOSTNAME": $(printf '%s' "$ca_pem" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))' 2>/dev/null ||
+    printf '%s' "$ca_pem" | awk 'BEGIN{printf "\""} {gsub(/\\/,"\\\\");gsub(/"/,"\\\""); printf "%s\\n", $0} END{printf "\""}')}}
+JSON
+  )" >/dev/null
+ ok "Trusted Harbor CA in argocd-tls-certs-cm"
+
+ # 2) Create a repository secret of type 'helm' (OCI). ArgoCD reads any
+ #    secret labelled argocd.argoproj.io/secret-type=repository.
+ local b64_user b64_pass b64_url b64_name b64_type b64_enable_oci
+ b64_user="$(printf '%s' "$HARBOR_PULL_USER" | base64 | tr -d '\n')"
+ b64_pass="$(printf '%s' "$HARBOR_PULL_PASSWORD" | base64 | tr -d '\n')"
+ b64_url="$(printf 'https://%s' "$HARBOR_HOSTNAME" | base64 | tr -d '\n')"
+ b64_name="$(printf 'harbor' | base64 | tr -d '\n')"
+ b64_type="$(printf 'helm' | base64 | tr -d '\n')"
+ b64_enable_oci="$(printf 'true' | base64 | tr -d '\n')"
+
+ cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-repo
+  namespace: $ARGOCD_NAMESPACE
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+data:
+  name: $b64_name
+  url: $b64_url
+  type: $b64_type
+  enableOCI: $b64_enable_oci
+  username: $b64_user
+  password: $b64_pass
+EOF
+ ok "Created ArgoCD repo secret 'harbor-repo' (OCI Helm)"
+
+ # 3) Bounce repo-server so the new CA is picked up.
+ kubectl -n "$ARGOCD_NAMESPACE" rollout restart deploy argocd-repo-server >/dev/null
+ ok "Restarted argocd-repo-server to load new CA"
+}
+
+# --------------------------- GitLab wiring -----------------------------------
+
+wire_gitlab() {
+ ns_exists "$GITLAB_NAMESPACE" || {
+  warn "Skipping GitLab wiring (namespace missing)"
+  return
+ }
+ hdr "Creating Harbor pull secret in $GITLAB_NAMESPACE"
+
+ # A standard kubernetes.io/dockerconfigjson secret. GitLab runners can
+ # mount this, or you can copy it into target deploy namespaces so
+ # workloads ArgoCD syncs there can pull from Harbor.
+ kubectl -n "$GITLAB_NAMESPACE" create secret docker-registry harbor-pull \
+  --docker-server="https://$HARBOR_HOSTNAME" \
+  --docker-username="$HARBOR_PULL_USER" \
+  --docker-password="$HARBOR_PULL_PASSWORD" \
+  --docker-email="harbor@local" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ ok "Created docker-registry secret 'harbor-pull' in $GITLAB_NAMESPACE"
+
+ # Make the CA available to GitLab Runner (it can mount this configmap
+ # via runners.kubernetes.volumes.config_map in its values).
+ kubectl -n "$GITLAB_NAMESPACE" create configmap harbor-ca \
+  --from-file=ca.crt="$CERT_DIR/ca.crt" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+ ok "Published harbor-ca configmap in $GITLAB_NAMESPACE"
+}
+
+# --------------------------- Summary -----------------------------------------
+
+summary() {
+ local ip
+ ip="$(minikube_ip)"
+ hdr "Harbor is up"
+ cat <<EOF
+
+  URL:       ${BLD}https://$HARBOR_HOSTNAME${NC}
+  IP:        $ip
+  User:      admin
+  Password:  $HARBOR_ADMIN_PASSWORD
+
+  CA cert:   $CERT_DIR/ca.crt
+  Values:    $VALUES_FILE
+
+${BLD}Trust the CA on your workstation${NC} (so 'docker login' / browser work):
+
+  Linux:
+    sudo cp $CERT_DIR/ca.crt /usr/local/share/ca-certificates/harbor-local.crt
+    sudo update-ca-certificates
+    sudo systemctl restart docker     # if using docker
+
+  macOS:
+    sudo security add-trusted-cert -d -r trustRoot \\
+      -k /Library/Keychains/System.keychain $CERT_DIR/ca.crt
+
+${BLD}Test it${NC}:
+    docker login $HARBOR_HOSTNAME -u admin -p '$HARBOR_ADMIN_PASSWORD'
+    docker pull alpine:3 && docker tag alpine:3 $HARBOR_HOSTNAME/library/alpine:3
+    docker push $HARBOR_HOSTNAME/library/alpine:3
+
+${BLD}ArgoCD${NC}:
+  - Repository 'harbor' is registered as a Helm OCI repo.
+  - Use it in an Application like:
+      source:
+        repoURL: $HARBOR_HOSTNAME/<project>
+        chart: <chart-name>
+        targetRevision: <version>
+  - For pulling *images* into ArgoCD-managed namespaces, copy the
+    'harbor-pull' secret into each target namespace and reference it via
+    imagePullSecrets (or use a default service-account patch).
+
+${BLD}GitLab${NC}:
+  - Secret 'harbor-pull' (dockerconfigjson) created in $GITLAB_NAMESPACE.
+  - In GitLab CI, push images using job variables:
+      DOCKER_HOST: tcp://docker:2376
+      CI_REGISTRY: $HARBOR_HOSTNAME
+      CI_REGISTRY_USER: $HARBOR_PULL_USER
+      CI_REGISTRY_PASSWORD: <your robot token>
+  - Recommended: in the Harbor UI create a Project + Robot account
+    scoped to that project, then update the 'harbor-pull' secret to use
+    the robot's name/token instead of admin.
+
+EOF
+}
+
+# --------------------------- Subcommands -------------------------------------
+
+cmd_install() {
+ preflight
+ enable_addons
+ generate_certs
+ create_tls_secret
+ write_values
+ helm_install
+ wait_ready
+ patch_hosts
+ wire_argocd
+ wire_gitlab
+ summary
+}
+
+cmd_status() {
+ hdr "Harbor pods"
+ kubectl -n "$HARBOR_NAMESPACE" get pods -o wide || true
+ hdr "Harbor ingress"
+ kubectl -n "$HARBOR_NAMESPACE" get ingress || true
+ hdr "Harbor PVCs"
+ kubectl -n "$HARBOR_NAMESPACE" get pvc || true
+}
+
+cmd_uninstall() {
+ hdr "Uninstalling Harbor"
+ helm -n "$HARBOR_NAMESPACE" uninstall "$HARBOR_RELEASE" || true
+ kubectl -n "$HARBOR_NAMESPACE" delete secret harbor-ingress-tls --ignore-not-found
+ kubectl -n "$HARBOR_NAMESPACE" delete configmap harbor-ca --ignore-not-found
+ ns_exists "$ARGOCD_NAMESPACE" && kubectl -n "$ARGOCD_NAMESPACE" delete secret harbor-repo --ignore-not-found
+ ns_exists "$GITLAB_NAMESPACE" && {
+  kubectl -n "$GITLAB_NAMESPACE" delete secret harbor-pull --ignore-not-found
+  kubectl -n "$GITLAB_NAMESPACE" delete configmap harbor-ca --ignore-not-found
+ }
+ warn "PVCs in $HARBOR_NAMESPACE were kept (resourcePolicy: keep)."
+ warn "To wipe data too:  kubectl -n $HARBOR_NAMESPACE delete pvc --all"
+ ok "Uninstall complete"
+}
+
+main() {
+ case "${1:-install}" in
+ install) cmd_install ;;
+ status) cmd_status ;;
+ uninstall) cmd_uninstall ;;
+ *)
+  err "Unknown command: $1"
+  echo "Usage: $0 [install|status|uninstall]"
+  exit 2
+  ;;
+ esac
+}
+
+main "$@"

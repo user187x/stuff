@@ -1,0 +1,59 @@
+#!/bin/bash
+
+install_latest_fzf() {
+ echo "Running fzf installation script..."
+
+ # Uses the GitHub API to find the most recent release tag
+ local LATEST_TAG=$(curl -s https://api.github.com/repos/junegunn/fzf/releases/latest |
+  grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+ if [ -z "$LATEST_TAG" ]; then
+  echo "Error: Could not retrieve the latest tag."
+  return 1
+ fi
+
+ echo "Latest fzf version available: $LATEST_TAG"
+
+ # Check if fzf is already installed and compare versions
+ if command -v fzf >/dev/null 2>&1; then
+  local CURRENT_VERSION=$(fzf --version | awk '{print $1}')
+  local STRIPPED_LATEST=${LATEST_TAG#v}
+
+  if [ "$CURRENT_VERSION" == "$STRIPPED_LATEST" ]; then
+   echo "fzf is already up to date (version $CURRENT_VERSION)."
+   return 0
+  else
+   echo "Update available: $CURRENT_VERSION -> $STRIPPED_LATEST"
+  fi
+ else
+  echo "fzf is not installed. Proceeding with fresh installation of $LATEST_TAG."
+ fi
+
+ # Targets the linux_amd64 architecture specifically
+ local FILENAME="fzf-${LATEST_TAG#v}-linux_amd64.tar.gz"
+ local URL="https://github.com/junegunn/fzf/releases/download/${LATEST_TAG}/${FILENAME}"
+
+ echo "Downloading from $URL..."
+ curl -LO "$URL"
+
+ # Extract and Install
+ if [ -f "$FILENAME" ]; then
+  tar -xzf "$FILENAME"
+
+  # Ensure the local bin directory exists
+  mkdir -p ~/.local/bin
+  mv fzf ~/.local/bin/
+
+  # Cleanup the downloaded archive
+  rm "$FILENAME"
+
+  echo "Successfully installed fzf to ~/.local/bin/fzf"
+  echo "Make sure ~/.local/bin is in your PATH."
+ else
+  echo "Error: Download failed."
+  return 1
+ fi
+}
+
+# Execute the function
+install_latest_fzf

@@ -1,0 +1,42 @@
+#!/bin/bash
+
+set -e
+
+echo "🚀 Running Java JDK installation script"
+
+if [ -x "$(command -v java)" ]; then
+ echo "🧹 An existing Java installation was found. Proceeding to configure the repository and update..."
+fi
+
+echo "📦 Installing necessary dependencies..."
+sudo apt-get update
+sudo apt-get install -y apt-transport-https gnupg curl wget
+
+echo "🔐 Importing Eclipse Temurin (Adoptium) GPG key..."
+wget -qO - https://packages.adoptium.net/artifactory/api/security/keypair/public/repositories/deb |
+ sudo gpg --dearmor | sudo tee /usr/share/keyrings/adoptium.gpg >/dev/null
+
+echo "🌍 Adding the Adoptium repository to APT sources..."
+
+SYSTEM_ARCH=$(dpkg --print-architecture)
+GPG_KEY_PATH="/usr/share/keyrings/adoptium.gpg"
+JAVA_REPO_URL="https://packages.adoptium.net/artifactory/deb"
+OS_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+REPO_COMPONENTS="main"
+DESTINATION_FILE="/etc/apt/sources.list.d/adoptium.list"
+APT_SOURCE_ENTRY="deb [arch=${SYSTEM_ARCH} signed-by=${GPG_KEY_PATH}] ${JAVA_REPO_URL} ${OS_CODENAME} ${REPO_COMPONENTS}"
+
+echo "📝 Writing Java repository entry to ${DESTINATION_FILE}..."
+echo "${APT_SOURCE_ENTRY}" | sudo tee "${DESTINATION_FILE}" >/dev/null
+echo "🛠️ Fetching the latest packages and installing Java JDK..."
+sudo apt-get update
+sudo apt-get install -y temurin-21-jdk
+
+# Verify the installation
+echo ""
+echo "🎉 SUCCESS! Java JDK has been installed/upgraded."
+echo "--------------------------------------------------------"
+echo "Current Version:"
+java -version
+echo ""
+echo "You are ready to start building Java applications!"

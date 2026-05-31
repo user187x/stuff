@@ -1,0 +1,73 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: coder-stack-appset
+  namespace: argocd
+spec:
+  goTemplate: true
+  
+  generators:
+    - scmProvider:
+        # Example using GitHub. Adjust to gitlab/bitbucket if necessary.
+        github:
+          organization: your-org
+          # tokenRef:             # Uncomment if repo is private
+          #   secretName: github-token
+          #   key: token
+        filters:
+          - repositoryMatch: '^your-repo$'
+            # Matches exact branches (prod, staging, dev) OR anything starting with preview-
+            branchMatch: '^(prod|staging|dev|preview-.*)$'
+
+  template:
+    metadata:
+      name: 'coder-stack-{{.branch}}'
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+
+      source:
+        repoURL: '{{.url}}'
+        targetRevision: '{{.branch}}'
+        path: coder-umbrella
+        helm:
+          releaseName: 'coder-{{.branch}}'
+          valueFiles:
+            - values.yaml
+
+      destination:
+        # Routes 'prod' to prod-cluster, 'staging' to staging-cluster, and everything else (dev/preview) to dev-cluster
+        name: '{{ if eq .branch "prod" }}prod-cluster{{ else if eq .branch "staging" }}staging-cluster{{ else }}dev-cluster{{ end }}'
+        # Isolates each branch into its own namespace to prevent preview collisions
+        namespace: 'coder-{{.branch}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+      ignoreDifferences:
+        - group: postgresql.cnpg.io
+          kind: Cluster
+          jsonPointers:
+            - /status
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions:
+            - '.webhooks[].clientConfig.caBundle'
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions:
+            - '.webhooks[].clientConfig.caBundle'

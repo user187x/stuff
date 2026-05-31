@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#   - Server certificate (server.crt) + private key (server.key) signed by your
+#     private CA, plus the CA bundle (ca.crt) in the current directory.
+# =============================================================================
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# 1. Namespaces
+# -----------------------------------------------------------------------------
+kubectl create namespace auth-shim --dry-run=client -o yaml | kubectl apply -f -
+
+# -----------------------------------------------------------------------------
+# 4. Build & install the auth-shim chart
+# -----------------------------------------------------------------------------
+# (Build the image first, e.g.:
+#   cd auth-shim && docker build -t your-registry/auth-shim:1.0.0 . && docker push ...
+#  then update helm/auth-shim/values.yaml image.repository accordingly.)
+
+helm upgrade --install auth-shim ./helm/auth-shim \
+ --namespace auth-shim \
+ --wait
+
+# -----------------------------------------------------------------------------
+# 5. Smoke test
+# -----------------------------------------------------------------------------
+echo
+echo "Auth-shim Service:"
+kubectl -n auth-shim get svc
+echo
+echo "Middleware:"
+kubectl -n auth-shim get middleware.traefik.io
+echo
+echo "Tail auth-shim logs with:"
+echo "  kubectl -n auth-shim logs -l app.kubernetes.io/name=auth-shim -f"

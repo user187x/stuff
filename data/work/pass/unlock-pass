@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# unlock-pass.sh — Load a pass(1) entry into $PASSWORD.
+# Usage:  source ./unlock-pass.sh <entry>
+# GPG only prompts if the 10-minute cache has expired.
+
+ENTRY="${1:?Usage: source $0 <pass-entry>}"
+TTL=600
+
+# One-time gpg-agent config: 10-minute cache.
+CONF="$HOME/.gnupg/gpg-agent.conf"
+mkdir -p "$HOME/.gnupg" && chmod 700 "$HOME/.gnupg"
+if ! grep -qx "max-cache-ttl $TTL" "$CONF" 2>/dev/null; then
+ {
+  grep -vE '^(default|max)-cache-ttl ' "$CONF" 2>/dev/null
+  echo "default-cache-ttl $TTL"
+  echo "max-cache-ttl $TTL"
+ } >"$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+ gpg-connect-agent reloadagent /bye >/dev/null
+fi
+
+PASSWORD="$(pass show "$ENTRY" | head -n1)"
+export PASSWORD

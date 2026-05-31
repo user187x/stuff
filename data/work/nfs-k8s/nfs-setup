@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+#
+# Sets up an in-cluster NFS server in Minikube and an example HA
+# fileserver deployment that uses it via ReadWriteMany.
+#
+# Layout:
+#   nfs-server (1 replica) -> backs a ReadWriteMany PV
+#   fileserver (3 replicas, nginx) -> all mount the same NFS PVC
+#
+# Usage:
+#   ./setup-nfs-minikube.sh         # deploy
+#   ./setup-nfs-minikube.sh down    # tear down
+
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-nfs-demo}"
+PV_NAME="nfs-shared-pv"
+
+teardown() {
+ echo "==> Tearing down..."
+ kubectl delete namespace "${NAMESPACE}" --ignore-not-found
+ kubectl delete pv "${PV_NAME}" --ignore-not-found
+ echo "Done."
+ exit 0
+}
+
+if [[ "${1:-}" == "down" ]]; then
+ teardown
+fi
+
+echo "==> Checking minikube..."
+if ! minikube status >/dev/null 2>&1; then
+ echo "Minikube is not running. Start it with: minikube start"
+ exit 1
+fi
+
+echo "==> Creating namespace: ${NAMESPACE}"
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+echo "==> Deploying NFS server..."
+kubectl apply -n "${NAMESPACE}" -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-server-storage
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: nfs-server }
+  template:
+    metadata:
+      labels: { app: nfs-server }
+    spec:
+      containers:
+        - name: nfs-server
+          image: itsthenetwork/nfs-server-alpine:latest
+          env:
+            - name: SHARED_DIRECTORY
+              value: /exports
+          ports:
+            - { name: nfs,     containerPort: 2049 }
+            - { name: mountd,  containerPort: 20048 }
+            - { name: rpcbind, containerPort: 111 }
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - { name: storage, mountPath: /exports }
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: nfs-server-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+spec:
+  selector: { app: nfs-server }
+  ports:
+    - { name: nfs,     port: 2049 }
+    - { name: mountd,  port: 20048 }
+    - { name: rpcbind, port: 111 }
+EOF
+
+echo "==> Waiting for NFS server..."
+kubectl wait -n "${NAMESPACE}" --for=condition=available --timeout=180s deployment/nfs-server
+
+NFS_IP=$(kubectl get svc -n "${NAMESPACE}" nfs-server -o jsonpath='{.spec.clusterIP}')
+echo "==> NFS server ClusterIP: ${NFS_IP}"
+
+echo "==> Creating shared PV/PVC (ReadWriteMany)..."
+# PV is cluster-scoped; PVC is namespaced. Static binding via volumeName.
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${PV_NAME}
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  mountOptions:
+    - nfsvers=4.1
+  nfs:
+    server: ${NFS_IP}
+    path: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-shared-pvc
+  namespace: ${NAMESPACE}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: ${PV_NAME}
+EOF
+
+echo "==> Deploying HA fileserver (nginx, 3 replicas)..."
+kubectl apply -n "${NAMESPACE}" -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fileserver
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: fileserver }
+  template:
+    metadata:
+      labels: { app: fileserver }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: shared
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: nfs-shared-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fileserver
+spec:
+  selector: { app: fileserver }
+  ports:
+    - { port: 80, targetPort: 80 }
+EOF
+
+echo "==> Waiting for fileserver..."
+kubectl wait -n "${NAMESPACE}" --for=condition=available --timeout=180s deployment/fileserver
+
+cat <<EOF
+
+==> All set. NFS-backed HA fileserver is running in namespace '${NAMESPACE}'.
+
+Quick test:
+  # Write a file via one replica (lands on the shared NFS volume):
+  kubectl exec -n ${NAMESPACE} deploy/fileserver -- \\
+    sh -c 'echo "hello from NFS" > /usr/share/nginx/html/index.html'
+
+  # Read it back from any replica via the service:
+  kubectl run -n ${NAMESPACE} curltest --rm -it --restart=Never \\
+    --image=curlimages/curl -- curl -s http://fileserver/
+
+Inspect:
+  kubectl get pods,svc,pvc -n ${NAMESPACE}
+  kubectl get pv ${PV_NAME}
+
+Tear down:
+  $0 down
+EOF

@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+# =============================================================================
+# setup-pebble-acme.sh
+#
+# Deploys Pebble (mock ACME server) into your cluster via Helm and configures
+# a cert-manager EAB ClusterIssuer pointing to it — fully in-cluster, no
+# external services required.
+#
+# Prerequisites:
+#   - kubectl  (configured against target cluster)
+#   - helm     (v3+)
+#   - cert-manager already installed in the cluster
+#   - jq
+#
+# Usage:
+#   ./setup-pebble-acme.sh [OPTIONS]
+#
+#   -n, --namespace    Namespace to deploy Pebble into  (default: pebble)
+#   -i, --issuer-name  ClusterIssuer name               (default: pebble-issuer)
+#   -s, --solver       HTTP01 ingress class or 'none'   (default: nginx)
+#   -h, --help         Show this help
+# =============================================================================
+set -euo pipefail
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+
+log()   { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+ok()    { echo -e "${GREEN}[OK]${RESET}    $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+die()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
+step()  { echo -e "\n${BOLD}── $* ${RESET}"; }
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+NAMESPACE="pebble"
+ISSUER_NAME="pebble-issuer"
+SOLVER_CLASS="nginx"
+PEBBLE_RELEASE="pebble"
+SECRET_NAME="pebble-eab-hmac"
+ACME_KEY_SECRET="pebble-acme-account-key"
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+usage() {
+  grep '^#' "$0" | sed 's/^# \{0,2\}//'
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -n|--namespace)    NAMESPACE="$2";    shift 2 ;;
+    -i|--issuer-name)  ISSUER_NAME="$2";  shift 2 ;;
+    -s|--solver)       SOLVER_CLASS="$2"; shift 2 ;;
+    -h|--help)         usage ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+# ── Preflight checks ──────────────────────────────────────────────────────────
+step "Preflight checks"
+
+for bin in kubectl helm jq; do
+  command -v "$bin" &>/dev/null || die "'$bin' not found in PATH."
+done
+ok "kubectl, helm, jq found"
+
+kubectl cluster-info &>/dev/null || die "Cannot reach cluster — check your kubeconfig."
+ok "Cluster is reachable"
+
+kubectl get crd clusterissuers.cert-manager.io &>/dev/null \
+  || die "cert-manager CRDs not found. Install cert-manager first."
+ok "cert-manager CRDs present"
+
+# ── Helm repo ─────────────────────────────────────────────────────────────────
+step "Adding jetstack Helm repo"
+
+helm repo add jetstack https://charts.jetstack.io --force-update &>/dev/null
+helm repo update jetstack &>/dev/null
+ok "jetstack repo ready"
+
+# ── Namespace ────────────────────────────────────────────────────────────────
+step "Ensuring namespace '$NAMESPACE'"
+
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml \
+  | kubectl apply -f - &>/dev/null
+ok "Namespace ready"
+
+# ── Pebble values (EAB enabled) ───────────────────────────────────────────────
+step "Installing Pebble via Helm (release: $PEBBLE_RELEASE)"
+
+# Pebble is deployed with:
+#   • EAB required — every ACME account must supply a valid EAB credential
+#   • cert-manager's service-account gets RBAC to read pebble's CA secret
+#   • Management API exposed on port 15000 (cluster-internal only)
+PEBBLE_VALUES=$(cat <<'EOF'
+# ── Pebble server configuration ───────────────────────────────────────────────
+replicaCount: 1
+
+image:
+  repository: letsencrypt/pebble
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Pebble config file — mounted into the container
+config:
+  pebble:
+    listenAddress: "0.0.0.0:14000"
+    managementListenAddress: "0.0.0.0:15000"
+    # Self-signed TLS cert baked into the image
+    certificate: /test/certs/localhost/cert.pem
+    privateKey:  /test/certs/localhost/key.pem
+    httpPort:    5002
+    tlsPort:     5001
+    externalAccountBindingRequired: true
+    # Don't block on OCSP for test usage
+    ocspResponderURL: ""
+
+# Expose both the ACME port (14000) and the management port (15000)
+service:
+  type: ClusterIP
+  ports:
+    - name: acme
+      port: 14000
+      targetPort: 14000
+    - name: mgmt
+      port: 15000
+      targetPort: 15000
+
+# Pebble environment variables
+env:
+  # Accept nonce reuse — useful in test environments
+  - name: PEBBLE_WFE_NONCEREJECT
+    value: "0"
+  # Authorise all HTTP-01 challenges without actually contacting the solver
+  - name: PEBBLE_VA_NOSLEEP
+    value: "1"
+  - name: PEBBLE_VA_ALWAYS_VALID
+    value: "1"
+
+# Keep the pebble-challtestsrv sidecar disabled; we use cert-manager solvers
+challtestsrv:
+  enabled: false
+EOF
+)
+
+helm upgrade --install "$PEBBLE_RELEASE" jetstack/pebble \
+  --namespace "$NAMESPACE" \
+  --values <(echo "$PEBBLE_VALUES") \
+  --wait \
+  --timeout 120s
+ok "Pebble deployed"
+
+# ── Wait for pod readiness ────────────────────────────────────────────────────
+step "Waiting for Pebble pod to become Ready"
+
+kubectl rollout status deployment/"$PEBBLE_RELEASE" \
+  --namespace "$NAMESPACE" \
+  --timeout=120s
+ok "Pebble pod is Ready"
+
+PEBBLE_POD=$(kubectl get pod \
+  --namespace "$NAMESPACE" \
+  --selector "app.kubernetes.io/instance=$PEBBLE_RELEASE" \
+  --field-selector status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}')
+
+log "Using pod: $PEBBLE_POD"
+
+# ── Fetch EAB credentials from management API ─────────────────────────────────
+step "Generating EAB credentials via Pebble management API"
+
+EAB_JSON=$(kubectl exec "$PEBBLE_POD" \
+  --namespace "$NAMESPACE" \
+  --container pebble \
+  -- curl -sf -X POST http://localhost:15000/management/eab/new \
+  2>/dev/null) \
+  || die "Failed to call Pebble management API. Is the pod running?"
+
+EAB_KID=$(echo "$EAB_JSON"  | jq -r '.keyID')
+EAB_HMAC=$(echo "$EAB_JSON" | jq -r '.hmacKey')
+
+[[ "$EAB_KID"  != "null" && -n "$EAB_KID"  ]] || die "Could not parse keyID from EAB response: $EAB_JSON"
+[[ "$EAB_HMAC" != "null" && -n "$EAB_HMAC" ]] || die "Could not parse hmacKey from EAB response: $EAB_JSON"
+
+ok "EAB Key ID : $EAB_KID"
+ok "EAB HMAC  : (redacted — stored in secret)"
+
+# ── Fetch Pebble's CA certificate ─────────────────────────────────────────────
+step "Fetching Pebble root CA certificate"
+
+# Pebble exposes its root CA at https://<host>:15000/roots/0
+# We use -k here because we're bootstrapping trust for the CA itself
+PEBBLE_CA_PEM=$(kubectl exec "$PEBBLE_POD" \
+  --namespace "$NAMESPACE" \
+  --container pebble \
+  -- curl -sfk https://localhost:15000/roots/0 \
+  2>/dev/null) \
+  || die "Failed to fetch Pebble root CA"
+
+PEBBLE_CA_B64=$(echo "$PEBBLE_CA_PEM" | base64 | tr -d '\n')
+ok "Root CA fetched and base64-encoded"
+
+# ── Kubernetes Secret for EAB HMAC key ───────────────────────────────────────
+step "Creating EAB HMAC secret '$SECRET_NAME' in cert-manager's namespace"
+
+CERTMGR_NS=$(kubectl get pods \
+  --all-namespaces \
+  --selector "app.kubernetes.io/name=cert-manager" \
+  -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null \
+  || echo "cert-manager")
+
+log "cert-manager namespace detected as: $CERTMGR_NS"
+
+# The secret key must be named 'secret' — cert-manager looks for this key
+kubectl create secret generic "$SECRET_NAME" \
+  --namespace "$CERTMGR_NS" \
+  --from-literal=secret="$EAB_HMAC" \
+  --dry-run=client -o yaml \
+  | kubectl apply -f -
+
+# Annotate so it's easy to identify
+kubectl annotate secret "$SECRET_NAME" \
+  --namespace "$CERTMGR_NS" \
+  "acme.pebble/eab-kid=$EAB_KID" \
+  --overwrite &>/dev/null
+
+ok "Secret '$SECRET_NAME' created/updated in namespace '$CERTMGR_NS'"
+
+# ── ClusterIssuer ─────────────────────────────────────────────────────────────
+step "Applying ClusterIssuer '$ISSUER_NAME'"
+
+# Build the solver block based on --solver argument
+if [[ "$SOLVER_CLASS" == "none" ]]; then
+  SOLVER_BLOCK="    - http01:
+        ingress: {}"
+else
+  SOLVER_BLOCK="    - http01:
+        ingress:
+          class: ${SOLVER_CLASS}"
+fi
+
+# The ACME server address uses the in-cluster DNS name for Pebble
+ACME_SERVER="https://${PEBBLE_RELEASE}.${NAMESPACE}.svc.cluster.local:14000/dir"
+
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ${ISSUER_NAME}
+  annotations:
+    acme.pebble/managed-by: setup-pebble-acme.sh
+    acme.pebble/eab-kid: "${EAB_KID}"
+spec:
+  acme:
+    # In-cluster Pebble ACME directory URL
+    server: ${ACME_SERVER}
+
+    # Pebble's self-signed CA — cert-manager will use this to verify TLS
+    caBundle: ${PEBBLE_CA_B64}
+
+    # ACME account private key stored as a cluster secret
+    privateKeySecretRef:
+      name: ${ACME_KEY_SECRET}
+
+    # External Account Binding credentials
+    externalAccountBinding:
+      keyID: "${EAB_KID}"
+      keySecretRef:
+        name: ${SECRET_NAME}
+        key: secret
+      # Pebble uses HS256 for EAB MAC
+      keyAlgorithm: HS256
+
+    solvers:
+${SOLVER_BLOCK}
+EOF
+
+ok "ClusterIssuer '$ISSUER_NAME' applied"
+
+# ── Wait for ClusterIssuer to become Ready ────────────────────────────────────
+step "Waiting for ClusterIssuer to become Ready (up to 60 s)"
+
+for i in $(seq 1 12); do
+  READY=$(kubectl get clusterissuer "$ISSUER_NAME" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
+    || true)
+
+  if [[ "$READY" == "True" ]]; then
+    ok "ClusterIssuer '$ISSUER_NAME' is Ready ✓"
+    break
+  fi
+
+  if [[ $i -eq 12 ]]; then
+    warn "ClusterIssuer did not reach Ready within 60 s."
+    warn "Check: kubectl describe clusterissuer $ISSUER_NAME"
+  fi
+
+  log "Not ready yet — retrying in 5 s (attempt $i/12)..."
+  sleep 5
+done
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+step "Setup complete — summary"
+
+cat <<SUMMARY
+
+${BOLD}Pebble ACME server${RESET}
+  Namespace  : ${NAMESPACE}
+  Helm release : ${PEBBLE_RELEASE}
+  ACME dir   : ${ACME_SERVER}
+  Management : https://${PEBBLE_RELEASE}.${NAMESPACE}.svc.cluster.local:15000
+
+${BOLD}EAB credentials${RESET}
+  Key ID     : ${EAB_KID}
+  HMAC secret: ${CERTMGR_NS}/${SECRET_NAME}  (key: secret)
+
+${BOLD}ClusterIssuer${RESET}
+  Name       : ${ISSUER_NAME}
+  HTTP01 class: ${SOLVER_CLASS}
+
+${BOLD}To issue a test Certificate:${RESET}
+  kubectl apply -f - <<'EOF'
+  apiVersion: cert-manager.io/v1
+  kind: Certificate
+  metadata:
+    name: pebble-test-cert
+    namespace: default
+  spec:
+    secretName: pebble-test-tls
+    issuerRef:
+      name: ${ISSUER_NAME}
+      kind: ClusterIssuer
+    dnsNames:
+      - test.example.local
+  EOF
+
+${BOLD}To generate NEW EAB credentials later:${RESET}
+  kubectl exec -n ${NAMESPACE} deploy/${PEBBLE_RELEASE} -- \\
+    curl -s -X POST http://localhost:15000/management/eab/new | jq .
+
+${BOLD}To view ClusterIssuer status:${RESET}
+  kubectl describe clusterissuer ${ISSUER_NAME}
+
+SUMMARY

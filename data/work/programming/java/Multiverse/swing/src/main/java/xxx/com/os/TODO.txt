@@ -1,0 +1,15 @@
+Make App icon display animated like the tray icon
+
+Add Nvidia GPU metrics, graphs
+
+Add full screen capability
+
+Add right click context menu to Process view
+
+Add graph to Process view cell
+
+Tabs re-orderable
+
+Interval adjustment
+
+Smoother flowing graphs

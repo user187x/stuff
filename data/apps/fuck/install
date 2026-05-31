@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+echo "🚀 Starting installation of 'thefuck'..."
+
+# 1. Install 'thefuck'
+if command -v thefuck &>/dev/null; then
+ echo "✅ 'thefuck' is already installed."
+else
+ echo "📦 Installing 'thefuck'..."
+ if command -v apt-get &>/dev/null; then
+  echo "Detected APT package manager (Debian/Ubuntu)..."
+  sudo apt-get update
+  sudo apt-get install -y thefuck
+ elif command -v pip3 &>/dev/null; then
+  echo "Package manager not detected or not supported. Falling back to pip3..."
+  pip3 install --user thefuck
+ else
+  echo "❌ Error: Neither package managers nor pip3 could be found."
+  echo "Please install Python3 and pip3, then run this script again."
+  exit 1
+ fi
+fi
+
+# 2. Configure the shell alias
+ALIAS_CMD='eval $(thefuck --alias)'
+
+# Function to add alias to a given config file
+add_alias_to_shell() {
+ local shell_rc="$1"
+ if [ -f "$shell_rc" ]; then
+  if grep -qF "thefuck --alias" "$shell_rc"; then
+   echo "✅ Alias already exists in $shell_rc."
+  else
+   echo "✍️ Adding alias to $shell_rc..."
+   echo -e "\n# TheFuck alias" >>"$shell_rc"
+   echo "$ALIAS_CMD" >>"$shell_rc"
+   echo "✅ Alias added to $shell_rc."
+  fi
+ fi
+}
+
+# Add to bash and zsh configurations
+add_alias_to_shell "$HOME/.bashrc"
+
+echo ""
+echo "🎉 Installation and configuration complete!"
+echo "⚠️  To start using 'thefuck', you must reload your shell."
+echo "Run the following command: source ~/.bashrc"
+
+echo "How to use..."
+echo "Fat-finger a command (ie.): git brnhc"
+echo "Immediately after fubar type: fuck"
+echo "Output: git branch [enter/↑/↓/ctrl+c]"

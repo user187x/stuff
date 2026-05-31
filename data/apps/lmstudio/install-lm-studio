@@ -1,0 +1,8 @@
+#!/bin/bash
+
+chmod +x lm-studio.AppImage
+
+mv lm-studio.AppImage /home/xxx/.local/share/applications
+mv lm-studio.desktop /home/xxx/.local/share/applications
+
+sudo update-desktop-database

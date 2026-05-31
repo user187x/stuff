@@ -1,0 +1,828 @@
+#!/bin/bash
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+NAMESPACE="llm-ops"
+DOMAIN="llm.local"
+
+# Path inside the minikube VM where the GGUF's parent directory is mounted.
+VM_MOUNT_PATH="/mnt/llm-models"
+
+# Mount point inside the vLLM container.
+CONTAINER_MODEL_PATH="/models"
+
+# Kubernetes resource names for the volume objects.
+PV_NAME="llm-models-pv"
+PVC_NAME="llm-models-pvc"
+
+# ---------------------------------------------------------------------------
+# Helper: print a section header
+# ---------------------------------------------------------------------------
+section() {
+ echo ""
+ echo "=============================================="
+ echo "  $*"
+ echo "=============================================="
+ echo ""
+}
+
+# ---------------------------------------------------------------------------
+# STEP 0 — Verify minikube is available and running
+# ---------------------------------------------------------------------------
+section "Pre-flight Checks"
+
+if ! command -v minikube &>/dev/null; then
+ echo "❌ minikube not found in PATH. Please install minikube first."
+ exit 1
+fi
+
+MINIKUBE_STATUS=$(minikube status --format='{{.Host}}' 2>/dev/null || true)
+if [[ "$MINIKUBE_STATUS" != "Running" ]]; then
+ echo "❌ Minikube cluster is not running (status: ${MINIKUBE_STATUS:-unknown})."
+ echo "   Start it with: minikube start"
+ exit 1
+fi
+echo "✅ Minikube is running."
+
+# ---------------------------------------------------------------------------
+# STEP 1 — Select local GGUF model directory and file
+# ---------------------------------------------------------------------------
+section "Local GGUF Model Selection"
+
+echo "This stack serves models from local GGUF files on your machine."
+echo "The selected file's parent directory is bind-mounted into the minikube"
+echo "VM via 'minikube mount' and exposed to the vLLM pod via a PersistentVolume."
+echo ""
+
+while true; do
+ read -e -r -p "Enter path to directory containing GGUF file(s): " MODEL_DIR
+ MODEL_DIR="${MODEL_DIR/#\~/$HOME}"
+
+ if [[ ! -d "$MODEL_DIR" ]]; then
+  echo "  ❌ Directory not found: $MODEL_DIR"
+  continue
+ fi
+
+ # FIX: Exclude mmproj (multimodal projector) files — they are vision-encoder
+ # shards, not standalone LLMs, and vLLM will crash if one is selected.
+ mapfile -t GGUF_FILES < <(
+  find "$MODEL_DIR" -maxdepth 3 -iname "*.gguf" -type f |
+   grep -iv "mmproj" |
+   sort
+ )
+
+ mapfile -t MMPROJ_FILES < <(
+  find "$MODEL_DIR" -maxdepth 3 -iname "*.gguf" -type f |
+   grep -i "mmproj" |
+   sort
+ )
+
+ if [[ ${#MMPROJ_FILES[@]} -gt 0 ]]; then
+  echo ""
+  echo "  ℹ️  Skipped ${#MMPROJ_FILES[@]} mmproj file(s) — multimodal vision"
+  echo "     projector shards cannot be served as standalone models:"
+  for f in "${MMPROJ_FILES[@]}"; do
+   echo "       $(basename "$f")"
+  done
+ fi
+
+ if [[ ${#GGUF_FILES[@]} -eq 0 ]]; then
+  echo "  ❌ No servable .gguf files found under $MODEL_DIR (searched 3 levels deep)."
+  continue
+ fi
+
+ break
+done
+
+echo ""
+echo "Found ${#GGUF_FILES[@]} servable GGUF file(s):"
+echo ""
+
+for i in "${!GGUF_FILES[@]}"; do
+ FILE_SIZE=$(du -sh "${GGUF_FILES[$i]}" 2>/dev/null | cut -f1)
+ REL_PATH="${GGUF_FILES[$i]#"$MODEL_DIR"/}"
+ printf "  [%d] %-60s %s\n" "$((i + 1))" "$REL_PATH" "$FILE_SIZE"
+done
+echo ""
+
+if [[ ${#GGUF_FILES[@]} -eq 1 ]]; then
+ SELECTED_GGUF="${GGUF_FILES[0]}"
+ echo "Auto-selecting: $(basename "$SELECTED_GGUF")"
+else
+ while true; do
+  read -rp "Select model [1-${#GGUF_FILES[@]}]: " MODEL_CHOICE
+  if [[ "$MODEL_CHOICE" =~ ^[0-9]+$ ]] &&
+   [[ "$MODEL_CHOICE" -ge 1 ]] &&
+   [[ "$MODEL_CHOICE" -le ${#GGUF_FILES[@]} ]]; then
+   SELECTED_GGUF="${GGUF_FILES[$((MODEL_CHOICE - 1))]}"
+   break
+  fi
+  echo "  ❌ Invalid selection — enter a number between 1 and ${#GGUF_FILES[@]}."
+ done
+fi
+
+MODEL_FILENAME="$(basename "$SELECTED_GGUF")"
+
+# FIX: Mount the IMMEDIATE PARENT of the selected .gguf file, not the
+# top-level MODEL_DIR. This ensures the container always sees a flat
+# /models/<filename>.gguf path, which vLLM v1 engine accepts directly
+# as the --model argument without any extra config flags.
+GGUF_PARENT_DIR="$(dirname "$SELECTED_GGUF")"
+
+# Derive a safe Kubernetes resource name from the filename.
+MODEL_SAFE_NAME=$(echo "${MODEL_FILENAME%.gguf}" |
+ tr '[:upper:]' '[:lower:]' |
+ sed 's/[^a-z0-9]/-/g' |
+ sed 's/-\+/-/g' |
+ sed 's/^-\|-$//g' |
+ cut -c1-52)
+
+# FIX: modelURL must point to the GGUF FILE, not the directory.
+# vLLM v1 engine removed support for --model-loader-extra-config with
+# --load-format gguf. In v1, pass the .gguf file path directly as --model
+# and vLLM auto-detects the format from the .gguf extension.
+CONTAINER_MODEL_URL="${CONTAINER_MODEL_PATH}/${MODEL_FILENAME}"
+
+# Size the PV from the GGUF's parent directory (what we're actually mounting).
+DIR_BYTES=$(du -sb "$GGUF_PARENT_DIR" 2>/dev/null | cut -f1)
+PV_SIZE_GI=$(((DIR_BYTES / 1073741824) + 2))
+
+echo ""
+echo "✅ Selected     : $MODEL_FILENAME"
+echo "   Mount source : $GGUF_PARENT_DIR"
+echo "   Container URL: $CONTAINER_MODEL_URL"
+echo "   PV size      : ${PV_SIZE_GI}Gi"
+
+# ---------------------------------------------------------------------------
+# STEP 1.5 — Generate config.json from GGUF metadata (zero dependencies)
+# ---------------------------------------------------------------------------
+# vLLM and transformers expect a config.json alongside the model for tokenizer
+# class resolution. GGUF files embed all config internally so we generate it
+# by parsing the binary header directly — no pip, no third-party packages.
+section "Generating config.json from GGUF Metadata"
+
+CONFIG_JSON_PATH="${GGUF_PARENT_DIR}/config.json"
+
+if [[ -f "$CONFIG_JSON_PATH" ]]; then
+ echo "✅ config.json already exists — skipping generation."
+ echo "   Path: $CONFIG_JSON_PATH"
+else
+ echo "📋 Parsing GGUF binary header from: $MODEL_FILENAME"
+
+ PARSE_RESULT=$(
+  python3 - "$SELECTED_GGUF" "$CONFIG_JSON_PATH" "$MODEL_FILENAME" <<'PYEOF'
+import sys, json, struct
+
+gguf_path     = sys.argv[1]
+config_out    = sys.argv[2]
+gguf_filename = sys.argv[3]
+
+GGUF_TYPE_UINT8   = 0
+GGUF_TYPE_INT8    = 1
+GGUF_TYPE_UINT16  = 2
+GGUF_TYPE_INT16   = 3
+GGUF_TYPE_UINT32  = 4
+GGUF_TYPE_INT32   = 5
+GGUF_TYPE_FLOAT32 = 6
+GGUF_TYPE_BOOL    = 7
+GGUF_TYPE_STRING  = 8
+GGUF_TYPE_ARRAY   = 9
+GGUF_TYPE_UINT64  = 10
+GGUF_TYPE_INT64   = 11
+GGUF_TYPE_FLOAT64 = 12
+
+SCALAR_FMT = {
+    GGUF_TYPE_UINT8:   ('<B', 1),
+    GGUF_TYPE_INT8:    ('<b', 1),
+    GGUF_TYPE_UINT16:  ('<H', 2),
+    GGUF_TYPE_INT16:   ('<h', 2),
+    GGUF_TYPE_UINT32:  ('<I', 4),
+    GGUF_TYPE_INT32:   ('<i', 4),
+    GGUF_TYPE_FLOAT32: ('<f', 4),
+    GGUF_TYPE_BOOL:    ('<B', 1),
+    GGUF_TYPE_UINT64:  ('<Q', 8),
+    GGUF_TYPE_INT64:   ('<q', 8),
+    GGUF_TYPE_FLOAT64: ('<d', 8),
+}
+
+ARCH_MAP = {
+    "llama":      ("llama",       "LlamaForCausalLM"),
+    "mistral":    ("mistral",     "MistralForCausalLM"),
+    "mixtral":    ("mixtral",     "MixtralForCausalLM"),
+    "gemma":      ("gemma",       "GemmaForCausalLM"),
+    "gemma2":     ("gemma2",      "Gemma2ForCausalLM"),
+    "gemma3":     ("gemma3",      "Gemma3ForCausalLM"),
+    "gemma4":     ("gemma4",      "Gemma4ForCausalLM"),
+    "phi2":       ("phi",         "PhiForCausalLM"),
+    "phi3":       ("phi3",        "Phi3ForCausalLM"),
+    "phi4":       ("phi4",        "Phi4ForCausalLM"),
+    "qwen2":      ("qwen2",       "Qwen2ForCausalLM"),
+    "qwen2_moe":  ("qwen2_moe",   "Qwen2MoeForCausalLM"),
+    "qwen3":      ("qwen3",       "Qwen3ForCausalLM"),
+    "qwen3_moe":  ("qwen3_moe",   "Qwen3MoeForCausalLM"),
+    "falcon":     ("falcon",      "FalconForCausalLM"),
+    "starcoder2": ("starcoder2",  "Starcoder2ForCausalLM"),
+    "gpt2":       ("gpt2",        "GPT2LMHeadModel"),
+    "deepseek2":  ("deepseek_v2", "DeepseekV2ForCausalLM"),
+    "deepseek3":  ("deepseek_v3", "DeepseekV3ForCausalLM"),
+}
+
+def read_string(f):
+    (length,) = struct.unpack('<Q', f.read(8))
+    return f.read(length).decode('utf-8', errors='replace')
+
+def skip_value(f, vtype):
+    if vtype in SCALAR_FMT:
+        f.read(SCALAR_FMT[vtype][1])
+    elif vtype == GGUF_TYPE_STRING:
+        (length,) = struct.unpack('<Q', f.read(8))
+        f.read(length)
+    elif vtype == GGUF_TYPE_ARRAY:
+        (elem_type,) = struct.unpack('<I', f.read(4))
+        (count,)     = struct.unpack('<Q', f.read(8))
+        for _ in range(count):
+            skip_value(f, elem_type)
+    else:
+        raise ValueError(f"Unknown GGUF value type: {vtype}")
+
+def read_value(f, vtype):
+    if vtype in SCALAR_FMT:
+        fmt, size = SCALAR_FMT[vtype]
+        (val,) = struct.unpack(fmt, f.read(size))
+        return val
+    elif vtype == GGUF_TYPE_STRING:
+        return read_string(f)
+    elif vtype == GGUF_TYPE_ARRAY:
+        (elem_type,) = struct.unpack('<I', f.read(4))
+        (count,)     = struct.unpack('<Q', f.read(8))
+        return [read_value(f, elem_type) for _ in range(count)]
+    else:
+        raise ValueError(f"Unknown GGUF value type: {vtype}")
+
+try:
+    with open(gguf_path, 'rb') as f:
+        magic = f.read(4)
+        if magic != b'GGUF':
+            print(f"PARSE_ERROR:Not a GGUF file (magic={magic!r})")
+            sys.exit(0)
+
+        (version,)   = struct.unpack('<I', f.read(4))
+        (n_tensors,) = struct.unpack('<Q', f.read(8))
+        (n_kv,)      = struct.unpack('<Q', f.read(8))
+
+        kv = {}
+        WANTED = {'general.architecture', 'llm.context_length'}
+
+        for _ in range(n_kv):
+            key      = read_string(f)
+            (vtype,) = struct.unpack('<I', f.read(4))
+            arch_so_far = kv.get('general.architecture', '')
+            if arch_so_far:
+                WANTED.add(f'{arch_so_far}.context_length')
+                WANTED.add(f'{arch_so_far}.vocab_size')
+            if key in WANTED:
+                kv[key] = read_value(f, vtype)
+            else:
+                skip_value(f, vtype)
+
+    arch = kv.get('general.architecture', '')
+    if not arch:
+        print("PARSE_ERROR:general.architecture key not found in GGUF metadata")
+        sys.exit(0)
+
+    if arch not in ARCH_MAP:
+        print(f"UNKNOWN_ARCH:{arch}")
+        sys.exit(0)
+
+    model_type, arch_class = ARCH_MAP[arch]
+    config = {
+        "architectures": [arch_class],
+        "model_type":    model_type,
+        "gguf_filename": gguf_filename,
+    }
+
+    for ctx_key in (f'{arch}.context_length', 'llm.context_length'):
+        if ctx_key in kv:
+            config['max_position_embeddings'] = int(kv[ctx_key])
+            break
+
+    vocab_key = f'{arch}.vocab_size'
+    if vocab_key in kv:
+        config['vocab_size'] = int(kv[vocab_key])
+
+    with open(config_out, 'w') as fh:
+        json.dump(config, fh, indent=2)
+
+    ctx = config.get('max_position_embeddings', 'unknown')
+    print(f"SUCCESS:{arch}:{arch_class}:ctx={ctx}")
+
+except Exception as exc:
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    print(f"PARSE_ERROR:{exc}")
+PYEOF
+ )
+
+ if [[ "$PARSE_RESULT" == SUCCESS:* ]]; then
+  DETECTED_ARCH=$(echo "$PARSE_RESULT" | cut -d: -f2)
+  DETECTED_CLASS=$(echo "$PARSE_RESULT" | cut -d: -f3)
+  CTX_INFO=$(echo "$PARSE_RESULT" | cut -d: -f4)
+  echo "✅ config.json generated from GGUF binary header"
+  echo "   Architecture : $DETECTED_ARCH  →  $DETECTED_CLASS"
+  echo "   Context      : $CTX_INFO"
+ else
+  if [[ "$PARSE_RESULT" == UNKNOWN_ARCH:* ]]; then
+   RAW_ARCH="${PARSE_RESULT#UNKNOWN_ARCH:}"
+   echo ""
+   echo "⚠️  GGUF header reports arch = '${RAW_ARCH}' which is not in the known map."
+   echo "   Select the closest match below."
+  else
+   echo ""
+   echo "⚠️  Could not parse GGUF header: ${PARSE_RESULT#PARSE_ERROR:}"
+   echo "   Select the architecture that matches your model manually."
+  fi
+
+  echo ""
+  echo "   [1]  llama       (Llama 2/3, CodeLlama, Vicuna, Alpaca...)"
+  echo "   [2]  mistral     (Mistral 7B, OpenHermes, Zephyr...)"
+  echo "   [3]  mixtral     (Mixtral 8x7B, 8x22B...)"
+  echo "   [4]  gemma       (Gemma 1)"
+  echo "   [5]  gemma2      (Gemma 2)"
+  echo "   [6]  gemma3      (Gemma 3)"
+  echo "   [7]  gemma4      (Gemma 4)"
+  echo "   [8]  qwen2       (Qwen2, Qwen2.5)"
+  echo "   [9]  qwen3       (Qwen3, Qwen3.5)"
+  echo "   [10] phi3        (Phi-3, Phi-3.5)"
+  echo "   [11] phi4        (Phi-4)"
+  echo "   [12] deepseek2   (DeepSeek-V2, R1-Distill...)"
+  echo "   [13] deepseek3   (DeepSeek-V3)"
+  echo "   [14] starcoder2  (StarCoder2)"
+  echo "   [15] falcon      (Falcon 7B/40B/180B)"
+  echo ""
+
+  ARCH_KEYS=(llama mistral mixtral gemma gemma2 gemma3 gemma4 qwen2 qwen3 phi3 phi4 deepseek2 deepseek3 starcoder2 falcon)
+  declare -A ARCH_TYPES=(
+   [llama]="llama" [mistral]="mistral" [mixtral]="mixtral"
+   [gemma]="gemma" [gemma2]="gemma2" [gemma3]="gemma3" [gemma4]="gemma4"
+   [qwen2]="qwen2" [qwen3]="qwen3"
+   [phi3]="phi3" [phi4]="phi4"
+   [deepseek2]="deepseek_v2" [deepseek3]="deepseek_v3"
+   [starcoder2]="starcoder2" [falcon]="falcon"
+  )
+  declare -A ARCH_CLASSES=(
+   [llama]="LlamaForCausalLM" [mistral]="MistralForCausalLM"
+   [mixtral]="MixtralForCausalLM" [gemma]="GemmaForCausalLM"
+   [gemma2]="Gemma2ForCausalLM" [gemma3]="Gemma3ForCausalLM"
+   [gemma4]="Gemma4ForCausalLM" [qwen2]="Qwen2ForCausalLM"
+   [qwen3]="Qwen3ForCausalLM" [phi3]="Phi3ForCausalLM"
+   [phi4]="Phi4ForCausalLM" [deepseek2]="DeepseekV2ForCausalLM"
+   [deepseek3]="DeepseekV3ForCausalLM" [starcoder2]="Starcoder2ForCausalLM"
+   [falcon]="FalconForCausalLM"
+  )
+
+  while true; do
+   read -rp "   Select architecture [1-${#ARCH_KEYS[@]}]: " ARCH_CHOICE
+   if [[ "$ARCH_CHOICE" =~ ^[0-9]+$ ]] &&
+    [[ "$ARCH_CHOICE" -ge 1 ]] &&
+    [[ "$ARCH_CHOICE" -le ${#ARCH_KEYS[@]} ]]; then
+    CHOSEN_KEY="${ARCH_KEYS[$((ARCH_CHOICE - 1))]}"
+    break
+   fi
+   echo "   ❌ Invalid — enter a number between 1 and ${#ARCH_KEYS[@]}."
+  done
+
+  python3 - "$CONFIG_JSON_PATH" "$MODEL_FILENAME" \
+   "${ARCH_TYPES[$CHOSEN_KEY]}" "${ARCH_CLASSES[$CHOSEN_KEY]}" <<'PYEOF_MANUAL'
+import sys, json
+config_out, gguf_filename, model_type, arch_class = sys.argv[1:]
+with open(config_out, 'w') as fh:
+    json.dump({"architectures": [arch_class], "model_type": model_type,
+               "gguf_filename": gguf_filename}, fh, indent=2)
+print(f"  ✅ Written: {model_type} / {arch_class}")
+PYEOF_MANUAL
+ fi
+
+ echo "✅ config.json ready: $CONFIG_JSON_PATH"
+fi
+
+# ---------------------------------------------------------------------------
+# STEP 1.7 — Prompt for HuggingFace repo ID
+# ---------------------------------------------------------------------------
+# FIX: vLLM v1 engine requires --tokenizer and --generation-config to point
+# at a real HuggingFace repo ID (or local directory). GGUF files don't bundle
+# a tokenizer, so we download it from HF at pod startup. The repo must match
+# the base model the GGUF was quantised from.
+section "HuggingFace Tokenizer Repo"
+
+echo "vLLM needs to download the tokenizer and generation config from"
+echo "HuggingFace because GGUF files do not include these files."
+echo ""
+echo "Enter the HuggingFace repo ID for the BASE model your GGUF was"
+echo "quantised from. Examples:"
+echo "   google/gemma-4-e4b-it"
+echo "   google/gemma-3-4b-it"
+echo "   meta-llama/Llama-3.2-3B-Instruct"
+echo "   Qwen/Qwen2.5-7B-Instruct"
+echo "   microsoft/Phi-4-mini-instruct"
+echo ""
+
+while true; do
+ read -rp "HuggingFace repo ID: " HF_REPO_ID
+ HF_REPO_ID="${HF_REPO_ID// /}" # strip any accidental spaces
+ if [[ "$HF_REPO_ID" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+$ ]]; then
+  break
+ fi
+ echo "  ❌ Must be in the form 'namespace/repo-name' (e.g. google/gemma-4-e4b-it)"
+done
+
+echo ""
+echo "✅ Tokenizer repo : $HF_REPO_ID"
+
+# ---------------------------------------------------------------------------
+# STEP 2 — Detect or prompt for device mode (GPU vs CPU)
+# ---------------------------------------------------------------------------
+section "Device Configuration"
+
+DETECTED_GPU_COUNT=$(kubectl get nodes \
+ -o custom-columns="GPU:.status.capacity.nvidia\.com/gpu" \
+ --no-headers 2>/dev/null |
+ grep -v "<none>" | grep -v "^$" |
+ awk '{sum+=$1} END {print sum+0}')
+
+if [[ "$DETECTED_GPU_COUNT" -gt 0 ]]; then
+ echo "✅ Auto-detected ${DETECTED_GPU_COUNT} NVIDIA GPU(s) across cluster nodes."
+ echo ""
+fi
+
+echo "Select compute device for vLLM:"
+echo "  [1] NVIDIA GPU  (requires NVIDIA device plugin + GPU nodes)"
+echo "  [2] CPU only    (no GPU required, slower inference)"
+echo ""
+read -rp "Enter choice [1 or 2]: " DEVICE_CHOICE
+
+case "$DEVICE_CHOICE" in
+1)
+ DEVICE_MODE="gpu"
+ echo ""
+ echo "🖥️  GPU mode selected."
+ echo "🔌 Checking NVIDIA device plugin..."
+ if ! kubectl get daemonset nvidia-device-plugin-daemonset \
+  -n kube-system &>/dev/null; then
+  echo "   Not found — installing NVIDIA device plugin..."
+  kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+  kubectl rollout status daemonset/nvidia-device-plugin-daemonset \
+   -n kube-system --timeout=120s
+ else
+  echo "   Already installed ✓"
+ fi
+ ;;
+2)
+ DEVICE_MODE="cpu"
+ echo ""
+ echo "🖥️  CPU-only mode selected."
+ ;;
+*)
+ echo "❌ Invalid choice. Please run the script again and enter 1 or 2."
+ exit 1
+ ;;
+esac
+
+echo ""
+echo "🚀 Starting Full Cluster Provisioning..."
+echo "   Device    : ${DEVICE_MODE^^}"
+echo "   Model     : $MODEL_FILENAME"
+echo "   HF repo   : $HF_REPO_ID"
+echo ""
+
+# ---------------------------------------------------------------------------
+# STEP 3 — Install Helm
+# ---------------------------------------------------------------------------
+if ! command -v helm &>/dev/null; then
+ echo "📦 Installing Helm..."
+ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# ---------------------------------------------------------------------------
+# STEP 4 — Add Helm Repositories
+# ---------------------------------------------------------------------------
+echo "📦 Adding Helm Repositories..."
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo add vllm https://vllm-project.github.io/production-stack
+helm repo update
+
+# ---------------------------------------------------------------------------
+# STEP 5 — Create Namespace
+# ---------------------------------------------------------------------------
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+# ---------------------------------------------------------------------------
+# STEP 6 — Mount the GGUF's parent directory into the minikube VM
+# ---------------------------------------------------------------------------
+section "Mounting Model Directory into Minikube VM"
+
+echo "   Host path  : $GGUF_PARENT_DIR"
+echo "   VM path    : $VM_MOUNT_PATH"
+echo ""
+
+if minikube ssh "mountpoint -q ${VM_MOUNT_PATH}" 2>/dev/null; then
+ echo "✅ Already mounted — skipping."
+else
+ minikube mount "${GGUF_PARENT_DIR}:${VM_MOUNT_PATH}" &
+ MOUNT_PID=$!
+
+ echo "   Waiting for mount to establish..."
+ sleep 5
+
+ if ! kill -0 "$MOUNT_PID" 2>/dev/null; then
+  echo "❌ minikube mount exited unexpectedly."
+  echo "   Check that minikube has read access to: $GGUF_PARENT_DIR"
+  exit 1
+ fi
+
+ if ! minikube ssh "ls ${VM_MOUNT_PATH}" &>/dev/null; then
+  echo "❌ Mount process is alive but path not visible inside VM."
+  kill "$MOUNT_PID" 2>/dev/null || true
+  exit 1
+ fi
+
+ echo "✅ Mount established (PID: ${MOUNT_PID})."
+ echo ""
+ echo "⚠️  IMPORTANT: The minikube mount process (PID ${MOUNT_PID}) must"
+ echo "   remain running. To remount after a restart:"
+ echo "   minikube mount \"${GGUF_PARENT_DIR}:${VM_MOUNT_PATH}\" &"
+fi
+
+# ---------------------------------------------------------------------------
+# STEP 7 — Create PersistentVolume and PersistentVolumeClaim
+# ---------------------------------------------------------------------------
+section "Creating PersistentVolume and PersistentVolumeClaim"
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${PV_NAME}
+  labels:
+    app: llm-models
+    model: ${MODEL_SAFE_NAME}
+spec:
+  capacity:
+    storage: ${PV_SIZE_GI}Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: ${VM_MOUNT_PATH}
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${PVC_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  storageClassName: ""
+  volumeName: ${PV_NAME}
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: ${PV_SIZE_GI}Gi
+EOF
+
+echo ""
+echo "⏳ Waiting for PVC to bind..."
+for i in $(seq 1 30); do
+ PVC_STATUS=$(kubectl get pvc "$PVC_NAME" -n "$NAMESPACE" \
+  -o jsonpath='{.status.phase}' 2>/dev/null || true)
+ if [[ "$PVC_STATUS" == "Bound" ]]; then
+  echo "✅ PVC is Bound."
+  break
+ fi
+ if [[ "$i" -eq 30 ]]; then
+  echo "❌ PVC did not reach Bound state within 60 s."
+  echo "   Check: kubectl describe pvc $PVC_NAME -n $NAMESPACE"
+  exit 1
+ fi
+ sleep 2
+done
+
+# ---------------------------------------------------------------------------
+# STEP 8 — Install Nginx Ingress Controller and wait for it to be ready
+# ---------------------------------------------------------------------------
+echo ""
+echo "🌐 Installing Nginx Ingress..."
+helm upgrade --install ingress-nginx ingress-nginx \
+ --repo https://kubernetes.github.io/ingress-nginx \
+ --namespace ingress-nginx --create-namespace \
+ --set controller.service.type=LoadBalancer
+
+# FIX: Wait for the ingress controller deployment AND its admission webhook
+# to become ready before creating Ingress resources. Without this wait the
+# webhook pod is not yet listening and kubectl apply returns:
+#   Internal error: failed calling webhook "validate.nginx.ingress.kubernetes.io"
+echo ""
+echo "⏳ Waiting for Nginx ingress controller to be ready..."
+kubectl rollout status deployment/ingress-nginx-controller \
+ -n ingress-nginx --timeout=180s
+
+echo "⏳ Waiting for ingress admission webhook to be reachable..."
+for i in $(seq 1 30); do
+ WEBHOOK_READY=$(kubectl get pods -n ingress-nginx \
+  -l app.kubernetes.io/component=controller \
+  -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+ if [[ "$WEBHOOK_READY" == "true" ]]; then
+  echo "✅ Ingress controller is ready."
+  break
+ fi
+ if [[ "$i" -eq 30 ]]; then
+  echo "⚠️  Webhook readiness timed out — proceeding anyway."
+  echo "   If Ingress apply fails, re-run: kubectl apply -f ingress.yaml"
+  break
+ fi
+ sleep 3
+done
+
+# ---------------------------------------------------------------------------
+# STEP 9 — Install vLLM Production Stack
+# ---------------------------------------------------------------------------
+section "Installing vLLM Production Stack"
+
+# Summary of all vLLM Helm values fixes applied here:
+#
+# FIX 1 — extraVolumes/extraVolumeMounts are nested INSIDE modelSpec.
+#   The vllm-stack chart only wires up volumes per model entry. Placing them
+#   at the servingEngineSpec level causes them to be silently ignored and
+#   /models never exists inside the container.
+#
+# FIX 2 — modelURL points to the .gguf FILE, not the parent directory.
+#   vLLM v1 engine auto-detects GGUF format from the .gguf file extension
+#   and loads the file directly via --model. The old approach of passing
+#   the directory + --model-loader-extra-config is no longer supported.
+#
+# FIX 3 — --load-format gguf and --model-loader-extra-config are removed.
+#   vLLM v1 engine raises:
+#     ValueError: Model loader extra config is not supported for load format gguf
+#   Format is now inferred from the file extension automatically.
+#
+# FIX 4 — --tokenizer and --generation-config point to the HF repo.
+#   GGUF files do not include tokenizer files (tokenizer.json, tokenizer.model).
+#   vLLM must download them from HuggingFace at startup using the base model
+#   repo ID. Without --tokenizer the pod crashes with:
+#     ValueError: Couldn't instantiate the backend tokenizer
+
+if [[ "$DEVICE_MODE" == "gpu" ]]; then
+ cat <<EOF >vllm-values.yaml
+servingEngineSpec:
+  runtimeClassName: "nvidia"
+
+  modelSpec:
+    - name: "${MODEL_SAFE_NAME}"
+      repository: "vllm/vllm-openai"
+      tag: "latest"
+      modelURL: "${CONTAINER_MODEL_URL}"
+      replicaCount: 1
+      requestCPU: 6
+      requestMemory: "16Gi"
+      requestGPU: 1
+
+      extraVolumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: ${PVC_NAME}
+            readOnly: true
+
+      extraVolumeMounts:
+        - name: model-storage
+          mountPath: ${CONTAINER_MODEL_PATH}
+          readOnly: true
+
+      vllmConfig:
+        maxModelLen: 2048
+        extraArgs:
+          - "--tokenizer"
+          - "${HF_REPO_ID}"
+          - "--generation-config"
+          - "${HF_REPO_ID}"
+          - "--gpu-memory-utilization"
+          - "0.5"
+          - "--enforce-eager"
+EOF
+
+else
+ cat <<EOF >vllm-values.yaml
+servingEngineSpec:
+  runtimeClassName: ""
+
+  modelSpec:
+    - name: "${MODEL_SAFE_NAME}"
+      repository: "vllm/vllm-openai-cpu"
+      tag: "latest-x86_64"
+      modelURL: "${CONTAINER_MODEL_URL}"
+      replicaCount: 1
+      requestCPU: 2
+      requestMemory: "8Gi"
+      requestGPU: 0
+
+      extraVolumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: ${PVC_NAME}
+            readOnly: true
+
+      extraVolumeMounts:
+        - name: model-storage
+          mountPath: ${CONTAINER_MODEL_PATH}
+          readOnly: true
+
+      env:
+        - name: VLLM_CPU_KVCACHE_SPACE
+          value: "4"
+      vllmConfig:
+        maxModelLen: 2048
+        extraArgs:
+          - "--tokenizer"
+          - "${HF_REPO_ID}"
+          - "--generation-config"
+          - "${HF_REPO_ID}"
+          - "--dtype"
+          - "bfloat16"
+          - "--enforce-eager"
+EOF
+
+fi
+
+helm upgrade --install vllm-stack vllm/vllm-stack \
+ --namespace "$NAMESPACE" --create-namespace \
+ --values vllm-values.yaml
+
+# ---------------------------------------------------------------------------
+# STEP 10 — Install LiteLLM Proxy
+# ---------------------------------------------------------------------------
+section "Deploying LiteLLM Proxy"
+
+helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+ --namespace "$NAMESPACE" \
+ --values - <<EOF
+proxyConfigMap:
+  create: true
+
+proxy_config:
+  model_list:
+    - model_name: ${MODEL_SAFE_NAME}
+      litellm_params:
+        model: openai/${MODEL_SAFE_NAME}
+        api_base: http://vllm-stack-router-service:80/v1
+EOF
+
+# ---------------------------------------------------------------------------
+# STEP 11 — Ingress
+# ---------------------------------------------------------------------------
+section "Finalizing Network Routing"
+
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-gateway
+  namespace: ${NAMESPACE}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ${DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-proxy-litellm-helm
+                port:
+                  number: 4000
+EOF
+
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+echo ""
+echo "────────────────────────────────────────────────"
+echo "✅  SUCCESS — All components deployed"
+echo ""
+echo "   Device mode   : ${DEVICE_MODE^^}"
+echo "   Model file    : ${MODEL_FILENAME}"
+echo "   Model alias   : ${MODEL_SAFE_NAME}"
+echo "   Container URL : ${CONTAINER_MODEL_URL}"
+echo "   HF tokenizer  : ${HF_REPO_ID}"
+echo "   Entrypoint    : http://${DOMAIN}"
+echo ""
+echo "   Sample request:"
+echo "     curl http://${DOMAIN}/v1/chat/completions \\"
+echo "       -H 'Content-Type: application/json' \\"
+echo "       -d '{\"model\": \"${MODEL_SAFE_NAME}\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello!\"}]}'"
+echo ""
+echo "⚠️  REMINDER: Keep the 'minikube mount' process alive."
+echo "   To remount: minikube mount \"${GGUF_PARENT_DIR}:${VM_MOUNT_PATH}\" &"
+echo "────────────────────────────────────────────────"

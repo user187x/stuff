@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  install-nvidia-minikube.sh — Zero-to-Hero NVIDIA GPU + Minikube Installer
+#  Fixes: "failed to discover GPU vendor from CDI: no known GPU vendor found"
+#  Does:  NVIDIA Container Toolkit → CDI spec → Docker config → minikube start
+# ==============================================================================
+
+set -euo pipefail
+
+# ── Colours ───────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info() { echo -e "${CYAN}${BOLD}[INFO]${RESET}  $*"; }
+success() { echo -e "${GREEN}${BOLD}[ OK ]${RESET}  $*"; }
+warn() { echo -e "${YELLOW}${BOLD}[WARN]${RESET}  $*"; }
+error() {
+ echo -e "${RED}${BOLD}[ERR ]${RESET}  $*" >&2
+ exit 1
+}
+step() { echo -e "\n${BOLD}━━━  $*  ${RESET}"; }
+
+# ── Root check ────────────────────────────────────────────────────────────────
+[[ $EUID -ne 0 ]] && error "Run with sudo:  sudo bash $0"
+INSTALL_USER="${SUDO_USER:-$USER}"
+
+# ── Preflight checks ──────────────────────────────────────────────────────────
+step "Preflight checks"
+
+# NVIDIA driver
+if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
+ error "nvidia-smi not found or GPU not accessible.\nInstall NVIDIA drivers first: https://ubuntu.com/server/docs/nvidia-drivers-installation"
+fi
+
+GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+success "GPU detected    : $GPU_NAME"
+success "Driver version  : $DRIVER_VER"
+
+# Docker
+if ! command -v docker &>/dev/null; then
+ error "Docker is not installed. Run install-docker.sh first."
+fi
+if ! systemctl is-active --quiet docker; then
+ info "Docker not running — starting it..."
+ systemctl start docker
+fi
+success "Docker is running."
+
+# minikube
+if ! command -v minikube &>/dev/null; then
+ error "minikube is not installed. Install it first:\n  https://minikube.sigs.k8s.io/docs/start/"
+fi
+success "minikube found  : $(minikube version --short 2>/dev/null || true)"
+
+# ── STEP 1: NVIDIA Container Toolkit ─────────────────────────────────────────
+step "Step 1/5 — Installing NVIDIA Container Toolkit"
+
+KEYRING="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+SOURCES="/etc/apt/sources.list.d/nvidia-container-toolkit.list"
+
+if dpkg -l nvidia-container-toolkit &>/dev/null 2>&1; then
+ warn "nvidia-container-toolkit already installed — skipping."
+else
+ info "Adding NVIDIA repo..."
+ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey |
+  gpg --dearmor -o "$KEYRING"
+
+ curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
+  sed "s#deb https://#deb [signed-by=${KEYRING}] https://#g" |
+  tee "$SOURCES" >/dev/null
+
+ apt-get update -qq
+ apt-get install -y nvidia-container-toolkit
+ success "nvidia-container-toolkit installed."
+fi
+
+# ── STEP 2: Configure Docker runtime ─────────────────────────────────────────
+step "Step 2/5 — Configuring Docker NVIDIA runtime"
+
+nvidia-ctk runtime configure --runtime=docker
+
+# Verify the runtime entry was written
+if ! grep -q '"nvidia"' /etc/docker/daemon.json 2>/dev/null; then
+ error "nvidia-ctk failed to write Docker daemon config. Check /etc/docker/daemon.json"
+fi
+success "NVIDIA runtime written to /etc/docker/daemon.json"
+
+# Restart Docker to pick up the new runtime
+systemctl restart docker
+sleep 2
+systemctl is-active --quiet docker || error "Docker failed to restart."
+success "Docker restarted with NVIDIA runtime."
+
+# ── STEP 3: Generate CDI spec ─────────────────────────────────────────────────
+step "Step 3/5 — Generating CDI spec"
+
+# CDI spec dir must exist
+install -d /etc/cdi
+
+nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+
+CDI_DEVICES=$(grep -c "^- name:" /etc/cdi/nvidia.yaml 2>/dev/null || echo 0)
+success "CDI spec written to /etc/cdi/nvidia.yaml ($CDI_DEVICES device entries)"
+
+# ── STEP 4: Verify GPU in Docker ──────────────────────────────────────────────
+step "Step 4/5 — Verifying GPU inside Docker"
+
+info "Running nvidia-smi inside a container..."
+# Use the base CUDA image matching the installed driver's CUDA version
+CUDA_VER=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.')
+# Pick a safe broadly-available CUDA image
+TEST_IMAGE="ubuntu:22.04"
+
+if docker run --rm --gpus all \
+ -e NVIDIA_DRIVER_CAPABILITIES=all \
+ "$TEST_IMAGE" \
+ sh -c "apt-get install -qq -y nvidia-utils-$(apt-cache search nvidia-utils | awk '{print $1}' | head -1 | grep -oP '\d+') --no-install-recommends 2>/dev/null; nvidia-smi" \
+ 2>/dev/null | grep -q "NVIDIA-SMI"; then
+ success "GPU is accessible inside Docker containers."
+else
+ # Lighter fallback check — if CDI spec exists and 'docker run --gpus all' exits 0, we're good
+ if docker run --rm --gpus all "$TEST_IMAGE" echo "GPU flag accepted" &>/dev/null; then
+  success "Docker accepted --gpus all flag (CDI spec valid)."
+ else
+  error "Docker still cannot access the GPU.\nCheck: docker run --rm --gpus all ubuntu nvidia-smi"
+ fi
+fi
+
+# ── STEP 5: Start minikube ────────────────────────────────────────────────────
+step "Step 5/5 — Starting minikube with GPU support"
+
+# Calculate safe memory: 90% of total RAM, floored to nearest 500MB
+TOTAL_MEM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
+SAFE_MEM_MB=$(((TOTAL_MEM_MB * 90 / 100 / 500) * 500))
+CPU_COUNT=$(nproc)
+
+info "Total RAM    : ${TOTAL_MEM_MB}MB"
+info "Allocating   : ${SAFE_MEM_MB}MB (90% of total, leaving OS headroom)"
+info "CPUs         : ${CPU_COUNT}"
+
+# Tear down any broken prior cluster
+if minikube status &>/dev/null 2>&1; then
+ warn "Existing minikube cluster detected — deleting it for a clean start..."
+ minikube delete
+fi
+
+# Start as the original user (not root) so docker group permissions apply
+if [[ "$INSTALL_USER" != "root" ]]; then
+ su -s /bin/bash "$INSTALL_USER" -c \
+  "minikube start \
+      --driver=docker \
+      --gpus=all \
+      --cpus=${CPU_COUNT} \
+      --memory=${SAFE_MEM_MB}mb \
+      --container-runtime=docker"
+else
+ minikube start \
+  --driver=docker \
+  --gpus=all \
+  --cpus="${CPU_COUNT}" \
+  --memory="${SAFE_MEM_MB}mb" \
+  --container-runtime=docker
+fi
+
+# ── Verify cluster ────────────────────────────────────────────────────────────
+info "Verifying cluster..."
+sleep 3
+
+if [[ "$INSTALL_USER" != "root" ]]; then
+ CLUSTER_STATUS=$(su -s /bin/bash "$INSTALL_USER" -c "minikube status" 2>/dev/null || true)
+else
+ CLUSTER_STATUS=$(minikube status 2>/dev/null || true)
+fi
+
+echo "$CLUSTER_STATUS"
+
+if echo "$CLUSTER_STATUS" | grep -q "Running"; then
+ success "minikube cluster is Running."
+ echo "Adding nvidia addon"
+ minikube addons enable nvidia-device-plugin
+else
+ error "minikube cluster did not reach Running state.\nRun: minikube status"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${GREEN}${BOLD}╔═══════════════════════════════════════════════════════╗"
+echo -e "║     NVIDIA GPU + minikube ready!                      ║"
+echo -e "╚═══════════════════════════════════════════════════════╝${RESET}"
+echo ""
+echo -e "  ${BOLD}GPU${RESET}              : $GPU_NAME (driver $DRIVER_VER)"
+echo -e "  ${BOLD}CDI spec${RESET}         : /etc/cdi/nvidia.yaml"
+echo -e "  ${BOLD}Docker runtime${RESET}   : /etc/docker/daemon.json"
+echo -e "  ${BOLD}minikube memory${RESET}  : ${SAFE_MEM_MB}MB / ${TOTAL_MEM_MB}MB"
+echo -e "  ${BOLD}minikube CPUs${RESET}    : ${CPU_COUNT}"
+echo ""
+echo -e "  ${BOLD}Useful commands:${RESET}"
+echo -e "    minikube status"
+echo -e "    minikube dashboard"
+echo -e "    kubectl get nodes"
+echo -e "    docker run --rm --gpus all ubuntu nvidia-smi"
+echo ""

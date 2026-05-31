@@ -1,0 +1,2 @@
+Allow multiple ICS to be inserted. all entries should be ordered by date. Add another column called "calendar" that indicates
+which calendar the entry was originally derived from

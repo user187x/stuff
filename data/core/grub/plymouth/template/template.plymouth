@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=xxx-theme
+Description=xxx-boot-splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/xxx-theme
+ScriptFile=/usr/share/plymouth/themes/template/xxx-template

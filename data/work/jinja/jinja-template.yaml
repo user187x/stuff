@@ -1,0 +1,8 @@
+apiVersion: nifi.konpyutaika.com/v1alpha1
+kind: NifiCluster
+metadata:
+  name: my-nifi-cluster
+spec:
+  secretdata:
+    password: "{{ nifi_password }}"
+    username: "{{ nifi_username }}"

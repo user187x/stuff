@@ -1,0 +1,24 @@
+#!/bin/bash
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+
+# Ensure Python 3 is installed
+if ! command -v python3 &>/dev/null; then
+ sudo apt update && sudo apt install python3 -y
+fi
+
+# Ensure pipx is installed
+if ! command -v pipx &>/dev/null; then
+ sudo apt update && sudo apt install pipx -y
+ pipx ensurepath
+fi
+
+find "$SCRIPT_DIR" -maxdepth 2 -name "install" -type f |
+ while read -r script_path; do
+
+  local dir_path=$(dirname "$script_path")
+  echo "Processing installation in: $dir_path"
+
+  # Execute the script within its own directory context
+  (cd "$dir_path" && chmod +x install && ./install)
+ done

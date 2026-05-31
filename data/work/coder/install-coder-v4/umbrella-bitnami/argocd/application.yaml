@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coder-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # ----- where the umbrella chart lives in your Git repo -----
+  source:
+    repoURL: https://github.com/your-org/your-repo.git   # CHANGE ME
+    targetRevision: main
+    path: coder-umbrella                                  # path to this chart
+    helm:
+      releaseName: coder
+      # values inlined here win over values.yaml, useful for env overrides:
+      # valuesObject:
+      #   coder:
+      #     coder:
+      #       env:
+      #         - name: CODER_ACCESS_URL
+      #           value: "https://coder.example.com"
+      valueFiles:
+        - values.yaml
+
+  # ----- where to install -----
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: coder
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      # Bitnami subchart sometimes generates large CRD-like resources; this is safer.
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore noisy diffs from the Bitnami Postgres StatefulSet (volumeClaimTemplates
+  # are immutable; ArgoCD will otherwise show permanent OutOfSync).
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/volumeClaimTemplates
