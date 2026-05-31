@@ -17,7 +17,9 @@ sudo apt update -y && sudo apt upgrade -y
 build_toolchain=(
  "build-essential"          # "meta-package: gcc, g++, make, libc headers — the works"
  "make"                     # "the classic build automator"
+ "libc6-dev"                # "the standard C library fof development header files"
  "gcc"                      # "the gnu c compiler"
+ "g++"                      # "a gnu c compiler"
  "clang"                    # "LLVM's C/C++ compiler, catches things gcc misses"
  "cmake"                    # "the de facto modern C/C++ build generator"
  "ninja-build"              # "ultra-fast build executor, pairs with cmake"

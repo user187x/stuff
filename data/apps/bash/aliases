@@ -7,6 +7,7 @@
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 alias devbox="cd $HOME/devbox"
+alias dbx="cd $HOME/devbox"
 
 # Shared timestamp format for both eza and ls
 DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
