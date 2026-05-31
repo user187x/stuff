@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "Staring Minikube (ingress & dashboard addons)"
+minikube start \
+ --addons=ingress,dashboard \
+ --vm=true \
+ --memory=10240 \
+ --cpus=4 \
+ --disk-size=50GB \
+
+echo "Deploying Eclipse CHE...."
+chectl server:deploy --platform minikube
+
+chectl server:status
+
+chectl dashboard:open
