@@ -42,6 +42,9 @@ export VIMINIT="set nocp | source ${CONFIG_HOME}/vim/vimrc"
 # Set default file viewr
 export VISUAL=bat
 
+# Set less cmd to preserve ansi coloring
+export LESS='-R'
+
 # Set K9s NodeShell Active
 export K9S_FEATURE_GATE_NODE_SHELL=true
 export K9S_CONFIG_DIR="${CONFIG_HOME}/k9s"

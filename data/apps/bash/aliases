@@ -9,40 +9,35 @@ SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 alias devbox="cd $HOME/devbox"
 alias dbx="cd $HOME/devbox"
 
-# Shared timestamp format for both eza and ls
 DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
 
-# ==========================================
-# System Tool Aliases (with eza fallback)
-# ==========================================
 if command -v eza >/dev/null 2>&1; then
- # eza is installed - use modern equivalents
+ 
  EZA_FLAGS="--color=always --icons=always --group-directories-first"
+
  alias ls="eza ${EZA_FLAGS} ${DATE_FORMAT}"
  alias ll="eza -al --header ${EZA_FLAGS} ${DATE_FORMAT}"
- #alias lls="ll | fzf --ansi | awk '{print $8}'"
- alias lls='$(echo -e "\e[92m $(ll | fzf --ansi | awk  "{print $8}") \e[0m")'
+ alias lls='$(echo -e "\e[92m $(ll | fzf --ansi | awk  \"{print \$8}\") \e[0m")'
  alias la="eza -a ${EZA_FLAGS} ${DATE_FORMAT}"
- alias l="eza -F ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias l="eza -lF ${EZA_FLAGS} ${DATE_FORMAT}"
  alias dir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
+ alias lh="eza -ld .* ${EZA_FLAGS} ${DATE_FORMAT}"
  alias vdir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
 else
- # eza is not found - fallback to standard GNU coreutils
  alias ls="ls --color=always ${DATE_FORMAT}"
  alias ll='ls -alF --color=always'
  alias la='ls -A --color=always'
  alias l='ls -CF --color=always'
  alias dir='dir --color=always'
  alias vdir='vdir --color=always'
+ alias lh='ls -ld .* --color=always'
 fi
 
 alias fd='fdfind'
-
 alias grep='grep --color=always'
 alias fgrep='fgrep --color=always'
 alias egrep='egrep --color=always'
 alias tree='tree -C'
-
 alias untar='tar -xvf'
 
 # ==========================================
