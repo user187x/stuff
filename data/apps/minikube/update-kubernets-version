@@ -1,3 +1,11 @@
 #!/bin/bash
 
-minikube start --kubernetes-version=v1.36.1
+echo
+echo "Fetching latest version of Kubernetes"
+version=$(curl -s https://api.github.com/repos/kubernetes/kubernetes/releases/latest | jq -r '.tag_name')
+echo "Latest version: $version"
+
+echo
+echo "Starting Minikube..."
+minikube start --kubernetes-version="$version"
+echo "Complete!"

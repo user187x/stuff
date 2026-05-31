@@ -106,6 +106,7 @@ terminals=(
 # "modern replacements and helpers for everyday CLI work"
 shell_utilities=(
  "bat"                      # "cat with syntax highlighting and git integration"
+ "stow"                     # "helps symlink your dotfiles"
  "eza"                      # "a modern, colorized ls successor"
  "rg:ripgrep"               # "blazing-fast recursive grep, respects .gitignore"
  "fd:fd-find"               # "a user-friendly alternative to find"
@@ -180,6 +181,7 @@ networking=(
  "ab:apache2-utils"         # "ships ab, htpasswd, and other http helpers"
  "mtr"                      # "traceroute and ping combined, live updating"
  "traceroute"               # "classic network path tracer"
+ "aircrack-ng"
  "tcpdump"                  # "command-line packet capture"
  "tshark"                   # "wireshark's CLI sibling"
  "iperf3"                   # "measure network bandwidth between two hosts"
