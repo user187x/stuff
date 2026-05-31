@@ -49,28 +49,38 @@ export VISUAL=bat
 export K9S_FEATURE_GATE_NODE_SHELL=true
 export K9S_CONFIG_DIR="${CONFIG_HOME}/k9s"
 
-# Bash history control
+
+###########################################
+#        Bash History Control             #
+###########################################
+
+# Append to the history file, don't overwrite it
+shopt -s histappend
+
+# Ignore duplicate commands and commands starting with a space
 export HISTCONTROL=ignoreboth
 export HISTSIZE=10000
+
+# Add a timestamp to your history records (Format: YYYY-MM-DD HH:MM:SS)
+export HISTTIMEFORMAT="%F %T "
 
 # Set less history to save location
 export LESSHISTFILE="${CONFIG_HOME}/.less_history"
 export HISTFILE="${CONFIG_HOME}/.bash_history"
 
-# Set fzf search to select multiple with spacebar
-export FZF_DEFAULT_OPTS="--bind 'space:toggle-in'"
-
-shopt -s histappend
-# Check the window size after each command
-shopt -s checkwinsize
-
 ###########################################
 #        Shell Configuruation             #
 ###########################################
 
+# resize terminal after user adjusts it
+shopt -s checkwinsize
+
 # make less more friendly for non-text input
 [ -x /usr/bin/lesspipe ] &&
  eval "$(SHELL=/bin/sh lesspipe)"
+
+# Set fzf search to select multiple with spacebar
+export FZF_DEFAULT_OPTS="--bind 'space:toggle-in'"
 
 ############################################
 #           TERMINAL FUNCTIONS             #
