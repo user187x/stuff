@@ -350,6 +350,7 @@ desktop_tweaks=(
  "gtk-common-themes"
  "gnome-shell-extension-manager" # "browse, install, and toggle gnome extensions"
  "dconf-editor"             # "registry-style editor for gnome's settings tree"
+ "gnome-sushi"              # "spacebar preview images" 
  "gufw"                     # "graphical front-end for the ufw firewall"
  "zenity"                   # "spawn GTK dialogs from shell scripts"
  "notify-send:libnotify-bin" # "fire off desktop notifications from the CLI"
