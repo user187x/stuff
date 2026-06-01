@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Terminal colors for readable output
+CYAN='\033[1;36m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+PROJECT_DIR="go-hello-world"
+MODULE_NAME="example.com/hello"
+
+echo -e "${CYAN}[*] Starting Go educational workspace setup...${NC}"
+
+# 1. Ensure Go dependencies are installed
+if ! command -v go &>/dev/null; then
+ echo -e "${YELLOW}[!] Go is not installed. Attempting to install...${NC}"
+ # Prefer snap for modern Linux distributions as it provides up-to-date Go binaries
+ if command -v snap &>/dev/null; then
+  echo -e "${CYAN}[*] Installing Go via snap (requires sudo)...${NC}"
+  sudo snap install go --classic
+ elif command -v apt-get &>/dev/null; then
+  echo -e "${CYAN}[*] Installing Go via apt (requires sudo)...${NC}"
+  sudo apt-get update && sudo apt-get install -y golang-go
+ else
+  echo -e "${YELLOW}[!] Package manager not found. Please install Go manually: https://go.dev/doc/install${NC}"
+  exit 1
+ fi
+else
+ echo -e "${GREEN}[✔] Go is already installed:${NC} $(go version)"
+fi
+
+# 2. Setup the directory structure
+echo -e "${CYAN}[*] Creating project directory: ${PROJECT_DIR}${NC}"
+mkdir -p "${PROJECT_DIR}"
+cd "${PROJECT_DIR}"
+
+# 3. Initialize the Go Module
+# This creates a go.mod file, which tracks your code's dependencies.
+if [ ! -f go.mod ]; then
+ echo -e "${CYAN}[*] Initializing Go module (${MODULE_NAME})...${NC}"
+ go mod init "${MODULE_NAME}"
+fi
+
+# 4. Create the Hello World source code
+echo -e "${CYAN}[*] Scaffolding main.go...${NC}"
+cat <<'EOF' >main.go
+package main
+
+import "fmt"
+
+func main() {
+    // This is the entry point of your Go application
+    fmt.Println("🚀 Hello, World! Your Go environment is successfully configured and compiled.")
+}
+EOF
+
+# 5. Compile the project
+# This reads main.go, compiles it down to machine code, and outputs a binary executable.
+echo -e "${CYAN}[*] Compiling the project...${NC}"
+go build -o my-first-app
+
+# 6. Run the compiled binary
+echo -e "${GREEN}[✔] Setup complete! Executing the compiled binary...${NC}"
+echo "--------------------------------------------------------"
+./my-first-app
+echo "--------------------------------------------------------"
+
+echo -e "${CYAN}[*] You can now cd into ./${PROJECT_DIR} and start modifying main.go.${NC}"
