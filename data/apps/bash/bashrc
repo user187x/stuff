@@ -194,3 +194,6 @@ source /home/xxx/.bash_functions
 source /home/xxx/.bash_completions
 # path to local only bash aliases
 source /home/xxx/.bash_local
+
+# Start animation
+screenfetch -N | tte -R
