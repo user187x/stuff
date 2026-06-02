@@ -1,0 +1,11 @@
+# Tell Termflux to use a custom program instead of its built-in effects
+animation = "external"
+
+# Point it to your script (Replace 'username' with your actual user folder!)
+external_command = "background.sh" 
+
+# Adjust this value (0.0 to 1.0) so you can clearly read your foreground text over the bat-logo
+opacity = 0.4 
+
+# Optional: Disables the background when you open full-screen CLI apps like vim or htop
+disable_animation_alt_screen = true

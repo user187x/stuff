@@ -3,7 +3,7 @@
 # Ensure required dependencies are installed
 for cmd in fzf figlet toilet; do
  if ! command -v "$cmd" &>/dev/null; then
-  echo "Error: '$cmd' is not installed. Please install it first."
+  echo -e "\e[1;31mError: '$cmd' is not installed. Please install it first.\e[0m"
   exit 1
  fi
 done
@@ -20,7 +20,7 @@ while [[ "$#" -gt 0 ]]; do
     CUSTOM_DIR="$2"
     shift 2
    else
-    echo "Error: Argument for $1 is missing or not a valid directory."
+    echo -e "\e[1;31mError: Argument for $1 is missing or not a valid directory.\e[0m"
     exit 1
    fi
    ;;
@@ -37,7 +37,7 @@ done
 
 export PREVIEW_TEXT="$TEXT"
 
-# Determine which directories to search using an array (handles spaces in paths safely)
+# Determine which directories to search using an array
 declare -a FONT_DIRS
 if [[ -n "$CUSTOM_DIR" ]]; then
  FONT_DIRS=("$CUSTOM_DIR")
@@ -53,57 +53,79 @@ else
 fi
 
 # Find all .flf (Figlet) and .tlf (Toilet) files
-# "${FONT_DIRS[@]}" ensures paths with spaces don't get chopped in half
 FONT_LIST=$(find "${FONT_DIRS[@]}" -type f \( -name "*.flf" -o -name "*.tlf" \) 2>/dev/null | sort -u)
 
 if [ -z "$FONT_LIST" ]; then
- echo "No fonts found in the specified directories."
+ echo -e "\e[1;33mNo fonts found in the specified directories.\e[0m"
  exit 1
 fi
 
-# Launch FZF with a custom preview pane
-# {} grabs the currently highlighted line and safely quotes it for bash
+# Launch FZF with TUI styling and a custom preview rendering function
 SELECTED_FONT=$(echo "$FONT_LIST" | fzf \
- --prompt="Select Font > " \
+ --layout=reverse \
+ --border=rounded \
+ --margin=1,2 \
+ --padding=1 \
+ --prompt="✨ Font: " \
+ --pointer="▶" \
+ --marker="✓" \
+ --color="hl:yellow,hl+:yellow:reverse,pointer:cyan,info:magenta,prompt:green,border:blue" \
  --preview='
         file={}
         ext="${file##*.}"
         
-        # Try primary binary -> fallback to secondary -> fallback to error message
+        # Function to test rendering and print the header if successful
+        try_render() {
+            local engine="$1"
+            local output
+            
+            # If the engine successfully generates the text, print header + text
+            if output=$("$engine" -f "$file" "$PREVIEW_TEXT" 2>/dev/null); then
+                echo -e "\e[1;34m╭──────────────────────────────────────────╮\e[0m"
+                if [ "$engine" = "toilet" ]; then
+                    echo -e "\e[1;34m│\e[0m  Engine: \e[1;36mTOILET\e[0m                          \e[1;34m│\e[0m"
+                else
+                    echo -e "\e[1;34m│\e[0m  Engine: \e[1;33mFIGLET\e[0m                          \e[1;34m│\e[0m"
+                fi
+                echo -e "\e[1;34m╰──────────────────────────────────────────╯\e[0m\n"
+                
+                echo "$output"
+                return 0
+            fi
+            return 1
+        }
+
+        # Attempt primary engine based on extension, fallback to secondary
         if [ "$ext" = "tlf" ]; then
-            toilet -f "$file" "$PREVIEW_TEXT" 2>/dev/null || \
-            figlet -f "$file" "$PREVIEW_TEXT" 2>/dev/null || \
-            echo "Unable to load font: $(basename "$file")"
+            try_render "toilet" || try_render "figlet" || echo -e "\e[1;31m[!] Unable to load font: $(basename "$file")\e[0m"
         else
-            figlet -f "$file" "$PREVIEW_TEXT" 2>/dev/null || \
-            toilet -f "$file" "$PREVIEW_TEXT" 2>/dev/null || \
-            echo "Unable to load font: $(basename "$file")"
+            try_render "figlet" || try_render "toilet" || echo -e "\e[1;31m[!] Unable to load font: $(basename "$file")\e[0m"
         fi
     ' \
- --preview-window=up:70%:wrap)
+ --preview-window=up:70%:wrap:border-bottom)
 
 # If the user made a selection, print the final result to the terminal
 if [ -n "$SELECTED_FONT" ]; then
  ext="${SELECTED_FONT##*.}"
  font_name=$(basename "$SELECTED_FONT")
 
- echo "---"
+ echo -e "\n\e[1;34m══════════════════════════════════════════════════════\e[0m\n"
 
  if [ "$ext" = "tlf" ]; then
   if toilet -f "$SELECTED_FONT" "$TEXT" 2>/dev/null; then
-   echo -e "\nUsed command: toilet -f \"$SELECTED_FONT\" \"$TEXT\""
+   echo -e "\n\e[1;32m✓ Success\e[0m \e[2m(Command: toilet -f \"$font_name\" \"$TEXT\")\e[0m\n"
   elif figlet -f "$SELECTED_FONT" "$TEXT" 2>/dev/null; then
-   echo -e "\nUsed command: figlet -f \"$SELECTED_FONT\" \"$TEXT\""
+   echo -e "\n\e[1;32m✓ Success (Fallback)\e[0m \e[2m(Command: figlet -f \"$font_name\" \"$TEXT\")\e[0m\n"
   else
-   echo "Error: Could not render font with either toilet or figlet."
+   echo -e "\e[1;31mError: Could not render font with either toilet or figlet.\e[0m"
   fi
  else
   if figlet -f "$SELECTED_FONT" "$TEXT" 2>/dev/null; then
-   echo -e "\nUsed command: figlet -f \"$SELECTED_FONT\" \"$TEXT\""
+   echo -e "\n\e[1;32m✓ Success\e[0m \e[2m(Command: figlet -f \"$font_name\" \"$TEXT\")\e[0m\n"
   elif toilet -f "$SELECTED_FONT" "$TEXT" 2>/dev/null; then
-   echo -e "\nUsed command: toilet -f \"$SELECTED_FONT\" \"$TEXT\""
+   echo -e "\n\e[1;32m✓ Success (Fallback)\e[0m \e[2m(Command: toilet -f \"$font_name\" \"$TEXT\")\e[0m\n"
   else
-   echo "Error: Could not render font with either toilet or figlet."
+   echo -e "\e[1;31mError: Could not render font with either toilet or figlet.\e[0m"
   fi
  fi
 fi

@@ -53,7 +53,6 @@ alias figlet="figlet -d ${CONFIG_HOME}/figlet/fonts"
 export K9S_FEATURE_GATE_NODE_SHELL=true
 export K9S_CONFIG_DIR="${CONFIG_HOME}/k9s"
 
-
 ###########################################
 #        Bash History Control             #
 ###########################################
@@ -200,4 +199,34 @@ source /home/xxx/.bash_completions
 source /home/xxx/.bash_local
 
 # Start animation
-screenfetch -N | tte -R
+#screenfetch -N | tte -R
+
+#cat << 'EOF' | tte -R
+#          .                                                      .
+#        .n                   .                 .                  n.
+#  .   .dP                  dP                   9b                  9b.    .
+# 4    qXb         .        dX                    Xb       .         dXp      t
+#dX.    9Xb      .dXb    __                        __    dXb.      dXP      .Xb
+#9XXb._       _.dXXXXb dXXXXbo.                  .odXXXXb dXXXXb._       _.dXXP
+# 9XXXXXXXXXXXXXXXXXXXVXXXXXXXXOo.            .oOXXXXXXXXVXXXXXXXXXXXXXXXXXXXP
+#  `9XXXXXXXXXXXXXXXXXXXXX'~   ~`OOO8b   d8OOO'~   ~`XXXXXXXXXXXXXXXXXXXXXP'
+#    `9XXXXXXXXXXXP' `9XX'          `98v8P'          `XXP' `9XXXXXXXXXXXP'
+#        ~~~~~~~        9X.          .db|db.          .XP        ~~~~~~~
+#                       )b.  .dbo.dP'`v'`9b.odb.  .dX(
+#                     ,dXXXXXXXXXXXb     dXXXXXXXXXXXb.
+#                    dXXXXXXXXXXXP'   .   `9XXXXXXXXXXXb
+#                   dXXXXXXXXXXXXb   d|b   dXXXXXXXXXXXXb
+#                   9XXb'   `XXXXXb.dX|Xb.dXXXXX'   `dXXP
+#                    `'      9XXXXXX(   )XXXXXXP      `'
+#                           XXXX X.`v'.X XXXX
+#                           XP^X'`b   d'`X^XX
+#                           X. 9  `   '  P )X
+#                           `b  `        '  d'
+#                            `              '
+#EOF
+
+# Automatically launch Termflux on startup with an infinite loop guard
+if [ -z "$TERMFLUX_RUNNING" ]; then
+ export TERMFLUX_RUNNING=1
+ exec termflux
+fi
