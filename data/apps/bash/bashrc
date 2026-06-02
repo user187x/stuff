@@ -42,6 +42,10 @@ export VIMINIT="set nocp | source ${CONFIG_HOME}/vim/vimrc"
 # Set default file viewr
 export VISUAL=bat
 
+# Set figlet/toilet font directory
+alias toilet="toilet -d ${CONFIG_HOME}/figlet/fonts"
+alias figlet="figlet -d ${CONFIG_HOME}/figlet/fonts"
+
 # Set less cmd to preserve ansi coloring
 # export LESS='-R'
 
