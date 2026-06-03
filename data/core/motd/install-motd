@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# ==============================================================================
+# Ubuntu 26: Animated MOTD & Static SSH Banner Zero-to-Hero Installer
+# ==============================================================================
+
+# 1. Enforce root privileges
+if [[ $EUID -ne 0 ]]; then
+ echo "Error: This script must be run as root. Please use sudo."
+ exit 1
+fi
+
+echo "Starting deployment of SSH Banner and Animated MOTD..."
+echo
+
+# 2. Define the raw ASCII art
+read -r -d '' ASCII_ART <<'EOF'
+          .                                                      .
+        .n                   .                 .                  n.
+  .   .dP                  dP                   9b                  9b.    .
+ 4    qXb         .        dX                    Xb       .         dXp      t
+dX.    9Xb      .dXb    __                        __    dXb.      dXP      .Xb
+9XXb._       _.dXXXXb dXXXXbo.                  .odXXXXb dXXXXb._       _.dXXP
+ 9XXXXXXXXXXXXXXXXXXXVXXXXXXXXOo.            .oOXXXXXXXXVXXXXXXXXXXXXXXXXXXXP
+  `9XXXXXXXXXXXXXXXXXXXXX'~   ~`OOO8b   d8OOO'~   ~`XXXXXXXXXXXXXXXXXXXXXP'
+    `9XXXXXXXXXXXP' `9XX'          `98v8P'          `XXP' `9XXXXXXXXXXXP'
+        ~~~~~~~        9X.          .db|db.          .XP        ~~~~~~~
+                       )b.  .dbo.dP'`v'`9b.odb.  .dX(
+                     ,dXXXXXXXXXXXb     dXXXXXXXXXXXb.
+                    dXXXXXXXXXXXP'   .   `9XXXXXXXXXXXb
+                   dXXXXXXXXXXXXb   d|b   dXXXXXXXXXXXXb
+                   9XXb'   `XXXXXb.dX|Xb.dXXXXX'   `dXXP
+                    `'      9XXXXXX(   )XXXXXXP      `'
+                           XXXX X.`v'.X XXXX
+                           XP^X'`b   d'`X^XX
+                           X. 9  `   '  P )X
+                           `b  `        '  d'
+                            `              '
+EOF
+
+# ==============================================================================
+# PHASE 1: Static SSH Login Banner (Pre-Authentication)
+# ==============================================================================
+echo "Configuring static SSH banner..."
+echo
+
+BANNER_FILE="/etc/ssh-banner"
+SSH_CONF_DIR="/etc/ssh/sshd_config.d"
+SSH_CONF_FILE="${SSH_CONF_DIR}/99-custom-banner.conf"
+
+# Write the static text to the system banner file
+echo "$ASCII_ART" >"$BANNER_FILE"
+echo
+
+# Modern Ubuntu Standard: Use sshd_config.d/ instead of editing sshd_config directly
+if [[ -d "$SSH_CONF_DIR" ]]; then
+ echo "Banner $BANNER_FILE" >"$SSH_CONF_FILE"
+else
+ # Fallback just in case the directory doesn't exist
+ if ! grep -q "^Banner $BANNER_FILE" /etc/ssh/sshd_config; then
+  echo "Banner $BANNER_FILE" >>/etc/ssh/sshd_config
+ fi
+fi
+
+# Restart SSH Service to apply changes
+systemctl restart ssh.service
+echo "[SUCCESS] Static SSH banner configured."
+echo
+
+# ==============================================================================
+# PHASE 2: Animated MOTD (Post-Authentication)
+# ==============================================================================
+echo "Configuring animated post-login MOTD..."
+echo
+
+PROFILE_SCRIPT="/etc/profile.d/99-animated-motd.sh"
+
+# Create the profile script dynamically
+# We wrap it in an interactive shell check ($- == *i*) so it doesn't break automated workflows like rsync or scp
+cat <<'SCRIPT_EOF' >"$PROFILE_SCRIPT"
+#!/bin/bash
+
+# Only trigger the animation if the session is an interactive terminal
+if [[ $- == *i* ]]; then
+    # Check if 'tte' is installed so the script doesn't throw errors if missing
+    if command -v tte >/dev/null 2>&1; then
+        cat << 'ART_EOF' | tte -R
+          .                                                      .
+        .n                   .                 .                  n.
+  .   .dP                  dP                   9b                  9b.    .
+ 4    qXb         .        dX                    Xb       .         dXp      t
+dX.    9Xb      .dXb    __                        __    dXb.      dXP      .Xb
+9XXb._       _.dXXXXb dXXXXbo.                  .odXXXXb dXXXXb._       _.dXXP
+ 9XXXXXXXXXXXXXXXXXXXVXXXXXXXXOo.            .oOXXXXXXXXVXXXXXXXXXXXXXXXXXXXP
+  `9XXXXXXXXXXXXXXXXXXXXX'~   ~`OOO8b   d8OOO'~   ~`XXXXXXXXXXXXXXXXXXXXXP'
+    `9XXXXXXXXXXXP' `9XX'          `98v8P'          `XXP' `9XXXXXXXXXXXP'
+        ~~~~~~~        9X.          .db|db.          .XP        ~~~~~~~
+                       )b.  .dbo.dP'`v'`9b.odb.  .dX(
+                     ,dXXXXXXXXXXXb     dXXXXXXXXXXXb.
+                    dXXXXXXXXXXXP'   .   `9XXXXXXXXXXXb
+                   dXXXXXXXXXXXXb   d|b   dXXXXXXXXXXXXb
+                   9XXb'   `XXXXXb.dX|Xb.dXXXXX'   `dXXP
+                    `'      9XXXXXX(   )XXXXXXP      `'
+                           XXXX X.`v'.X XXXX
+                           XP^X'`b   d'`X^XX
+                           X. 9  `   '  P )X
+                           `b  `        '  d'
+                            `              '
+ART_EOF
+    fi
+fi
+SCRIPT_EOF
+
+# Ensure the profile script has proper execution rights
+chmod +x "$PROFILE_SCRIPT"
+
+echo
+echo "[SUCCESS] Animated MOTD configured in profile.d."
+echo
+echo "=============================================================================="
+echo "Deployment Complete! Open a new SSH session to test."
+echo "=============================================================================="
+echo
