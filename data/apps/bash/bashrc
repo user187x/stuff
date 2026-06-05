@@ -44,7 +44,7 @@ alias toilet="toilet -d ${CONFIG_HOME}/figlet/fonts"
 alias figlet="figlet -d ${CONFIG_HOME}/figlet/fonts"
 
 # Configure to run Rust and Cargo commands
-source "${HOME}/.cargo/env"
+#source "${HOME}/.cargo/env"
 
 # Set fzf search to select multiple with spacebar
 export FZF_DEFAULT_OPTS="--bind 'space:toggle-in'"
@@ -191,5 +191,5 @@ source /home/xxx/.bash_completions
 source /home/xxx/.bash_local
 
 # Add directory to PATH
-export PATH="${BIN_HOME}:$PATH"
+export PATH="$PATH:${BIN_HOME}:/usr/local/bin/"
 

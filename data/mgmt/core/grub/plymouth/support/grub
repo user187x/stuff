@@ -1,0 +1,23 @@
+#######################################################
+#                                                     #
+#                    GRUB SPLASH                      #
+#                                                     #
+#######################################################
+
+GRUB_DEFAULT="0"
+GRUB_DISTRIBUTOR="Ubuntu 26.04 LTS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash video=efifb:nobgrt bgrt_disable"
+GRUB_CMDLINE_LINUX=""
+GRUB_BACKGROUND="/home/xxx/.local/share/images/grub.png"
+GRUB_TIMEOUT_STYLE="hidden"
+GRUB_TIMEOUT="0"
+GRUB_GFXMODE="1920x1080x32"
+GRUB_INIT_TUNE="480 294 1 370 1 440 1 370 1 392 1 494 1 294 1"
+
+#GRUB_DISABLE_OS_PROBER="false"
+#GRUB_BADRAM="0x01234567,0xfefefefe,0x89abcdef,0xefefefef"
+#GRUB_TERMINAL="console"
+#GRUB_DISABLE_LINUX_UUID="true"
+#GRUB_DISABLE_RECOVERY="true"
+
+# >> IF MODIFIED RUN: update-grub  <<

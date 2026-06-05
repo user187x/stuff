@@ -1,0 +1,219 @@
+#!/bin/bash
+
+set -e
+
+# Prompt for Docker Hub / Quay username
+read -r -p "Enter your Docker Hub username: " DOCKER_USER
+if [[ -z "$DOCKER_USER" ]]; then
+ echo "Username is required to push the image. Exiting."
+ exit 1
+fi
+
+# Authenticate early so we don't fail at the very end
+docker login
+
+IMAGE_NAME="ubuntu-dev-env"
+
+echo "--- 📂 Setting up local APT cache directory ---"
+# Create a local directory to store the APT packages for lightning-fast rebuilds
+mkdir -p ./apt-cache
+
+echo "--- 🛠️ Generating Packer Template (ubuntu-docker.pkr.hcl) ---"
+cat <<EOF >ubuntu-docker.pkr.hcl
+packer {
+  required_plugins {
+    docker = {
+      version = ">= 1.0.8"
+      source  = "github.com/hashicorp/docker"
+    }
+  }
+}
+
+source "docker" "ubuntu" {
+  image  = "ubuntu:22.04"
+  commit = true
+  
+  # Mount the local apt-cache directory to the container's apt archive directory.
+  volumes = {
+    "\${abspath(path.root)}/apt-cache" = "/var/cache/apt/archives"
+  }
+  
+  changes = [
+    "ENV DEBIAN_FRONTEND=noninteractive",
+    "ENV TZ=America/New_York",
+    "ENV VNC_PASSWORD=ubuntu",
+    "ENV USER=root",
+    "EXPOSE 5901",
+    "ENTRYPOINT [\"/entrypoint.sh\"]",
+    "CMD [\"/bin/bash\"]"
+  ]
+}
+
+build {
+  name    = "custom-desktop-container"
+  sources = ["source.docker.ubuntu"]
+
+  provisioner "shell" {
+    script = "provision.sh"
+  }
+
+  post-processors {
+    post-processor "docker-tag" {
+      repository = "${DOCKER_USER}/${IMAGE_NAME}"
+      # Fix: Use native HCL2 timestamp formatting
+      tags       = ["latest", formatdate("YYYYMMDDhhmmss", timestamp())]
+    }
+    # Fix: Let Packer handle pushing so both tags (latest + timestamp) are uploaded
+    post-processor "docker-push" {}
+  }
+}
+EOF
+
+echo "--- 📝 Generating Provisioner Script (provision.sh) ---"
+# Using 'EOF' ensures the variables inside this block are NOT evaluated by the host machine
+cat <<'EOF' >provision.sh
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+export TZ="America/New_York"
+
+echo "--- 🕒 Configuring Timezone to $TZ ---"
+ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+echo $TZ > /etc/timezone
+
+echo "--- ⚙️ Enabling APT Caching ---"
+# Prevent Ubuntu Docker base from automatically deleting downloaded .deb files
+rm -f /etc/apt/apt.conf.d/docker-clean
+echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/01keep-cache
+
+echo "--- 🔄 Updating Package Lists & Core Utils ---"
+# Since Packer runs this as the root user inside the container, we can drop 'sudo' 
+# from the apt commands to keep things perfectly clean.
+apt-get update -y
+apt-get install -y tzdata curl wget gnupg software-properties-common apt-transport-https dirmngr sudo
+
+# List of tools to install
+packages=(
+ "tmux" "vim" "batcat:bat" "curl" "wget" "openssl" "btop" "pluma" "gedit" "colordiff" 
+ "tty-clock" "java:default-jdk" "visualvm" "lolcat" "build-essential" "netstat:net-tools" 
+ "jq" "notify-send:libnotify-bin" "yq" "figlet" "toilet" "qrencode" "python3-segno" 
+ "tree" "whiptail" "mpv" "duf" "fzf" "imagemagick" "zenity" "pipx" "tigervnc-common" 
+ "tigervnc-client" "tigervnc-tools" "tigervnc-standalone-server" "pv" "git" "delta:git-delta" 
+ "thefuck" "shfmt" "shellcheck" "yamllint" "neofetch:neofetch-desktop" "expect" 
+ "xmllint:libxml2-utils" "jc" "gufw" "ranger" "mc" "cmatrix" "sysvbanner" "xclip" "7zip" 
+ "p7zip-full" "file-roller" "ffmpeg" "ffmpegthumbnailer" "htop" "kubecolor" "synaptic"
+)
+
+echo "--- 📦 Starting APT Package Installation ---"
+for item in "${packages[@]}"; do
+  if [[ "$item" == *":"* ]]; then
+    binary="${item%%:*}"
+    package="${item##*:}"
+  else
+    binary="$item"
+    package="$item"
+  fi
+
+  if ! command -v "$binary" >/dev/null 2>&1; then
+    echo "Installing $package..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
+  else
+    echo "Tool [$package] already installed"
+  fi
+done
+
+echo "--- 🚀 Starting Custom Installations ---"
+
+# Install terraform & packer
+if ! command -v terraform >/dev/null 2>&1; then
+  curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor | tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+  echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
+  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y terraform packer
+fi
+
+# Install Helm
+if ! command -v helm >/dev/null 2>&1; then
+  curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+  bash get_helm.sh
+  rm get_helm.sh
+fi
+
+# Install Docker CLI
+if ! command -v docker >/dev/null 2>&1; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+fi
+
+# Desktop/GNOME Tools
+DEBIAN_FRONTEND=noninteractive apt-get install -y indicator-multiload gnome-shell-extension-manager dconf-editor
+
+# Install VS Code via APT
+if ! command -v code >/dev/null 2>&1; then
+  wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+  install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+  echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | tee /etc/apt/sources.list.d/vscode.list > /dev/null
+  rm -f packages.microsoft.gpg
+  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y code
+fi
+
+# Install LazyDocker
+if ! command -v lazydocker >/dev/null 2>&1; then
+  curl -s https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
+fi
+
+# Install K9s
+if ! command -v k9s >/dev/null 2>&1; then
+  K9S_VERSION="v0.32.5"
+  TMP_DIR=$(mktemp -d)
+  curl -L "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" -o "$TMP_DIR/k9s.tar.gz"
+  tar -xzf "$TMP_DIR/k9s.tar.gz" -C "$TMP_DIR"
+  install -m 755 "$TMP_DIR/k9s" /usr/local/bin/k9s
+  rm -rf "$TMP_DIR"
+fi
+
+# Install Minikube
+if ! command -v minikube >/dev/null 2>&1; then
+  LATEST_MINIKUBE_VERSION=$(curl -s https://storage.googleapis.com/minikube/releases/latest/minikube-version)
+  curl -LO "https://github.com/kubernetes/minikube/releases/download/${LATEST_MINIKUBE_VERSION}/minikube-linux-amd64"
+  install minikube-linux-amd64 /usr/local/bin/minikube
+  rm minikube-linux-amd64
+fi
+
+echo "--- 🖥️ Generating Entrypoint Script for Auto-VNC ---"
+cat << 'ENTRYPOINT_EOF' > /entrypoint.sh
+#!/bin/bash
+set -e
+
+# Setup VNC password silently (Defaults to 'ubuntu' if VNC_PASSWORD env var isn't passed)
+mkdir -p ~/.vnc
+echo "${VNC_PASSWORD:-ubuntu}" | vncpasswd -f > ~/.vnc/passwd
+chmod 600 ~/.vnc/passwd
+
+# Cleanup any stale VNC locks (useful if the container restarts)
+rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1
+
+# Start VNC Server directly in the background
+echo "Starting VNC server on port 5901..."
+vncserver :1 -localhost no -geometry 1920x1080 -depth 24
+
+# Set the display variable so any apps launched from the bash prompt route to VNC
+export DISPLAY=:1
+
+# Execute the CMD passed from Docker (drops you into /bin/bash)
+exec "\$@"
+ENTRYPOINT_EOF
+
+chmod +x /entrypoint.sh
+
+echo "--- ✨ Provisioning Complete! ---"
+EOF
+
+chmod +x provision.sh
+
+echo "--- 🚀 Initializing Packer ---"
+packer init ubuntu-docker.pkr.hcl
+
+echo "--- 🏗️ Building and Pushing Image ---"
+packer build ubuntu-docker.pkr.hcl
+
+echo ""
+echo "✅ Build complete! Run your new fully automated container with the command below:"
+echo "docker run -it --name my-ubuntu-dev -p 5901:5901 -v \"\$(pwd)/workspace:/workspace\" $DOCKER_USER/$IMAGE_NAME:latest"

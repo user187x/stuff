@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# Fail & Bail
+set -e
+
+# System designated directories
+RESOURCE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# Specific resource being installed
+RESOURCE="audio"
+
+# Specific resource paths
+DESTINATION="${DATA_HOME}/${RESOURCE}"
+PAYLOAD="${RESOURCE_HOME}/payload.tar"
+
+function process-payload {
+ sudo chown -R "$USER:$USER" "$DESTINATION"
+}
+
+# abtract installation process
+function install-logic {
+
+ echo "Installing ${RESOURCE}..."
+
+ mkdir -p "${DESTINATION}"
+
+ if [[ ! -f "${PAYLOAD}" ]]; then
+  echo "Resource missing: ${PAYLOAD} -> Aborting operation!"
+  exit 1
+ fi
+
+ if tar -xvf "${PAYLOAD}" -C "${DESTINATION}"; then
+  process-payload
+ else
+  echo "Failure installing ${RESOURCE} -> Aborting operation"
+  exit 1
+ fi
+
+ echo "${RESOURCE} updated!"
+ echo
+}
+
+function process-arguments {
+
+ while [[ $# -gt 0 ]]; do
+  case "$1" in
+   -s | --source)
+    PAYLOAD="$2"
+    shift 2
+    ;;
+   -d | --destination)
+    DESTINATION="$2"
+    shift 2
+    ;;
+   -h | --help)
+    echo "Usage: load-resources [-s|--source <path>] [-d|--destination <path>]"
+    return 0
+    ;;
+   -*)
+    echo "Error: Unknown option $1" >&2
+    return 1
+    ;;
+   *)
+    echo "Ignoring positional argument: $1"
+    shift 1
+    ;;
+  esac
+ done
+}
+
+# Check if args are being passed into the script
+function main {
+
+ if [[ "$#" -eq 0 ]]; then
+  install-logic
+ else
+  process-arguments "$@"
+ fi
+}
+
+# Invoking the scripts
+main "$@"

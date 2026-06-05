@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Fail on errors, undefined variables, and pipe failures
+set -euo pipefail
+
+VNC_PASSWD="xxx-xxx-xxx"
+VNC_DIR="${HOME}/.vnc"
+VNC_PASSWD_PATH="${VNC_DIR}/passwd"
+XSTARTUP_SCRIPT="${VNC_DIR}/xstartup"
+
+DEPENDENCIES=(
+ "xfce4"
+ "xfce4-goodies"
+ "tigervnc-standalone-server"
+ "novnc"
+ "websockify"
+ "ufw"
+ "dbus-x11"
+)
+
+echo "Updating package lists..."
+sudo apt-get update
+
+export DEBIAN_FRONTEND=noninteractive
+
+echo "Installing dependencies..."
+sudo -E apt-get install -y "${DEPENDENCIES[@]}"
+
+echo "Creating VNC application directory..."
+mkdir -p "${VNC_DIR}"
+
+echo "Setting VNC password..."
+echo "${VNC_PASSWD}" | vncpasswd -f >"${VNC_PASSWD_PATH}"
+chmod 600 "${VNC_PASSWD_PATH}"
+
+echo "Creating xstartup script..."
+cat <<'EOF' >"${XSTARTUP_SCRIPT}"
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec dbus-launch startxfce4
+EOF
+chmod +x "${XSTARTUP_SCRIPT}"
+
+echo "Configuring firewall..."
+sudo ufw allow 6080/tcp >/dev/null 2>&1 || true
+
+DISPLAY_NUM=1
+while [ -e "/tmp/.X${DISPLAY_NUM}-lock" ] || [ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; do
+ ((DISPLAY_NUM++))
+done
+
+VNC_PORT=$((5900 + DISPLAY_NUM))
+
+echo "Eradicating old sessions and rogue lock files..."
+tigervncserver -kill :${DISPLAY_NUM} 2>/dev/null || true
+
+echo "Cleaning up any temporary x11 files..."
+sudo rm -f /tmp/.X${DISPLAY_NUM}-lock 2>/dev/null || true
+sudo rm -f /tmp/.X11-unix/X${DISPLAY_NUM} 2>/dev/null || true
+
+echo "Taking down any existing websockify processes..."
+pkill -f websockify || true
+
+# FIX 1: Use 'cat' piped to 'head' so no file headers are printed, keeping the geometry clean
+MAX_RESOLUTION=$(cat /sys/class/drm/*/modes 2>/dev/null | head -n 1 || true)
+if [ -z "$MAX_RESOLUTION" ]; then
+ MAX_RESOLUTION="1280x720"
+fi
+MAX_DEPTH="24"
+
+echo "Starting TigerVNC server on display :${DISPLAY_NUM} (Port ${VNC_PORT})..."
+
+# FIX 2: Removed "yes" from -localhost. The presence of the flag alone turns it on securely.
+tigervncserver :${DISPLAY_NUM} \
+ -geometry "${MAX_RESOLUTION}" \
+ -depth "${MAX_DEPTH}" \
+ -localhost \
+ -xstartup "${XSTARTUP_SCRIPT}"
+
+echo "Starting noVNC Websockify bridge on port 6080..."
+nohup websockify --web /usr/share/novnc/ 6080 localhost:${VNC_PORT} >/dev/null 2>&1 &
+
+# Fetch public IP
+IP=$(curl -s ifconfig.me || echo "YOUR_SERVER_IP")
+
+echo
+echo "=========================================="
+echo "-> URL      : http://${IP}:6080/vnc.html"
+echo "-> Password : (hidden)"
+echo "=========================================="
+echo

@@ -1,3 +1,0 @@
-#!/bin/bash
-
-find /usr/share/figlet -name "*.tlf" -o -name "*.flf" -exec basename {} .{} \; | sort -u | xargs -I {} toilet -f {} {} | less

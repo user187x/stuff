@@ -1,119 +1,120 @@
-# Nord theme skin for k9s
-#
-# Install by putting this file in $XDG_CONFIG_HOME/k9s/skin.yml (usually it's ~/.config/k9s/skin.yml).
-#
-# Palette reference:
-# https://www.nordtheme.com/docs/colors-and-palettes
+# -----------------------------------------------------------------------------
+# Nord skin
+# -----------------------------------------------------------------------------
 
-# Polar Night
-nord0: &nord0 "#2E3440" #black
-nord1: &nord1 "#3B4252" #lighter black
+# Styles...
+foreground: &foreground "#DADEE8"
+background: &background "#30343F"
+current_line: &current_line "#383D4A"
+selection: &selection "#D9DEE8"
+comment: &comment "#8891A7"
+cyan: &cyan "#88C0D0"
+green: &green "#A3BE8C"
+orange: &orange "#D08770"
+blue: &blue "#81A1C1"
+magenta: &magenta "#B48EAD"
+red: &red "#BF616A"
+yellow: &yellow "#EBCB8B"
 
-# Snow Storm
-nord4: &nord4 "#D8DEE9" #white
-
-# Frost
-nord8: &nord8 "#88C0D0" #blue
-nord10: &nord10 "#5E81AC" #dark blue
-
-# Aurora
-nord11: &nord11 "#BF616A" #red
-nord13: &nord13 "#EBCB8B" #yellow
-nord14: &nord14 "#A3BE8C" #green
-
-
+# Skin...
 k9s:
   # General K9s styles
   body:
-    fgColor: *nord4
-    bgColor: *nord0
-    logoColor: *nord10
+    fgColor: *foreground
+    bgColor: default
+    logoColor: *magenta
+  # Command prompt styles
+  prompt:
+    fgColor: *foreground
+    bgColor: *background
+    suggestColor: *orange
   # ClusterInfoView styles.
   info:
-    fgColor: *nord8
-    sectionColor: *nord4
+    fgColor: *blue
+    sectionColor: *foreground
   # Dialog styles.
   dialog:
-    fgColor: *nord4
-    bgColor: *nord0
-    buttonFgColor: *nord4
-    buttonBgColor: *nord1
-    buttonFocusFgColor: *nord4
-    buttonFocusBgColor: *nord1
-    labelFgColor: *nord8
-    fieldFgColor: *nord11
+    fgColor: *foreground
+    bgColor: default
+    buttonFgColor: *foreground
+    buttonBgColor: *magenta
+    buttonFocusFgColor: *yellow
+    buttonFocusBgColor: *blue
+    labelFgColor: *orange
+    fieldFgColor: *foreground
   frame:
     # Borders styles.
     border:
-      fgColor: *nord10
-      focusColor: *nord10
+      fgColor: *selection
+      focusColor: *current_line
     menu:
-      fgColor: *nord4
-      keyColor: *nord14
+      fgColor: *foreground
+      keyColor: *blue
       # Used for favorite namespaces
-      numKeyColor: *nord14
+      numKeyColor: *blue
     # CrumbView attributes for history navigation.
     crumbs:
-      fgColor: *nord4
-      bgColor: *nord0
-      activeColor: *nord1
+      fgColor: *foreground
+      bgColor: *current_line
+      activeColor: *current_line
     # Resource status and update styles
     status:
-      newColor: *nord8
-      modifyColor: *nord13
-      addColor: *nord14
-      pendingColor: *nord13
-      errorColor: *nord11
-      highlightcolor: *nord8
-      killColor: *nord14
-      completedColor: *nord10
+      newColor: *cyan
+      modifyColor: *magenta
+      addColor: *green
+      errorColor: *red
+      highlightColor: *orange
+      killColor: *comment
+      completedColor: *comment
     # Border title styles.
     title:
-      fgColor: *nord4
-      bgColor: *nord0
-      highlightColor: *nord8
-      counterColor: *nord8
-      filterColor: *nord13
+      fgColor: *foreground
+      bgColor: *current_line
+      highlightColor: *orange
+      counterColor: *magenta
+      filterColor: *blue
   views:
     # Charts skins...
     charts:
-      bgColor: *nord0
-      dialBgColor: *nord0
-      chartBgColor: *nord0
+      bgColor: default
       defaultDialColors:
-        - *nord8
-        - *nord11
+        - *magenta
+        - *red
       defaultChartColors:
-        - *nord8
-        - *nord11
+        - *magenta
+        - *red
     # TableView attributes.
     table:
-      fgColor: *nord4
-      bgColor: *nord0
-      cursorFgColor: *nord0
-      cursorBgColor: *nord0
-      markColor: *nord4
+      fgColor: *foreground
+      bgColor: default
       # Header row styles.
       header:
-        fgColor: *nord4
-        bgColor: *nord0
-        sorterColor: *nord8
+        fgColor: *foreground
+        bgColor: default
+        sorterColor: *cyan
     # Xray view attributes.
     xray:
-      fgColor: *nord4
-      bgColor: *nord0
-      cursorColor: *nord8
-      cursorTextColor: *nord4
-      graphicColor: *nord8
+      fgColor: *foreground
+      bgColor: default
+      cursorColor: *current_line
+      graphicColor: *magenta
+      showIcons: false
     # YAML info styles.
     yaml:
-      keyColor: *nord8
-      colonColor: *nord8
-      valueColor: *nord4
+      keyColor: *blue
+      colonColor: *magenta
+      valueColor: *foreground
     # Logs styles.
     logs:
-      fgColor: *nord4
-      bgColor: *nord0
+      fgColor: *foreground
+      bgColor: default
       indicator:
-        fgColor: *nord4
-        bgColor: *nord10
+        fgColor: *foreground
+        bgColor: *magenta
+        toggleOnColor: *magenta
+        toggleOffColor: *blue
+    help:
+      fgColor: *foreground
+      bgColor: *background
+      indicator:
+        fgColor: *red

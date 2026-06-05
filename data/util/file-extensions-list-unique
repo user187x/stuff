@@ -1,0 +1,15 @@
+#!/bin/bash
+
+directory=""
+
+if [[ "$#" -eq 0 ]]; then
+ read -e -r -p "Enter directory to search: " directory
+else
+ directory="$1"
+ if [[ -z "${directory}" ]]; then
+  echo "Directory not found: ${directory}"
+  exit 1
+ fi
+fi
+
+find ${directory} -type f | rev | cut -d. -f1 | rev | sort | uniq -c | sort -rn

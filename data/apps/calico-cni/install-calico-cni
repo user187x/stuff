@@ -1,0 +1,85 @@
+#!/bin/bash
+# ==============================================================================
+# Script: install-calico.sh
+# Purpose: Installs the Calico CNI on a freshly initialized Kubernetes cluster
+#          and validates the installation.
+# Usage: ./install-calico.sh [POD_CIDR]
+#        Default POD_CIDR is 192.168.0.0/16.
+# ==============================================================================
+
+set -euo pipefail
+
+# Configuration: Calico version and network CIDR
+CALICO_VERSION="v3.27.3"
+POD_CIDR="${1:-192.168.0.0/16}"
+
+OPERATOR_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+CUSTOM_RESOURCES_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+
+echo "=========================================================="
+echo "🚀 Installing Calico CNI ($CALICO_VERSION)"
+echo "   Target Pod CIDR: $POD_CIDR"
+echo "=========================================================="
+
+# 1. Prerequisite Checks
+if ! command -v kubectl &>/dev/null; then
+ echo "❌ Error: 'kubectl' is not installed or not in PATH."
+ exit 1
+fi
+
+if ! kubectl cluster-info &>/dev/null; then
+ echo "❌ Error: Unable to connect to the Kubernetes cluster."
+ echo "💡 Tip for minikube: Start it without a default CNI using:"
+ echo "   minikube start --network-plugin=cni --cni=false"
+ exit 1
+fi
+
+echo "✅ Cluster connection verified."
+
+# 2. Install the Tigera Operator & CRDs
+echo "📦 Applying Tigera Operator..."
+kubectl apply --server-side -f "$OPERATOR_URL"
+
+# Wait briefly for the Custom Resource Definitions (CRDs) to register on the API server
+sleep 3
+
+# 3. Apply the Custom Resources (with dynamic CIDR mapping)
+echo "📦 Configuring Calico Custom Resources..."
+# We download the file temporarily to inject our specific Pod CIDR, which ensures
+# portability across environments (like kubeadm's default vs custom subnets).
+curl -sL "$CUSTOM_RESOURCES_URL" | sed "s|192.168.0.0/16|${POD_CIDR}|g" | kubectl apply -f -
+
+# 4. Wait for Setup to Complete
+echo "⏳ Waiting for Tigera Operator to initialize (this takes a moment)..."
+kubectl rollout status deployment/tigera-operator -n tigera-operator --timeout=120s
+
+echo "⏳ Waiting for the 'calico-system' namespace to be created by the operator..."
+while ! kubectl get namespace calico-system >/dev/null 2>&1; do
+ sleep 3
+done
+
+echo "⏳ Waiting for Calico node components to be deployed and ready..."
+# Wait for the daemonset and deployments to be created by the operator
+until kubectl get daemonset calico-node -n calico-system >/dev/null 2>&1; do
+ sleep 2
+done
+kubectl rollout status daemonset/calico-node -n calico-system --timeout=300s
+
+until kubectl get deployment calico-kube-controllers -n calico-system >/dev/null 2>&1; do
+ sleep 2
+done
+kubectl rollout status deployment/calico-kube-controllers -n calico-system --timeout=300s
+
+# 5. Provide Proof of Setup
+echo ""
+echo "=========================================================="
+echo "✅ Proof of Installation"
+echo "=========================================================="
+
+echo -e "\n1️⃣  Node Status (Nodes should now be 'Ready'):"
+kubectl get nodes -o wide
+
+echo -e "\n2️⃣  Calico Pod Status (All should be 'Running'):"
+kubectl get pods -n calico-system -o wide
+
+echo -e "\n🎉 Calico CNI successfully installed and running!"

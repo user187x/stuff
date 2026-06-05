@@ -1,0 +1,26 @@
+#!/bin/bash
+
+read -r -p "Enter image name: " IMAGE
+read -r -p "Enter image version: " VERSION
+
+echo "Building ${IMAGE}:${VERSION} image..."
+
+read -r -p "Enter path to Dockerfile: " DOCKER_FILE
+BUILD_CONTEXT=$(dirname "${DOCKER_FILE}")
+
+# Place the -f flag after the 'build' subcommand and pass the directory as context
+podman build -f "${DOCKER_FILE}" -t "${IMAGE}:${VERSION}" "${BUILD_CONTEXT}"
+
+echo
+echo "Pushing image to repository..."
+echo
+
+read -r -p "Enter repository login username: " USERNAME
+read -r -s -p "Enter repository password: " PASSWORD
+echo
+
+podman login --username "${USERNAME}" --password "${PASSWORD}"
+podman push "${IMAGE}:${VERSION}"
+
+echo
+echo "Complete!"

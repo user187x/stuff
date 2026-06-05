@@ -1,0 +1,69 @@
+#!/bin/bash
+
+SERVICE_NAME="update-system"
+SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+
+elevate_permission() {
+
+ if [[ $EUID -ne 0 ]]; then
+  echo "Prompting for sudo to escalatation..."
+  exec sudo "$0" "$@"
+ fi
+}
+
+install_service() {
+
+ echo "⚙️  Installing ${SERVICE_NAME}..."
+
+ cat <<EOF >"$SERVICE_PATH"
+[Unit]
+Description=Auto Update System on Startup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'apt update && apt full-upgrade -y && apt autoremove -y && apt autoclean'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ chmod 644 "$SERVICE_PATH"
+ systemctl daemon-reload
+ systemctl enable "$SERVICE_NAME"
+ echo "✅ Service installed and enabled for startup."
+}
+
+remove_service() {
+
+ echo "🗑️  Removing ${SERVICE_NAME}..."
+
+ systemctl stop "$SERVICE_NAME" 2>/dev/null
+ systemctl disable "$SERVICE_NAME" 2>/dev/null
+ rm -f "$SERVICE_PATH"
+ systemctl daemon-reload
+ systemctl reset-failed
+
+ echo "✅ Service removed completely."
+}
+
+SCRIPT_NAME="${0##*/}"
+
+case "$1" in
+install)
+ elevate_permission
+ install_service
+ ;;
+remove)
+ elevate_permission
+ remove_service
+ ;;
+*)
+ echo -e " (\e[91m!\e[0m) Usage: \e[93m$SCRIPT_NAME\e[0m {\e[94minstall\e[0m|\e[94mremove\e[0m}"
+ exit 1
+ ;;
+esac
+
+#complete -W "install remove" $SCRIPT_NAME

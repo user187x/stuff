@@ -1,9 +1,0 @@
-#!/bin/bash
-
-read -r -p "Restore settings? [y/N]: " input
-
-if [[ "${input,,}" =~ ^(y|yes)$ ]]; then
- echo "Restoring settings..."
-else
- echo "Skipping settings restore."
-fi

@@ -1,0 +1,233 @@
+#!/bin/bash
+
+# Ensure sudo permissions upfront to prevent timeout
+sudo -v
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+
+# Point to the folders located inside the script's directory
+SUPPORT_PATH="${SCRIPT_DIR}/.support"
+BACKUP_PATH="${SCRIPT_DIR}/.backup"
+
+# Source dependencies
+source "${SUPPORT_PATH}/spinner" || {
+ echo "❌ Error: 'spinner' script not found in current directory."
+ exit 1
+}
+
+source "${SUPPORT_PATH}/backup-software" 2>/dev/null || true
+source "${SUPPORT_PATH}/restore-software" 2>/dev/null || {
+ echo "❌ Error: 'restore-software' not found."
+ exit 1
+}
+
+# Global variables required by the backend scripts
+export BACKUP_PATH="${BACKUP_PATH}"
+export BACKUP_TEMP_DIR="${BACKUP_PATH}/tmp"
+export TAR_NAME="restore-point_$(date +%Y-%m-%d).tar.gz"
+
+# Set a polished color scheme for Whiptail
+export NEWT_COLORS='
+window=black,lightgray
+border=black,lightgray
+title=black,lightgray
+button=white,black
+actbutton=black,cyan
+textbox=black,lightgray
+checkbox=black,lightgray
+actcheckbox=white,cyan
+listbox=black,lightgray
+actlistbox=white,cyan
+'
+
+# ==========================================
+# Main Menu Selection
+# ==========================================
+ACTION=$(whiptail --title "📦 System Software Manager" \
+ --menu "Choose an action:" \
+ 15 60 4 \
+ "Backup" "Select & backup current software" \
+ "Restore" "Restore software from backup archive" \
+ 3>&1 1>&2 2>&3)
+
+if [ $? -ne 0 ]; then
+ clear
+ echo "Operation canceled."
+ exit 0
+fi
+
+# ==========================================
+# Backup Logic (Interactive Wrapper)
+# ==========================================
+do_backup() {
+ # 1. Select Package Managers
+ PMS=$(whiptail --title "Package Managers" \
+  --checklist "Select package managers to query for backup (Space to toggle):" \
+  15 65 4 \
+  "APT" "Debian/Ubuntu packages" ON \
+  "Snap" "Snapcraft packages" ON \
+  "Flatpak" "Flatpak applications" ON \
+  "Pipx" "Python applications" OFF \
+  3>&1 1>&2 2>&3)
+
+ [[ $? -ne 0 ]] && return
+
+ rm -rf "$BACKUP_TEMP_DIR"
+ mkdir -p "$BACKUP_TEMP_DIR"
+
+ # 2. APT Processing
+ if [[ $PMS == *"APT"* ]]; then
+  spinner wave "Scanning APT packages..."
+  APT_PKGS=$(apt-mark showmanual)
+  spinner stop
+
+  if [[ -n "$APT_PKGS" ]]; then
+   declare -a apt_opts
+   for pkg in $APT_PKGS; do
+    apt_opts+=("$pkg" "" "ON")
+   done
+
+   SELECTED_APT=$(whiptail --title "APT Packages" --checklist "Select APT packages to backup:" 25 75 15 "${apt_opts[@]}" 3>&1 1>&2 2>&3)
+   if [[ $? -eq 0 ]]; then
+    echo "$SELECTED_APT" | tr -d '"' | tr ' ' '\n' >"$BACKUP_TEMP_DIR/apt_packages.txt"
+   fi
+  fi
+
+  spinner wave "Exporting APT Repos & GPG Keys..."
+  mkdir -p "$BACKUP_TEMP_DIR/apt"/{repos,preferences,keyrings,trusted-gpg,usr-keyrings}
+  cp -R /etc/apt/sources.list.d/* "$BACKUP_TEMP_DIR/apt/repos/" 2>/dev/null || true
+  cp -R /etc/apt/preferences.d/* "$BACKUP_TEMP_DIR/apt/preferences/" 2>/dev/null || true
+  cp -R /etc/apt/keyrings/* "$BACKUP_TEMP_DIR/apt/keyrings/" 2>/dev/null || true
+  cp -R /etc/apt/trusted.gpg.d/* "$BACKUP_TEMP_DIR/apt/trusted-gpg/" 2>/dev/null || true
+  cp -R /usr/share/keyrings/* "$BACKUP_TEMP_DIR/apt/usr-keyrings/" 2>/dev/null || true
+  dpkg --print-foreign-architectures >"$BACKUP_TEMP_DIR/apt_architectures.txt"
+  apt-mark showhold >"$BACKUP_TEMP_DIR/apt_holds.txt"
+  spinner stop
+ fi
+
+ # 3. Snap Processing
+ if [[ $PMS == *"Snap"* ]] && command -v snap &>/dev/null; then
+  spinner wave "Scanning Snap packages..."
+  SNAP_FULL=$(snap list | awk 'NR>1 {name=$1; channel=$4; classic=""; if ($0 ~ /classic/) classic="--classic"; print name, channel, classic}')
+  SNAP_NAMES=$(echo "$SNAP_FULL" | awk '{print $1}' | grep -vE "^(core|bare|snapd)$")
+  spinner stop
+
+  if [[ -n "$SNAP_NAMES" ]]; then
+   declare -a snap_opts
+   for pkg in $SNAP_NAMES; do
+    snap_opts+=("$pkg" "" "ON")
+   done
+
+   SELECTED_SNAP=$(whiptail --title "Snap Packages" --checklist "Select Snap packages to backup:" 25 75 15 "${snap_opts[@]}" 3>&1 1>&2 2>&3)
+   if [[ $? -eq 0 ]]; then
+    SELECTED_CLEAN=$(echo "$SELECTED_SNAP" | tr -d '"')
+    while read -r name channel classic; do
+     if [[ " $SELECTED_CLEAN " == *" $name "* ]]; then
+      echo "$name $channel $classic" >>"$BACKUP_TEMP_DIR/snap_packages.txt"
+     fi
+    done <<<"$SNAP_FULL"
+   fi
+  fi
+ fi
+
+ # 4. Flatpak Processing
+ if [[ $PMS == *"Flatpak"* ]] && command -v flatpak &>/dev/null; then
+  spinner wave "Scanning Flatpak packages..."
+  flatpak remotes --show-details | awk '{print $1, $2}' >"$BACKUP_TEMP_DIR/flatpak_remotes.txt"
+  FLATPAK_FULL=$(flatpak list --app --columns=application,origin,branch)
+  FLATPAK_NAMES=$(echo "$FLATPAK_FULL" | awk '{print $1}')
+  spinner stop
+
+  if [[ -n "$FLATPAK_NAMES" ]]; then
+   declare -a fp_opts
+   for pkg in $FLATPAK_NAMES; do
+    fp_opts+=("$pkg" "" "ON")
+   done
+
+   SELECTED_FP=$(whiptail --title "Flatpak Packages" --checklist "Select Flatpak apps to backup:" 25 75 15 "${fp_opts[@]}" 3>&1 1>&2 2>&3)
+   if [[ $? -eq 0 ]]; then
+    SELECTED_CLEAN=$(echo "$SELECTED_FP" | tr -d '"')
+    while read -r app origin branch; do
+     if [[ " $SELECTED_CLEAN " == *" $app "* ]]; then
+      echo "$app $origin $branch" >>"$BACKUP_TEMP_DIR/flatpak_packages.txt"
+     fi
+    done <<<"$FLATPAK_FULL"
+   fi
+  fi
+ fi
+
+ # 5. Pipx Processing
+ if [[ $PMS == *"Pipx"* ]] && command -v pipx &>/dev/null; then
+  spinner wave "Scanning Pipx packages..."
+  PIPX_NAMES=$(pipx list --short | awk '{print $1}')
+  spinner stop
+
+  if [[ -n "$PIPX_NAMES" ]]; then
+   declare -a pipx_opts
+   for pkg in $PIPX_NAMES; do
+    pipx_opts+=("$pkg" "" "ON")
+   done
+
+   SELECTED_PIPX=$(whiptail --title "Pipx Packages" --checklist "Select Pipx apps to backup:" 25 75 15 "${pipx_opts[@]}" 3>&1 1>&2 2>&3)
+   if [[ $? -eq 0 ]]; then
+    echo "$SELECTED_PIPX" | tr -d '"' | tr ' ' '\n' >"$BACKUP_TEMP_DIR/pipx_packages.txt"
+   fi
+  fi
+ fi
+
+ # 6. Gather System Info
+ spinner wave "Gathering system info..."
+ hostnamectl >"$BACKUP_TEMP_DIR/system_info.txt"
+ spinner stop
+
+ # 7. Archive and Cleanup
+ spinner pulse "Compressing custom selections into archive..."
+ tar -czvf "$BACKUP_PATH/$TAR_NAME" "$BACKUP_TEMP_DIR" >/dev/null 2>&1
+ rm -rf "$BACKUP_TEMP_DIR"
+ spinner stop
+
+ whiptail --title "✅ Backup Complete" --msgbox "Successfully created $TAR_NAME with your custom selections." 8 65
+}
+
+# ==========================================
+# Restore Logic
+# ==========================================
+do_restore() {
+ if [[ ! -f "$TAR_NAME" ]]; then
+  whiptail --title "❌ Error" --msgbox "Backup archive '$TAR_NAME' not found in current directory!" 8 60
+  return
+ fi
+
+ whiptail --title "⚠️ Confirm Restore" --yesno "This will actively install packages and modify your system.\n\nAre you sure you want to proceed?" 10 60
+ [[ $? -ne 0 ]] && return
+
+ spinner pulse "Extracting backup archive..."
+ tar -xzvf "$TAR_NAME" >/dev/null 2>&1
+ spinner stop
+
+ clear
+ echo "🚀 Handing over to restore logic..."
+
+ # Call the original restore function from _restore-software
+ restore
+
+ # Append Pipx restore logic
+ if [[ -s "$BACKUP_TEMP_DIR/pipx_packages.txt" ]] && command -v pipx &>/dev/null; then
+  echo "[5/5] Restoring Pipx packages..."
+  while read -r package; do
+   pipx install "$package" </dev/null
+  done <"$BACKUP_TEMP_DIR/pipx_packages.txt"
+ fi
+
+ rm -rf "$BACKUP_TEMP_DIR"
+ echo -e "\nPress any key to return to menu..."
+ read -n 1 -s
+}
+
+# ==========================================
+# Execution Router
+# ==========================================
+case $ACTION in
+ "Backup") do_backup ;;
+ "Restore") do_restore ;;
+esac

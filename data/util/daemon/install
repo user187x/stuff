@@ -1,0 +1,60 @@
+#!/bin/bash
+
+set -e
+
+DAEMON_DESCR="Auto Heals Broken Symlinks"
+DAEMON_SERVICE="symlink-healer.service"
+DAEMON_SCRIPT="symlink-daemon"
+
+SERVICE_PATH="/etc/systemd/system/${DAEMON_SERVICE}"
+SCRIPT_PATH="${HOME}/.local/bin/${DAEMON_SCRIPT}"
+
+function create-service {
+
+ if [[ "$#" -eq 0 ]]; then
+  read -e -r -p "Enter directory to monitor: " TARGET
+ fi
+
+ mkdir -p "${HOME}/.local/bin"
+
+ echo "Installing daemon script to ${SCRIPT_PATH}..."
+
+ cp "./${DAEMON_SCRIPT}" "${SCRIPT_PATH}"
+ chmod +x "${SCRIPT_PATH}"
+
+ echo "Creating ${DAEMON_SERVICE}..."
+
+ cat <<EOF | sudo tee "${SERVICE_PATH}" >/dev/null
+[Unit]
+Description=${DAEMON_DESCR}
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+ExecStart=${SCRIPT_PATH} ${TARGET}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+echo "Adding ${DAEMON_SERVICE} to systemd..."
+create-service
+
+echo "Reloading systemctl daemon service..."
+sudo systemctl daemon-reload
+
+echo "Enabling symlink-healer service on start..."
+sudo systemctl enable symlink-healer.service
+
+echo -e "Starting systemctl \e[92msymlink-healer.service\e[0m..."
+if sudo systemctl start symlink-healer.service; then
+ echo -e "systemctl started \e[92msymlink-healer.service\e[0m successfully"
+ exit 0
+else
+ echo -e "(\e[91m!\e[0m) Failed starting symlink-healer.service"
+ exit 1
+fi

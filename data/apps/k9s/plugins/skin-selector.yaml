@@ -1,0 +1,15 @@
+plugins:
+  fzf-skin-picker:
+    shortCut: Shift-T
+    description: "Switch Skin (fzf)"
+    scopes:
+      - all
+    command: bash
+    background: false
+    args:
+      - -c
+      - |
+        SKIN=$(find "$HOME/.local/k9s/skins" -maxdepth 1 -name '*.yaml' -exec basename {} .yaml \; | fzf --prompt="K9s Skin> " --preview="cat $HOME/.local/k9s/skins/{}.yaml" --preview-window="right:60%");
+        if [ -n "$SKIN" ]; then
+          sed -i.bak -e "s/^[[:space:]]*skin:.*/    skin: $SKIN/" "$HOME/.config/k9s/config.yaml"
+        fi

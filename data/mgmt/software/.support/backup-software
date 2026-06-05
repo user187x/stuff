@@ -1,0 +1,73 @@
+#!/bin/bash
+
+function backup {
+
+ if [[ -z "$BACKUP_DIR" || -z "$TAR_NAME" ]]; then
+  echo "Please run manage-software script"
+ fi
+
+ # Ensure script is run with sudo for accessing keys and lists
+ if [ "$EUID" -ne 0 ]; then
+  echo "Please run the backup script with sudo: sudo ./backup.sh"
+  exit 1
+ fi
+
+ # 1. Create a fresh directory for our lists
+ rm -rf "$BACKUP_DIR"
+ mkdir -p "$BACKUP_DIR"
+
+ echo "[1/4] Exporting APT environment & packages..."
+ # Back up repositories, preferences, and GPG keys
+ mkdir -p "$BACKUP_DIR/apt"/{repos,preferences,keyrings,trusted-gpg,usr-keyrings}
+ cp -R /etc/apt/sources.list.d/* "$BACKUP_DIR/apt/repos/" 2>/dev/null || true
+ cp -R /etc/apt/preferences.d/* "$BACKUP_DIR/apt/preferences/" 2>/dev/null || true
+ cp -R /etc/apt/keyrings/* "$BACKUP_DIR/apt/keyrings/" 2>/dev/null || true
+ cp -R /etc/apt/trusted.gpg.d/* "$BACKUP_DIR/apt/trusted-gpg/" 2>/dev/null || true
+ cp -R /usr/share/keyrings/* "$BACKUP_DIR/apt/usr-keyrings/" 2>/dev/null || true
+
+ # Foreign architectures
+ dpkg --print-foreign-architectures >"$BACKUP_DIR/apt_architectures.txt"
+
+ # Get explicitly installed APT packages
+ apt-mark showmanual >"$BACKUP_DIR/apt_packages.txt"
+
+ # Get held packages
+ apt-mark showhold >"$BACKUP_DIR/apt_holds.txt"
+
+ echo "[2/4] Exporting Snap packages..."
+ if command -v snap >/dev/null 2>&1; then
+  # Parse snap list: Grab name, channel (tracking), and detect classic flag
+  snap list | awk 'NR>1 {
+    name=$1; 
+    channel=$4; 
+    classic=""; 
+    if ($0 ~ /classic/) classic="--classic"; 
+    print name, channel, classic
+ }' >"$BACKUP_DIR/snap_packages.txt"
+ else
+  echo "Snap not installed, skipping..."
+  touch "$BACKUP_DIR/snap_packages.txt"
+ fi
+
+ echo "[3/4] Exporting Flatpak packages..."
+ if command -v flatpak >/dev/null 2>&1; then
+  # Export custom remotes (e.g., flathub, elementary, gnome-nightly)
+  flatpak remotes --show-details | awk '{print $1, $2}' >"$BACKUP_DIR/flatpak_remotes.txt"
+  # Grab application ID, Origin, and Branch
+  flatpak list --app --columns=application,origin,branch >"$BACKUP_DIR/flatpak_packages.txt"
+ else
+  echo "Flatpak not installed, skipping..."
+  touch "$BACKUP_DIR/flatpak_packages.txt"
+  touch "$BACKUP_DIR/flatpak_remotes.txt"
+ fi
+
+ echo -e "\n[Wrapping Up] Compressing into $TAR_NAME..."
+ tar -czvf "$TAR_NAME" "$BACKUP_DIR" >/dev/null 2>&1
+
+ # Clean up the uncompressed folder
+ rm -rf "$BACKUP_DIR"
+
+ echo "----------------------------------------"
+ echo "Success! Transfer '$TAR_NAME' to your new computer."
+ echo "To restore, extract it and run: sudo ./restore.sh"
+}

@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Configuration
+WATCH_DIR="${1:-$PWD}"
+SLEEP_INTERVAL=60 # Time in seconds between checks
+
+echo "Starting Symlink Healer Daemon in: $WATCH_DIR"
+echo "Monitoring every $SLEEP_INTERVAL seconds..."
+
+# Function to attempt fixing a broken link
+fix_symlink() {
+ local link="$1"
+ local old_target
+
+ # Get the path the broken link is trying to point to
+ old_target=$(readlink "$link")
+
+ notify-send --app-name="Symlink Healer" \
+ "Daemon Status" \
+ "Symlink was broken: $link"
+ 
+ echo "[!] Found broken symlink: $link"
+ echo "    -> Old Target: $old_target"
+
+ # Break the old target path into an array of directories/files
+ IFS='/' read -r -a path_parts <<<"$old_target"
+
+ local current_suffix=""
+ local new_target=""
+ local found=false
+
+ # Iterate backwards through the old path components to rebuild the structure
+ for ((idx = ${#path_parts[@]} - 1; idx >= 0; idx--)); do
+  local part="${path_parts[idx]}"
+
+  # Skip empty parts (caused by leading slashes or double slashes)
+  if [ -z "$part" ]; then
+   continue
+  fi
+
+  # Build the suffix from the end of the path upwards
+  if [ -z "$current_suffix" ]; then
+   current_suffix="$part"
+  else
+   current_suffix="$part/$current_suffix"
+  fi
+
+  # Check if this relative structure exists in our watched directory
+  local potential_target="$WATCH_DIR/$current_suffix"
+  if [ -e "$potential_target" ]; then
+   new_target="$potential_target"
+   found=true
+   break
+  fi
+ done
+
+ if [ "$found" = true ]; then
+  echo "    -> Found matching structure at: $new_target"
+  # Re-create the symlink forcefully (-s: soft, -f: force, -n: no dereference)
+  ln -sfn "$new_target" "$link"
+  echo "    -> [SUCCESS] Symlink restored."
+ else
+  echo "    -> [FAILED] Could not find a matching target in $WATCH_DIR. Left broken."
+ fi
+}
+
+# Daemon loop
+while true; do
+ # Find all broken symlinks safely, handling spaces in file names
+ # -type l (is a link), ! -exec test -e {} (target does not exist)
+ find "$WATCH_DIR" -type l ! -exec test -e {} \; -print0 | while IFS= read -r -d '' broken_link; do
+  fix_symlink "$broken_link"
+ done
+
+ sleep "$SLEEP_INTERVAL"
+done
