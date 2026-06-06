@@ -1,0 +1,49 @@
+#!/bin/bash
+
+android=$(ls /run/user/$UID/gvfs/ | cut -d ':' -f1)
+echo "Phone found: ${android}"
+
+#===================================================================================
+
+function cd-phone {
+ local mtp_mount=$(find /run/user/$UID/gvfs -maxdepth 1 -name "mtp:host*" | head -n 1)
+
+ if [ -z "$mtp_mount" ]; then
+  echo "No Android phone found. Is it unlocked and set to 'File Transfer'?"
+  return 1
+ fi
+
+ # Dynamically find "Internal shared storage" or the SD card
+ local storage_dir=$(find "$mtp_mount" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
+ if [ -n "$storage_dir" ]; then
+  echo "Navigating to: ${storage_dir}"
+  cd "$storage_dir" && ls
+ else
+  echo "Navigating to: ${mtp_mount}"
+  cd "$mtp_mount" && ls
+ fi
+}
+
+#===================================================================================
+
+# 1. Find the first MTP mount directory securely
+mtp_mount=$(find /run/user/$UID/gvfs -maxdepth 1 -name "mtp:host*" | head -n 1)
+
+# Check if an MTP device was actually found
+if [ -z "$mtp_mount" ]; then
+ echo "No Android phone found. Make sure it is plugged in, unlocked, and set to 'File Transfer'."
+ return 1 2>/dev/null || exit 1
+fi
+
+# 2. Find the internal storage folder inside the MTP mount
+storage_dir=$(find "$mtp_mount" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
+# 3. Navigate to the storage directory (or fallback to the root mount if empty)
+if [ -n "$storage_dir" ]; then
+ echo "Navigating to: ${storage_dir}"
+ cd "$storage_dir" && ls
+else
+ echo "Storage folder not found. Navigating to root mount: ${mtp_mount}"
+ cd "$mtp_mount" && ls
+fi
