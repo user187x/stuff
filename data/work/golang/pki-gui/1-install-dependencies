@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# download the binary from site
+curl -OL https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
+
+# extract golang to appropriate location
+sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
+
+# install required tooling
+sudo apt install gcc libgl1-mesa-dev xorg-dev

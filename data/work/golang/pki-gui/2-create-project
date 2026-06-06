@@ -1,0 +1,31 @@
+#!/bin/bash
+
+CURRENT_PATH=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+
+PROJ_NAME="pki-generator"
+PROJ_PATH="${CURRENT_PATH}/${PROJ_NAME}"
+
+# Create the project
+mkdir "${PROJ_PATH}" && cd "${PROJ_PATH}"
+
+# initialize the project
+go mod init .
+
+# retreive gui building framework
+go get fyne.io/fyne/v2
+
+# show the project structure
+cat << EOF >
+
+pki-provisioner/
+├── go.mod
+├── go.sum
+├── main.go
+└── internal/
+    └── pki/
+        └── pki.go
+EOF
+
+# create the subdiretory as planned
+mkdir -p "${PROJ_PATH}/internal"
+mkdir -p "${PROJ_PATH}/internal/pki"

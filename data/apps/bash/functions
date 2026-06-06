@@ -6,8 +6,16 @@ __FUNCTIONS_INITIALIZED__=1
 # UTILITY FUNCTIONS
 ############################################
 
+function mkcd {
+ if [[ -z "$1" ]]; then
+  echo "usage: mkcd <directory>"
+  exit 1
+ fi
+ mkdir -p "$1" && cd "$1"
+}
+
 function tar-get {
- 
+
  if [[ "$#" != 1 ]]; then
   echo "usage: tar-get <archive.tar>"
   exit 1

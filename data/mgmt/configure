@@ -62,6 +62,12 @@ update_os_ulimits() (
  echo "Done! You must log out and log back in."
 )
 
+update_os_notification_popup() {
+
+ echo "Disabling desktop notification pop"
+ gsettings set com.ubuntu.update-notifier no-show-notifications true
+}
+
 remove_os_recent_files() (
  echo "Removing 'recent' from file explorer..."
  if gsettings set org.gnome.desktop.privacy remember-recent-files false >/dev/null 2>&1; then
@@ -293,7 +299,10 @@ if ! command -v whiptail &>/dev/null; then
 fi
 
 # Display Intro Message
-whiptail --title "Ubuntu Auto-Configuration Script" --msgbox "Welcome to the System Configurator.\n\nOn the next screen, use [SPACE] to select the tweaks you want to apply, and [ENTER] to execute them." 10 60
+whiptail \
+ --title "Ubuntu Auto-Configuration" \
+ --msgbox "System Configurator.\n\nUse [SPACE] to select and [ENTER] to execute them." \
+ 10 60
 
 # Display Multi-Select Menu
 CHOICES=$(whiptail --title "System Tweaks & Configurations" --checklist \
@@ -302,6 +311,7 @@ CHOICES=$(whiptail --title "System Tweaks & Configurations" --checklist \
  "enable_keyboard_expose" "Enable Keyboard Expose (Shift+Super)" OFF \
  "update_os_ulimits" "Increase OS File Descriptor limits" OFF \
  "remove_os_recent_files" "Disable 'Recent' in File Explorer" OFF \
+ "update_os_notification_popup" "Disable Desktop popup notification" OFF \
  "update_os_sudoers_timeout" "Adjust Sudo password timeout" OFF \
  "enable_inverse_fwd_search" "Enable inverse fwd search (Terminal)" OFF \
  "remove_os_bloatware" "Remove bloatware (LibreOffice, Snap)" OFF \
@@ -323,31 +333,21 @@ CHOICES=$(whiptail --title "System Tweaks & Configurations" --checklist \
  "update_power_mode" "Set CPU Power Mode to Performance" OFF \
  3>&1 1>&2 2>&3)
 
-# Handle Cancel or Empty Selection
 if [ -z "$CHOICES" ]; then
  echo "No options selected or user cancelled. Exiting."
  exit 0
 fi
 
-# Clear screen before standard text output
 clear
 
-echo "=========================================================="
-echo "    Processing Selected System Configurations             "
-echo "=========================================================="
-
-# Process Choices (Whiptail outputs them as space-separated quoted strings)
+echo "Processing system configurations"
 for CHOICE in $CHOICES; do
- # Strip quotes for execution
  FUNC=$(echo "$CHOICE" | tr -d '"')
-
- echo -e "\n============================================="
- echo -e " Running: $FUNC"
- echo -e "============================================="
- $FUNC
+ echo -e " → \e[92m$FUNC\e[0m"
+ output=$($FUNC)
+ echo -e " ✷\e[90m ${output} \e[0m"
 done
 
-echo -e "\n=========================================================="
-echo " All selected configurations have been applied successfully!"
-echo " Note: Reboot your system for all changes to take effect.   "
-echo "=========================================================="
+echo
+echo "Completed!"
+echo

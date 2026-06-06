@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# show the project structure
+cat << 'EOF'
+
+Project Overview:
+=================
+
+pki-provisioner/
+├── go.mod
+├── go.sum
+├── main.go
+└── internal/
+    └── pki/
+        └── pki.go
+EOF
