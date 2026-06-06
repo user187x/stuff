@@ -1,0 +1,71 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "=== Helm Offline Packager ==="
+
+# 1. Get the repository and chart name
+read -p "Enter the Helm repository and chart name (e.g., bitnami/nginx): " repo_chart
+if [ -z "$repo_chart" ]; then
+ echo "Error: Repository and chart name cannot be empty."
+ exit 1
+fi
+
+# 2. Get the destination directory
+read -e -r -p "Enter the destination directory for the offline bundle: " dest_dir
+if [ -z "$dest_dir" ]; then
+ echo "Error: Destination directory cannot be empty."
+ exit 1
+fi
+
+# Automatically extract just the chart name (e.g., 'nginx' from 'bitnami/nginx')
+chart_name=$(basename "$repo_chart")
+
+echo "==> Preparing offline bundle for '${chart_name}' in '${dest_dir}'..."
+mkdir -p "${dest_dir}"
+cd "${dest_dir}"
+
+# 3. Download the Chart and Dependencies
+echo "==> Step 1: Pulling chart and building dependencies..."
+helm pull "${repo_chart}" --untar
+cd "${chart_name}"
+helm dependency build
+
+# 4. Locate and Save the Container Images
+echo "==> Step 2: Rendering manifests to extract image references..."
+helm template . >all-manifests.yaml
+
+# Extract images, remove quotes, and sort uniquely to avoid redundant pulls
+grep -E 'image:\s+' all-manifests.yaml | awk '{print $2}' | tr -d '"' | tr -d "'" | sort -u >images.txt
+
+if [ ! -s images.txt ]; then
+ echo "No images found in the rendered manifests. Exiting."
+ exit 1
+fi
+
+echo "==> Found the following images:"
+cat images.txt
+
+echo "==> Step 3: Pulling Docker images..."
+while read -r image; do
+ if [ -n "$image" ]; then
+  docker pull "$image"
+ fi
+done <images.txt
+
+echo "==> Step 4: Saving images to a .tar archive..."
+# Save the tarball one directory up, next to the chart folder
+docker save -o ../"${chart_name}-offline-images.tar" $(cat images.txt)
+
+# Clean up intermediate files
+echo "==> Cleaning up temporary files..."
+rm all-manifests.yaml images.txt
+cd ..
+
+# 5. Success Output
+echo "=========================================================="
+echo "✅ Success! Offline bundle is ready in: $(pwd)"
+echo "Files ready for transfer to your air-gapped environment:"
+echo " 📁 ${chart_name}/                      (The Helm Chart)"
+echo " 📦 ${chart_name}-offline-images.tar    (The Docker Images)"
+echo "=========================================================="

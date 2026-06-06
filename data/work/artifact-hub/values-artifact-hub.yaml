@@ -1,0 +1,334 @@
+# Artifact Hub Chart JSON Schema
+
+# Database configuration
+db: 
+  # Database host
+  host: ""
+  # Database port
+  port: 5432
+  # Database user
+  user: postgres
+  # Database SSL mode
+  sslmode: prefer
+  # Database name
+  database: hub
+  # Database password
+  password: postgres
+
+# Hub configuration
+hub: 
+  # RBAC
+  rbac: 
+    # Create RBAC
+    create: true
+  theme: 
+    # Colors used in the website
+    colors: 
+      # Primary color
+      primary: "#417598"
+      # Secondary color
+      secondary: "#2D4857"
+    # Images used in the website
+    images: 
+      # Website logo
+      websiteLogo: |-
+
+        /static/media/logo/artifacthub-brand-white.svg
+      # Shortcut icon
+      shortcutIcon: /static/media/logo_v2.png
+      # Open Graph image
+      openGraphImage: /static/media/artifactHub_v2.png
+      # Apple touch icon (192x192)
+      appleTouchIcon192: /static/media/logo192_v2.png
+      # Apple touch icon (512x512)
+      appleTouchIcon512: /static/media/logo512_v2.png
+    # Name of the site
+    siteName: Artifact Hub
+  deploy: 
+    image: 
+      # Hub image repository (without the tag)
+      repository: artifacthub/hub
+    # Hub pod node selector
+    nodeSelector: {}
+    # Number of Hub replicas
+    replicaCount: 1
+    # Extra pod labels
+    extraPodLabels: {}
+    # Hub pod readiness gates
+    readinessGates: []
+    # Extra deployment labels
+    extraDeploymentLabels: {}
+  server: 
+    csrf: 
+      # CSRF secure cookie
+      secure: false
+      # CSRF authentication key
+      authKey: "default-unsafe-key"
+    # Message of the day
+    motd: ""
+    oauth: 
+      oidc: 
+        # OpenID connect oauth scopes
+        scopes: 
+          - openid,
+          - profile,
+          - email
+        # Enable OIDC
+        enabled: false
+        # OpenID connect oauth client id
+        clientID: ""
+        # OpenID connect issuer url
+        issuerURL: ""
+        # OpenID connect oauth redirect url
+        redirectURL: ""
+        # OpenID connect oauth client secret
+        clientSecret: ""
+        # Skip email verified check
+        skipEmailVerifiedCheck: false
+      github: 
+        # GitHub OAuth scopes
+        scopes: 
+          - read:user,
+          - user:email
+        # Enable GitHub OAuth
+        enabled: false
+        # GitHub OAuth client id
+        clientID: ""
+        # GitHub OAuth redirect url
+        redirectURL: ""
+        # GitHub OAuth client secret
+        clientSecret: ""
+      google: 
+        # Google oauth scopes
+        scopes: 
+          - https://www.googleapis.com/auth/userinfo.email,
+          - https://www.googleapis.com/auth/userinfo.profile
+        # Enable Google oauth
+        enabled: false
+        # Google oauth client id
+        clientID: ""
+        # Google oauth redirect url
+        redirectURL: ""
+        # Google oauth client secret
+        clientSecret: ""
+    cookie: 
+      # Enable Hub secure cookies
+      secure: false
+      # Hub cookie hash key
+      hashKey: "default-unsafe-key"
+    # Hub server base url
+    baseURL: ""
+    # Cache directory path
+    cacheDir: ""
+    # X-Forwarded-For IP index
+    xffIndex: 0
+    basicAuth: 
+      # Enable Hub basic auth
+      enabled: false
+      # Hub basic auth password
+      password: hub
+      # Hub basic auth username
+      username: changeme
+    # Config directory path
+    configDir: /home/hub/.cfg
+    # Banners configuration file url
+    bannersURL: ""
+    # Message of the day severity
+    motdSeverity: info
+    # Allow new Users to Sign Up
+    allowUserSignUp: true
+    # Hub server shutdown timeout
+    shutdownTimeout: 10s
+    # Allow adding private repositories to the Hub
+    allowPrivateRepositories: false
+  ingress: 
+    # Hub ingress tls
+    tls: []
+    # Hub ingress rules
+    rules: []
+    # Enable Hub ingress
+    enabled: true
+    # Hub ingress annotations
+    annotations: {}
+    # Some extra labels to add to the ingress
+    extraLabels: {}
+    # Hub ingress class
+    ingressClassName: ""
+    # Enable default backend for Hub Ingress
+    defaultBackendEnabled: true
+  service: 
+    # Hub service port
+    port: 80
+    # Hub service type
+    type: NodePort
+  analytics: 
+    # Google Analytics tracking id
+    gaTrackingID: ""
+  # Artifact Hub service account
+  serviceAccount: 
+    # Service account name
+    name: ""
+    # Create service account
+    create: true
+    # Automount service account token
+    automountServiceAccountToken: true
+
+log: 
+  # Log level
+  level: info
+  # Enable pretty logging
+  pretty: false
+
+creds: 
+  # Docker registry password
+  dockerPassword: ""
+  # Docker registry username
+  dockerUsername: ""
+
+email: 
+  # From address used in emails
+  from: ""
+  smtp: 
+    # Authentication mechanism
+    auth: plain
+    # SMTP host
+    host: ""
+    # SMTP port
+    port: 587
+    # SMTP password
+    password: ""
+    # SMTP username
+    username: ""
+  # Reply-to address used in emails
+  replyTo: ""
+  # From name used in emails
+  fromName: ""
+
+# Trivy configuration
+trivy: 
+  deploy: 
+    # Trivy container image
+    image: "aquasec/trivy:0.67.2"
+    # Trivy pod node selector
+    nodeSelector: {}
+    # Extra pod labels
+    extraPodLabels: {}
+    # Extra deployment labels
+    extraDeploymentLabels: {}
+  # Enable Trivy security scanner deployment
+  enabled: true
+  persistence: 
+    # Size of persistent volume claim
+    size: 10Gi
+    # Use persistent volume to store data
+    enabled: false
+    # Type of persistent volume claim
+    storageClassName: ""
+
+events: 
+  # Enable repository scanning errors events
+  scanningErrors: false
+  # Enable repository tracking errors events
+  trackingErrors: false
+
+images: 
+  # Store for images
+  store: pg
+
+# Scanner configuration
+scanner: 
+  cronjob: 
+    image: 
+      # Scanner image repository (without the tag)
+      repository: artifacthub/scanner
+    # Scanner pod node selector
+    nodeSelector: {}
+    # Extra job labels
+    extraJobLabels: {}
+    # Extra cronjob labels
+    extraCronJobLabels: {}
+    # Service account name
+    serviceAccountName: default
+  # Enable security scanner cronjob
+  enabled: true
+  # Cache directory path
+  cacheDir: ""
+  # Trivy server url
+  trivyURL: ""
+  # Config directory path
+  configDir: /home/scanner/.cfg
+  # Snapshots to process concurrently
+  concurrency: 3
+
+# Tracker configuration
+tracker: 
+  cronjob: 
+    image: 
+      # Tracker image repository (without the tag)
+      repository: artifacthub/tracker
+    # Tracker pod node selector
+    nodeSelector: {}
+    # Extra job labels
+    extraJobLabels: {}
+    # Extra cronjob labels
+    extraCronJobLabels: {}
+    # Service account name
+    serviceAccountName: default
+  # Cache directory path
+  cacheDir: ""
+  # Config directory path
+  configDir: /home/tracker/.cfg
+  # Repositories to process concurrently
+  concurrency: 10
+  # Bypass digest check
+  bypassDigestCheck: false
+  # Repositories kinds to process ([] = all)
+  repositoriesKinds: []
+  # Repositories names to process ([] = all)
+  repositoriesNames: []
+  # Maximum duration for the tracking of a single repository
+  repositoryTimeout: 15m
+
+# Tag used when pulling images
+imageTag: ""
+
+# Database migrator configuration
+dbMigrator: 
+  job: 
+    image: 
+      # Database migrator image repository (without the tag)
+      repository: "artifacthub/db-migrator"
+    # DB migrator pod node selector
+    nodeSelector: {}
+    # Additional labels for the DB migrator job
+    extraJobLabels: {}
+    # Additional labels for the DB migrator pod
+    extraPodLabels: {}
+    # Service account name
+    serviceAccountName: default
+    # Lifetime after finished execution
+    ttlSecondsAfterFinished: null
+    # Automount service account token
+    automountServiceAccountToken: true
+  # Config directory path
+  configDir: "/home/db-migrator/.cfg"
+  # Load demo user and sample repositories
+  loadSampleData: true
+
+pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Default node selector used by pods
+nodeSelector: {}
+
+# Fullname override
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+# Enable restricted HTTP client
+restrictedHTTPClient: false
+
+# Enable dynamic resource name prefix
+dynamicResourceNamePrefixEnabled: false

@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e # Exit immediately if any command fails
+
+# 1. Get the path to the directory containing the chart and tarball
+read -e -r -p "Enter path to the offline bundle directory: " bundle_path
+cd "${bundle_path}"
+
+# 2. Get the specific chart name (used for the folder and tarball names)
+read -p "Enter the chart name (e.g., nginx, mysql): " chart_name
+
+# 3. Load the container images
+echo "==> Loading images from ${chart_name}-offline-images.tar..."
+docker load -i "${chart_name}-offline-images.tar"
+
+# 4. Get the desired release name
+read -p "Enter Helm release name: " release_name
+
+# 5. Deploy the chart
+echo "==> Deploying Helm chart..."
+helm upgrade --install "${release_name}" "./${chart_name}"
+
+echo "==> Deployment of ${release_name} complete!"
