@@ -1,0 +1,16 @@
+#!/bin/bash
+
+function list {
+ read -e -r -p "Enter path to deb file: " deb_path
+ dpkg-deb -c "$deb_path" | fzf
+}
+
+function extract {
+ read -e -r -p "Enter path to deb file: " deb_path
+ dpkg-deb -c "$deb_path" | awk '{print $6}' | fzf | xargs -I {} dpkg-deb -x "$deb_path" .
+}
+
+function install-pkg {
+ read -e -r -p "Enter path to deb file: " deb_path
+ dpkg -i "$deb_path"
+}

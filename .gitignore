@@ -7,7 +7,7 @@ apt-cache/
 .netrwhist
 
 # nested projects
-/data/work/kv4p-ht/.git/
+data/work/kv4p-ht/.git
 
 # file extensions
 *.sass-cache
