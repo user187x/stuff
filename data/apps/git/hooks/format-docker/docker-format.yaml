@@ -1,0 +1,9 @@
+repos:
+  - repo: https://github.com/reteps/dockerfmt
+    rev: main  # run `pre-commit autoupdate` to pin a version
+    hooks:
+      - id: dockerfmt
+        args:
+          - --indent=4
+          - --newline
+          - --write

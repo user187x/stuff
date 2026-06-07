@@ -6,6 +6,9 @@ apt-cache/
 .DS_store
 .netrwhist
 
+# nested projects
+/data/work/kv4p-ht/.git/
+
 # file extensions
 *.sass-cache
 *.scss

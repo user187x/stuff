@@ -47,6 +47,8 @@ alias untar='tar -xvf'
 alias t="tmux"
 alias edit="gnome-text-editor"
 alias mk="minikube"
+alias kitty='kitty --config=~/.confg/kitty/kitty.conf'
+alias dkrfmt="dockerfmt -i 1 -w"
 
 # Dynamically alias whichever bat variant exists
 for _bat_cmd in bat batcat; do

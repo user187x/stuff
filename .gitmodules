@@ -1,0 +1,4 @@
+[submodule "kv4p-ht"]
+ path = data/work/kv4p-ht/
+ url = git@github.com:user187x/kv4p-ht-desktop.git
+ ignore = all

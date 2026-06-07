@@ -1,3 +1,9 @@
 #!/bin/bash
 
+sudo apt update && sudo apt install android-sdk -y
 sudo apt update && sudo apt install adb -y
+
+sudo apt install google-android-cmdline-tools-19.0-installer
+
+sdkmanager "build-tools;35.0.0" "platforms;android-35"
+
