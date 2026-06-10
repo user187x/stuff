@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Waydroid GNOME Controller & USB Patcher
+
+SCRIPT_PATH="$(realpath "$0")"
+
+# ==========================================
+# HIDDEN ROOT TASK: USB PATCHING LOGIC
+# ==========================================
+# This block only runs when the script calls itself with root privileges.
+if [[ "${1:-}" == "--patch-usb" ]]; then
+ IMG_DIR="/var/lib/waydroid/images"
+ MOUNT_DIR="/tmp/waydroid_mount"
+
+ # Stop services
+ systemctl stop waydroid-container || true
+
+ # Fix and Resize Images
+ e2fsck -y -f "$IMG_DIR/vendor.img"
+ e2fsck -y -f "$IMG_DIR/system.img"
+ resize2fs "$IMG_DIR/system.img" 4G
+ resize2fs "$IMG_DIR/vendor.img" 600M
+
+ # Patch Vendor
+ mkdir -p "$MOUNT_DIR"
+ mount -o loop "$IMG_DIR/vendor.img" "$MOUNT_DIR"
+ mkdir -p "$MOUNT_DIR/etc/permissions"
+ echo '<permissions><feature name="android.hardware.usb.host"/></permissions>' >"$MOUNT_DIR/etc/permissions/android.hardware.usb.host.xml"
+ chmod 644 "$MOUNT_DIR/etc/permissions/android.hardware.usb.host.xml"
+ umount "$MOUNT_DIR"
+
+ # Patch System
+ mount -o loop "$IMG_DIR/system.img" "$MOUNT_DIR"
+ UEVENT_FILE="$MOUNT_DIR/system/etc/ueventd.rc"
+ [ ! -f "$UEVENT_FILE" ] && UEVENT_FILE="$MOUNT_DIR/etc/ueventd.rc"
+ if [ -f "$UEVENT_FILE" ]; then
+  sed -i 's/subsystem input/#subsystem input/g' "$UEVENT_FILE"
+  sed -i 's/devname uevent_devpath/#devname uevent_devpath/g' "$UEVENT_FILE"
+  sed -i 's/dirname \/dev\/input/#dirname \/dev\/input/g' "$UEVENT_FILE"
+ fi
+ umount "$MOUNT_DIR"
+ rm -rf "$MOUNT_DIR"
+
+ exit 0
+fi
+
+# ==========================================
+# MAIN GUI APPLICATION
+# ==========================================
+
+# Ensure Zenity is installed (Standard on GNOME)
+if ! command -v zenity &>/dev/null; then
+ echo "Zenity is required for the GUI. Install it with: sudo apt install zenity"
+ exit 1
+fi
+
+while true; do
+ CHOICE=$(zenity --list --title="Waydroid Control Panel" \
+  --text="Select an action to perform:" \
+  --column="Action" \
+  "🚀 Start Windowed Mode (Multi-Window)" \
+  "📱 Start Full UI Mode" \
+  "🛑 Stop Waydroid Completely" \
+  "🔌 Apply USB Host Patch (Requires Auth)" \
+  "❌ Exit" \
+  --width=450 --height=320 --cancel-label="Exit" --ok-label="Run")
+
+ # If the user clicks Exit or closes the window, break the loop
+ if [ $? -ne 0 ]; then
+  break
+ fi
+
+ case "$CHOICE" in
+  "🚀 Start Windowed Mode (Multi-Window)")
+   waydroid prop set persist.waydroid.multi_windows true
+   pkexec systemctl start waydroid-container
+   waydroid session start >/dev/null 2>&1 &
+   zenity --info --title="Started" --text="Waydroid started in Windowed Mode.\n\nYou can now launch Android apps directly from your GNOME App Grid." --width=300
+   break
+   ;;
+
+  "📱 Start Full UI Mode")
+   waydroid prop set persist.waydroid.multi_windows false
+   pkexec systemctl start waydroid-container
+   waydroid session start >/dev/null 2>&1 &
+   zenity --info --title="Starting" --text="Waydroid background service started.\nThe Full UI will launch in a moment." --width=300
+   sleep 2
+   waydroid show-full-ui >/dev/null 2>&1 &
+   break
+   ;;
+
+  "🛑 Stop Waydroid Completely")
+   waydroid session stop >/dev/null 2>&1 || true
+   pkexec systemctl stop waydroid-container
+   zenity --info --title="Stopped" --text="Waydroid session and background services have been completely shut down." --width=300
+   ;;
+
+  "🔌 Apply USB Host Patch (Requires Auth)")
+   zenity --question --title="USB Patch" --text="This will resize and patch the Waydroid system images to support USB Host devices.\n\n⚠️ Waydroid will be stopped.\n⏳ This may take 1-2 minutes depending on your disk speed.\n\nDo you want to proceed?" --width=400
+   if [ $? -eq 0 ]; then
+    zenity --info --title="Authentication Required" --text="You will now be prompted for your password.\n\nPlease wait patiently after entering it, as the image resizing takes a moment." --width=350
+
+    # Execute the script itself with root privileges using standard GNOME polkit
+    if pkexec "$SCRIPT_PATH" --patch-usb; then
+     zenity --info --title="Success" --text="USB Patch applied successfully!\n\nYou can now start Waydroid." --width=300
+    else
+     zenity --error --title="Error" --text="The patch failed or you cancelled the authentication." --width=300
+    fi
+   fi
+   ;;
+
+  "❌ Exit")
+   break
+   ;;
+ esac
+done
