@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Complete Waydroid & Custom Tools Dependency Setup Script
+
+set -e
+
+echo "📦 Updating package lists..."
+sudo apt update
+
+# 1. Official Waydroid Dependencies (from debian/control)
+echo "🚀 Installing official Waydroid runtime dependencies..."
+sudo apt install -y \
+ lxc \
+ python3-gbinder \
+ python3-gi \
+ gir1.2-gtk-3.0 \
+ python3-dbus \
+ dbus \
+ polkitd \
+ iptables \
+ ca-certificates
+
+# Note: pipewire-pulse / pulseaudio are usually installed by the desktop environment by default,
+# but if you are on a very minimal install, you can uncomment the line below:
+# sudo apt install -y pipewire-pulse
+
+# 2. Build Tools (Needed because you installed via source code / Makefile)
+echo "🛠️ Installing tools required for 'make install'..."
+sudo apt install -y \
+ make \
+ python3
+
+# 3. Custom Script Dependencies (For the tools we built earlier)
+echo "🔌 Installing packages for USB patching and GNOME GUI Controller..."
+sudo apt install -y \
+ e2fsprogs \
+ zenity
+
+echo "✅ All dependencies installed successfully!"
+echo "You are now ready to run 'sudo make install' from the Waydroid source folder."
