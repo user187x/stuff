@@ -1,14 +1,34 @@
 k9s:
-  ui: nord
-  refreshRate: 2
+  body:
+    fgColor: default
+    bgColor: default
+  prompt:
+    fgColor: aqua
+    bgColor: default
+  dialog:
+    fgColor: white
+    bgColor: blue
+  ui:
+    skin: gruvbox-dark
+    enableMouse: false
+    headless: true
+    logoless: true
+    crumbsless: true
+  refreshRate: 1
   maxRequestsPerSecond: 15
   logger:
-    tail: 100
+    tail: 500
     buffer: 5000
     sinceSeconds: 600
-    fullScreen: false
+    fullScreen: true
     textWrap: false
-    showTime: false
+    showTime: true
+  shellPod:
+    image: busybox:latest
+    namespace: default
+    limits:
+      cpu: 100m
+      memory: 100Mi
   clusters:
     minikube:
       skin: nord
@@ -19,7 +39,14 @@ k9s:
   thresholds:
     cpu:
       critical: 90
-      warn: 70
+      warn: 75
     memory:
       critical: 90
-      warn: 70
+      warn: 75
+  views:
+    v1/pods:
+      sortColumn: AGE:desc
+    table:
+      header:
+        fgColor: white
+        bgColor: default

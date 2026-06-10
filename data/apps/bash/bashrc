@@ -40,8 +40,8 @@ export VIMINIT="set nocp | source ${CONFIG_HOME}/vim/vimrc"
 export VISUAL=bat
 
 # Set figlet/toilet font directory
-alias toilet="toilet -d ${CONFIG_HOME}/figlet/fonts"
-alias figlet="figlet -d ${CONFIG_HOME}/figlet/fonts"
+alias toilet="toilet -d ${DATA_HOME}/fonts"
+alias figlet="figlet -d ${DATA_HOME}/fonts"
 
 # Configure to run Rust and Cargo commands
 #source "${HOME}/.cargo/env"

@@ -64,7 +64,6 @@ unset _bat_cmd
 # ==========================================
 alias v="vim"
 alias tf='terraform'
-alias k9s='k9s -A -c pods --headless'
 alias k='kubecolor'
 alias current-context="kubectl config current-context"
 alias show-contexts="kubectl config get-contexts"

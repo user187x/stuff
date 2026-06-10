@@ -1,0 +1,10 @@
+#!/bin/bash
+
+helm repo add
+helm repo update
+
+helm upgrade --install
+--namespace headlamp \
+--create-namespace \
+--set server=LoadeBalancer \
+--set ?
