@@ -1,4 +1,4 @@
-terraform {
+terraform {
   required_providers {
     coder = {
       source = "coder/coder"
@@ -151,11 +151,12 @@ resource "coder_agent" "main" {
     filebrowser users add admin CoderAdminPassword123 --perm.admin=true --database=$HOME/filebrowser.db
     filebrowser --database=$HOME/filebrowser.db >/tmp/filebrowser.log 2>&1 &
 
-    # 3. Setup VNC / noVNC Desktop Environment (Non-blocking background installation)
+    # 3. Setup VNC / noVNC Desktop Environment (themed XFCE, non-blocking install)
     (
       set +e
       echo "Starting background desktop environment setup..."
 
+      # Guard on the desktop itself (not websockify) so a rebuild reinstalls XFCE.
       if ! command -v startxfce4 &> /dev/null; then
         sudo -n apt-get update
         sudo -n apt-get install -y \
@@ -164,25 +165,28 @@ resource "coder_agent" "main" {
           arc-theme papirus-icon-theme fonts-noto
       fi
 
-      # noVNC sub-path routing (unchanged — this is what got the button working)
+      # noVNC sub-path routing landing page. The CLIENT-SIDE meta redirect is what
       sudo -n mkdir -p /usr/share/novnc
       echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale&path=${local.novnc_ws_path}"></head></html>' | sudo -n tee /usr/share/novnc/index.html > /dev/null
 
-      # Bigger framebuffer so the desktop isn't cramped (resize=scale handles fit)
+      # Virtual display. Bigger framebuffer than the old default; resize=scale fits it.
       Xvfb :1 -screen 0 1280x800x24 > /dev/null 2>&1 &
       export DISPLAY=:1
       sleep 2
 
-      # Full XFCE session needs its own dbus session bus
+      # Full XFCE session needs its own dbus session bus.
       dbus-launch --exit-with-session startxfce4 > /tmp/xfce.log 2>&1 &
       sleep 4
 
-      # Make it look modern: flat dark theme + modern icons, compositing OFF
-      xfconf-query -c xsettings -p /Net/ThemeName          -s "Arc-Dark"     2>/dev/null
-      xfconf-query -c xsettings -p /Net/IconThemeName      -s "Papirus-Dark" 2>/dev/null
-      xfconf-query -c xfwm4     -p /general/theme          -s "Arc-Dark"     2>/dev/null
-      xfconf-query -c xfwm4     -p /general/use_compositing -s false         2>/dev/null
+      # Modern flat look: dark Arc theme + Papirus icons. Compositing OFF because
+      # Xvfb is a software framebuffer and effects are laggy/wasteful over VNC.
+      xfconf-query -c xsettings -p /Net/ThemeName           -s "Arc-Dark"     2>/dev/null
+      xfconf-query -c xsettings -p /Net/IconThemeName       -s "Papirus-Dark" 2>/dev/null
+      xfconf-query -c xfwm4     -p /general/theme           -s "Arc-Dark"     2>/dev/null
+      xfconf-query -c xfwm4     -p /general/use_compositing -s false          2>/dev/null
 
+      # x11vnc and websockify MUST agree on the RFB port. x11vnc defaults to 5900
+      # and -display only selects the X display, not the VNC port, so pin both to 5900.
       x11vnc -display :1 -nopw -forever -shared -localhost -rfbport 5900 -o /tmp/x11vnc.log &
       websockify --web=/usr/share/novnc/ 0.0.0.0:6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
 
@@ -411,10 +415,6 @@ resource "kubernetes_deployment_v1" "main" {
             name       = "home"
             read_only  = false
           }
-          volume_mount {
-            mount_path = "/var/run"
-            name       = "docker-graph-storage"
-          }
         }
 
         # Docker-in-Docker Sidecar Container
@@ -422,7 +422,9 @@ resource "kubernetes_deployment_v1" "main" {
           name  = "dind"
           image = "docker:27-dind"
           security_context {
-            privileged = true
+            privileged      = true
+            run_as_user     = 0
+            run_as_non_root = false
           }
           env {
             name  = "DOCKER_TLS_CERTDIR"
