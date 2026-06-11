@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# 1. Label the CRDs to show they are managed by Helm
+kubectl get crd -o name | grep argoproj.io | xargs -I {} kubectl label {} app.kubernetes.io/managed-by=Helm --overwrite
+
+# 2. Annotate them with the new release name (argocd) and namespace (argocd)
+kubectl get crd -o name | grep argoproj.io | xargs -I {} kubectl annotate {} meta.helm.sh/release-name=argocd meta.helm.sh/release-namespace=argocd --overwrite
+
+sleep 3
+
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+
+helm upgrade --install argocd argo/argo-cd \
+  --create-namespace \
+  --namespace argocd \
+  --set global.domain="argocd.xxx.com" \
+  --set server.extraArgs={--insecure} \
+  --set server.ingress.enabled=true \
+  --set server.ingress.ingressClassName="traefik" \
+  --set server.ingress.hosts={"argocd.xxx.com"} \
+  --set server.ingress.tls[0].hosts={"argocd.xxx.com"}

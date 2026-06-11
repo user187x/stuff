@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Option A (tunnel)
+function option_a {
+
+ echo "Making Minikube tunnel..."
+ minikube tunnel
+
+ echo "Checking traefik serivce..."
+ kubectl get svc --namespace traefik traefik
+
+ echo "Appending Host file update..."
+ echo "127.0.0.1 xxx.com" | sudo tee -a /etc/hosts
+
+ echo "Curling endpoint with ca cert..."
+ curl -v --cacert certs/ca.crt https://xxx.com/
+}
+
+# Option B (faster)
+function option_b {
+
+ echo "Port-forwarding traefik deployment..."
+ kubectl port-forward deployment/traefik \
+  --namespace traefik 8443:443
+
+ echo "Curling Minikube..."
+ curl https://xxx.com:8443/ -v \
+  --cacert certs/ca.crt \
+  --resolve xxx.com:8443:127.0.0.1
+}
+
+echo "A. Tunnel"
+echo "B. Port-forward"
+read -r -p "Enter response: (a/b) " response
+
+if [[ "$reponse" == "a" ]]; then
+ option_a
+elif [[ "$response" == "b" ]]; then
+ option_b
+else
+ echo "Unknown response $response"
+ exit 1
+fi

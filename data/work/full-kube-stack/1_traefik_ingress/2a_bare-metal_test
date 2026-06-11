@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "Creating Testing App..."
+kubectl apply -f 1a_test_app.yaml
+
+read -r -p "Are you using minikube? (y/n) : " answer
+
+if [[ "$answer" != "y" ]]; then
+
+ echo "Checking traefik Service..."
+ kubectl get svc -n traefik traefik
+
+ echo "Curling Test App with generated Certs..."
+ curl -v --cacert certs/ca.crt https://xxx.com/
+else
+ 2b_minikube_test
+fi

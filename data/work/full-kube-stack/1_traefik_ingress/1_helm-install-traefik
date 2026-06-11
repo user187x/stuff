@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Create the namespace for Traefik
+kubectl create namespace traefik
+
+# Create the TLS secret using your generated domain certificates
+kubectl create secret tls traefik-page-tls \
+ --cert=../0_certs/tls.crt \
+ --key=../0_certs/tls.key \
+ --namespace traefik
+
+helm repo add traefik https://traefik.github.io/charts --force
+helm repo update
+
+helm upgrade --install traefik traefik/traefik \
+  --namespace traefik \
+  --create-namespace \
+  --set providers.kubernetesIngress.publishedService.enabled=true \
+  --set providers.kubernetesCRD.allowCrossNamespace=true \
+  --set ports.web.redirectTo.port=websecure \
+  --set ports.websecure.tls.enabled=true \
+  --set resources.requests.cpu=100m \
+  --set resources.requests.memory=128Mi \
+  --set resources.limits.cpu=500m \
+  --set resources.limits.memory=512Mi
+
+
+kubectl apply -f - <<EOF
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik
+spec:
+  defaultCertificate:
+    secretName: traefik-page-tls
+EOF

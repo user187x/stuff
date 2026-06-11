@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# In a separate terminal, forward Traefik's HTTPS port again
+echo "Port-forwarding for traefik for testing...."
+kubectl port-forward deployment/traefik -n traefik 8443:443
+
+echo "Curling traefik with certs..."
+curl https://argocd.xxx.com:8443/ -v \
+ --cacert ../0_certs/ca.crt \
+ --resolve argocd.xxx.com:8443:127.0.0.1

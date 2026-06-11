@@ -214,6 +214,14 @@ main() {
  # Step 6: System Configuration
  update_hosts
 
+ echo
+ echo "Test: \
+  curl -v https://xxx.com \
+  --cacert certs/ca.crt \
+  --cert certs/api-client.xxx.com.crt \
+  --key certs/api-client.xxx.com.key"
+ echo
+
  echo -e "\n✅ Provisioning Complete! Required files are located in \e[96m${OUT_DIR}\e[0m."
 }
 
