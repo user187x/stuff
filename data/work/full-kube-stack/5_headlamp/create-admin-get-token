@@ -1,0 +1,33 @@
+#!/bin/bash
+
+helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/
+helm repo update
+
+helm install headlamp headlamp/headlamp \
+ --namespace headlamp \
+ --create-namespace
+
+# kubectl apply -f headlamp-admin.yaml
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-admin
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: argocd
+  namespace: headlamp
+EOF
+
+kubectl -n headlamp create token headlamp-admin
