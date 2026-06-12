@@ -1,3 +1,4 @@
+" vim: set ft=bash :
 " This MUST be the first line in your .vimrc to ensure no side effects.
 set nocompatible
 
@@ -98,13 +99,19 @@ nnoremap __ :set number! relativenumber!<CR>
 nnoremap <C-n> :NERDTreeToggle<CR>
 
 " Delete a line with Leader + d without copying
-nnoremap <leader>d "_d
+nnoremap <leader>d "_dd
 vnoremap <leader>d "_d
+
 " Maps <Leader>da to delete all text without copying it >> spacebar + d + a
 nnoremap <Leader>da :%d _<CR>
 
 " Prevent 'x' from copying single characters
 nnoremap x "_x
+
+augroup ExtensionlessFiles
+  autocmd!
+  autocmd BufRead,BufNewFile * if expand('%:t') !~ '\.' && &filetype == '' | set filetype=text | endif
+augroup END
 
 autocmd BufEnter *
   \ if tabpagenr('$') == 1 &&
@@ -139,7 +146,6 @@ vnoremap <M-v> <Esc>
 " Binding '==' for formatting code
 augroup ShellFormatting
  autocmd!
-
  " Shell Formatting (shfmt)
  autocmd FileType sh if executable('shfmt') |
  \ let b:fmt_cmd = 'shfmt -i 1 -ci' |
@@ -170,9 +176,16 @@ augroup ShellFormatting
  \ nnoremap <buffer> == mzgg=G`z |
  \ endif
 
- " JavaScript and JSON Formatting (prettier)
- autocmd FileType javascript,json if executable('prettier') |
+ " JavaScript, JSON, and YAML Formatting (prettier)
+ autocmd FileType javascript,json,yaml if executable('prettier') |
  \ let b:fmt_cmd = 'prettier --stdin-filepath %' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z |
+ \ endif
+
+ " TOML Formatting (taplo)
+ autocmd FileType toml if executable('taplo') |
+ \ let b:fmt_cmd = 'taplo format -' |
  \ let &l:equalprg = b:fmt_cmd |
  \ nnoremap <buffer> == mzgg=G`z |
  \ endif

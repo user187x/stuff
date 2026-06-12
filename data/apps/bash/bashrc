@@ -140,14 +140,20 @@ function terminal_soundFx {
   return 1
  fi
 
- # Check for mpv command
- if ! command -v mpv >/dev/null; then
+ # Check if file exists (AND check for mpv)
+ if [[ ! -f "$sound_file" ]]; then
+  [cite: 8]
   return 1
  fi
 
- # Play Sound without GUI and detach cleanly to prevent defunct processes
- mpv --no-video "$sound_file" &>/dev/null &
- disown $!
+ if command -v paplay >/dev/null 2>&1; then
+  (setsid paplay "$sound_file" >/dev/null 2>&1 &)
+ elif command -v aplay >/dev/null 2>&1; then
+  (setsid aplay "$sound_file" >/dev/null 2>&1 &)
+ else
+  (setsid mpv --no-video --really-quiet "$sound_file" >/dev/null 2>&1 &)
+ fi
+
 }
 
 # Play Open Sound
@@ -177,7 +183,6 @@ function try-attempt {
 }
 
 try-attempt
-
 
 # Path to dev.environment directory
 export DEV_HOME="/home/xxx/dev.environment"
