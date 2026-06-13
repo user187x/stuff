@@ -1,0 +1,16 @@
+#!/bin/bash
+
+pkgs=(
+ "vizex"
+ "terminaltexteffects"
+ "ruff"
+ "rich"
+ "HTTPie"
+ "glances"
+ "rich-pyfiglet"
+)
+
+for pkg in "${pkgs[@]}"; do
+ pipx install "${pkg}"
+done
+

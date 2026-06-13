@@ -74,12 +74,12 @@ public class AudioBridge {
         this.listener = l;
     }
 
-    public synchronized void startRouting(String inputName, String outputName) throws LineUnavailableException {
+    public synchronized void startRouting(String inputName) throws LineUnavailableException {
         // CRITICAL: never let two routes run at once. This single line is the core
         // of the reverb fix.
         stopRouting();
 
-        final AudioFormat fmt = openLines(inputName, outputName);
+        final AudioFormat fmt = openLines(inputName);
 
         running = true;
         routingThread = new Thread(() -> routeLoop(fmt), "AudioRouting");
@@ -89,9 +89,8 @@ public class AudioBridge {
 
     // ---------- Routing ----------
 
-    private AudioFormat openLines(String inputName, String outputName) throws LineUnavailableException {
+    private AudioFormat openLines(String inputName) throws LineUnavailableException {
         Mixer inMixer = findMixer(inputName);
-        Mixer outMixer = findMixer(outputName);
 
         LineUnavailableException last = null;
         for (float rate : CANDIDATE_RATES) {
@@ -100,13 +99,10 @@ public class AudioBridge {
             DataLine.Info outInfo = new DataLine.Info(SourceDataLine.class, fmt);
 
             boolean inOk = (inMixer != null) ? inMixer.isLineSupported(inInfo) : AudioSystem.isLineSupported(inInfo);
-            boolean outOk = (outMixer != null) ? outMixer.isLineSupported(outInfo) : AudioSystem.isLineSupported(outInfo);
-            if (!inOk || !outOk) continue;
+            if (!inOk) continue;
 
             try {
                 inputLine = (TargetDataLine) ((inMixer != null) ? inMixer.getLine(inInfo) : AudioSystem.getLine(inInfo));
-                outputLine = (SourceDataLine) ((outMixer != null) ? outMixer.getLine(outInfo) : AudioSystem.getLine(outInfo));
-
                 int bufBytes = (int) (rate * (BUFFER_MILLIS / 1000.0)) * 2; // 16-bit = 2 bytes/sample
                 inputLine.open(fmt, bufBytes);
                 outputLine.open(fmt, bufBytes);

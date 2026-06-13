@@ -16,6 +16,7 @@ public class Dashboard extends JFrame {
     private final JButton connectBtn;
     private final JTextField freqField;
     private final JButton setFreqBtn;
+    private final JButton scanBtn;
     private final JToggleButton pttBtn;
     private final JToggleButton rxBtn; // RX listen / mute toggle
     private final JTextField messageField;
@@ -24,10 +25,7 @@ public class Dashboard extends JFrame {
     private SerialPort activePort;
 
     // --- Audio Components ---
-    private final JComboBox<String> pcMicCombo;
-    private final JComboBox<String> radioMicCombo;
-    private final JComboBox<String> pcSpeakerCombo;
-    private final JComboBox<String> radioSpeakerCombo;
+    private final JComboBox<String> ioCombo;
     private final AudioBridge audioBridge = new AudioBridge();
     private final AudioVisualizer visualizer = new AudioVisualizer();
 
@@ -64,27 +62,13 @@ public class Dashboard extends JFrame {
         topPanel.add(serialPanel);
 
         // Row 2: Microphones (Inputs)
-        JPanel micPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        pcMicCombo = new JComboBox<>(AudioBridge.getAvailableInputs().toArray(new String[0]));
-        radioMicCombo = new JComboBox<>(AudioBridge.getAvailableInputs().toArray(new String[0]));
-        micPanel.add(new JLabel("PC Mic:"));
-        micPanel.add(pcMicCombo);
-        micPanel.add(Box.createHorizontalStrut(15));
-        micPanel.add(new JLabel("Radio USB Mic (RX):"));
-        micPanel.add(radioMicCombo);
-        topPanel.add(micPanel);
-
-        // Row 3: Speakers (Outputs)
-        JPanel speakerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        pcSpeakerCombo = new JComboBox<>(AudioBridge.getAvailableOutputs().toArray(new String[0]));
-        radioSpeakerCombo = new JComboBox<>(AudioBridge.getAvailableOutputs().toArray(new String[0]));
-        speakerPanel.add(new JLabel("PC Speakers:"));
-        speakerPanel.add(pcSpeakerCombo);
-        speakerPanel.add(Box.createHorizontalStrut(15));
-        speakerPanel.add(new JLabel("Radio USB Speaker (TX):"));
-        speakerPanel.add(radioSpeakerCombo);
-        topPanel.add(speakerPanel);
-
+        JPanel ioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        ioCombo = new JComboBox<>(AudioBridge.getAvailableInputs().toArray(new String[0]));
+        ioPanel.add(new JLabel("PC Mic:"));
+        ioPanel.add(ioCombo);
+        ioPanel.add(Box.createHorizontalStrut(15));
+        ioPanel.add(new JLabel("PC Speakers:"));
+        topPanel.add(ioPanel);
         controlWrapper.add(topPanel);
 
         // --- CENTER PANEL: Controls ---
@@ -97,11 +81,24 @@ public class Dashboard extends JFrame {
         freqPanel.setBorder(BorderFactory.createTitledBorder("VHF Tuning"));
         freqField = new JTextField("162.400", 10);
         setFreqBtn = new JButton("Set Frequency");
+        scanBtn = new JButton("Scan");
+
+        SpinnerModel mhzModel = new SpinnerNumberModel(162, 0, 999, 5);
+        JSpinner mhz = new JSpinner(mhzModel);
+        mhz.setValue(162);
+
+        SpinnerModel khzModel = new SpinnerNumberModel(400, 0, 999, 10);
+        JSpinner khz = new JSpinner(khzModel);
+        khz.setValue(400);
+
         setFreqBtn.setEnabled(false);
         setFreqBtn.addActionListener(e -> setFrequency());
         freqPanel.add(new JLabel("Frequency (MHz):"));
         freqPanel.add(freqField);
         freqPanel.add(setFreqBtn);
+        freqPanel.add(mhz);
+        freqPanel.add(khz);
+        freqPanel.add(scanBtn);
         centerPanel.add(freqPanel);
 
         // 2. Voice Operation Control
@@ -251,12 +248,11 @@ public class Dashboard extends JFrame {
     }
 
     private void startRXRouting() {
-        String radioMic = (String) radioMicCombo.getSelectedItem();
-        String pcSpeaker = (String) pcSpeakerCombo.getSelectedItem();
+        String pcSpeaker = (String) ioCombo.getSelectedItem();
         try {
-            if (radioMic != null && pcSpeaker != null) {
-                audioBridge.startRouting(radioMic, pcSpeaker);
-                log("Audio: Routing Radio RX -> PC Speakers (" + radioMic + " -> " + pcSpeaker + ").");
+            if (pcSpeaker != null) {
+                audioBridge.startRouting(pcSpeaker);
+                log("Audio: Routing Radio RX -> PC Speakers (" + pcSpeaker + ").");
             } else {
                 log("Audio Error: Please select valid RX audio devices.");
             }
@@ -266,8 +262,7 @@ public class Dashboard extends JFrame {
     }
 
     private void togglePTT() {
-        String pcMic = (String) pcMicCombo.getSelectedItem();
-        String radioSpeaker = (String) radioSpeakerCombo.getSelectedItem();
+        String pcMic = (String) ioCombo.getSelectedItem();
 
         if (pttBtn.isSelected()) {
             // Start Transmitting
@@ -277,9 +272,9 @@ public class Dashboard extends JFrame {
             sendSerialCommand("TX_ON\r\n");
 
             try {
-                if (pcMic != null && radioSpeaker != null) {
+                if (pcMic != null) {
                     // startRouting() tears down RX first, so TX cannot stack on top of it.
-                    audioBridge.startRouting(pcMic, radioSpeaker);
+                    audioBridge.startRouting(pcMic);
                     log("Audio: Transmitting PC Mic -> Radio...");
                 } else {
                     log("Audio Error: Please select valid TX audio devices.");
