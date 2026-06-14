@@ -51,7 +51,7 @@ alias kitty='kitty --config=~/.confg/kitty/kitty.conf'
 alias dkrfmt="dockerfmt -i 1 -w"
 alias nano='vim'
 alias watch-ports='watch -n 1 -tc "grc --colour=on ss -tulpn"'
-
+alias pretty-ports='grc --colour=on ss -tulpn'
 
 # Dynamically alias whichever bat variant exists
 for _bat_cmd in bat batcat; do
