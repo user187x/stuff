@@ -1,0 +1,70 @@
+#!/bin/bash
+
+LOG_FILE="/var/log/auth.log"
+TAIL_LINES=0
+
+# Parse command line arguments
+while [[ "$#" -gt 0 ]]; do
+ case $1 in
+  -n | --number-lines)
+   if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+    TAIL_LINES="$2"
+    shift 2
+   else
+    zenity --error --text="Argument for -n must be a positive integer."
+    exit 1
+   fi
+   ;;
+  *)
+   # FIX 1: Removed angle brackets from NUM to prevent Pango markup crashes
+   zenity --error --text="Usage: $0 [-n|--number-lines NUM]"
+   exit 1
+   ;;
+ esac
+done
+
+# Function to process and format logs
+process_log_line() {
+ local line="$1"
+ local USER=""
+ local IP=""
+
+ local RAW_TIME=$(echo "$line" | awk '{print $1}')
+ local FORMATTED_TIME=$(date -d "$RAW_TIME" +"%b-%d-%Y %I:%M:%S %p" 2>/dev/null)
+ [[ -z "$FORMATTED_TIME" ]] && FORMATTED_TIME="$RAW_TIME"
+
+ if [[ "$line" == *"Invalid user"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\2/p')
+ elif [[ "$line" == *"Accepted"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\2/p')
+ fi
+
+ if [[ -n "$IP" ]]; then
+  printf "%-22s | %-12s | %-15s\n" "$FORMATTED_TIME" "$USER" "$IP"
+ fi
+}
+
+(
+ echo "=========================================================="
+ printf "%-22s | %-12s | %-15s\n" "TIME" "USER" "IP ADDRESS"
+ echo "=========================================================="
+
+ if [[ "$TAIL_LINES" -gt 0 ]]; then
+  sudo grep -E 'Invalid user|Accepted' "$LOG_FILE" 2>/dev/null | tail -n "$TAIL_LINES" | while read -r line; do
+   process_log_line "$line"
+  done
+ fi
+
+ sudo tail -n 0 -F "$LOG_FILE" 2>/dev/null | grep --line-buffered -E 'Invalid user|Accepted' | while read -r line; do
+  process_log_line "$line"
+ done
+
+ # FIX 2: Removed deprecated --font and --window-icon flags
+) | zenity --text-info \
+ --title="Live SSH Security Monitor" \
+ --auto-scroll \
+ --width=700 \
+ --height=450 \
+ --ok-label="Close Monitor"

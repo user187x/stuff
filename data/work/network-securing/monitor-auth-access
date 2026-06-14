@@ -1,0 +1,30 @@
+#!/bin/bash
+
+LOG_FILE="/var/log/auth.log"
+
+echo "======================================================"
+printf "%-32s | %-12s | %-15s\n" "TIME" "USER" "IP ADDRESS"
+echo "======================================================"
+
+# Look for both accepted connections and invalid bot guesses
+grep -E 'Invalid user|Accepted' "$LOG_FILE" | while read -r line; do
+
+ # Grab the timestamp (Column 1 of your logs)
+ TIME=$(echo "$line" | awk '{print $1}')
+
+ # Isolate the username and IP address using standard regex
+ if [[ "$line" == *"Invalid user"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\2/p')
+
+ elif [[ "$line" == *"Accepted"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\2/p')
+ fi
+
+ # Print the cleaned up row if an IP was successfully found
+ if [[ -n "$IP" ]]; then
+  printf "%-32s | %-12s | %-15s\n" "$TIME" "$USER" "$IP"
+ fi
+
+done

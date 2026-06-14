@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Point this to your system's authentication log
+LOG_FILE="/var/log/auth.log"
+TAIL_LINES=5
+
+while [[ "$#" -gt 0 ]]; do
+ case $1 in
+  -n | --number-lines)
+   if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+    TAIL_LINES="$2"
+    shift 2
+   else
+    echo "Error: Argument for $1 must be a positive integer."
+    exit 1
+   fi
+   ;;
+  *)
+   echo "Usage: $0 [-n|--number-lines <number>]"
+   exit 1
+   ;;
+ esac
+done
+
+trap 'printf "\r\033[2K"; echo "Monitoring stopped."; exit 0' INT
+
+echo "=========================================================="
+printf "%-22s | %-12s | %-15s\n" "TIME" "USER" "IP ADDRESS"
+echo "=========================================================="
+
+process_log_line() {
+ local line="$1"
+ local USER=""
+ local IP=""
+ local RAW_TIME
+ local FORMATTED_TIME
+
+ # Extract the raw timestamp (Column 1)
+ RAW_TIME=$(echo "$line" | awk '{print $1}')
+
+ FORMATTED_TIME=$(date -d "$RAW_TIME" +"%b-%d-%Y %I:%M:%S %p" 2>/dev/null)
+
+ # Fallback to raw time if the date command fails
+ [[ -z "$FORMATTED_TIME" ]] && FORMATTED_TIME="$RAW_TIME"
+
+ if [[ "$line" == *"Invalid user"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Invalid user \([^ ]*\) from \([^ ]*\).*/\2/p')
+
+ elif [[ "$line" == *"Accepted"* ]]; then
+  USER=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\1/p')
+  IP=$(echo "$line" | sed -n 's/.*Accepted [^ ]* for \([^ ]*\) from \([^ ]*\).*/\2/p')
+ fi
+
+ if [[ -n "$IP" ]]; then
+  # Clear the line (wipes spinner if active)
+  printf "\r\033[2K"
+
+  # Print data: Time (22 chars) | User (12 chars) | Green IP (\033[32m)
+  printf "%-22s | %-12s | \033[32m%s\033[0m\n" "$FORMATTED_TIME" "$USER" "$IP"
+ fi
+}
+
+if [[ "$TAIL_LINES" -gt 0 ]]; then
+ grep -E 'Invalid user|Accepted' "$LOG_FILE" 2>/dev/null | tail -n "$TAIL_LINES" | while read -r line; do
+  process_log_line "$line"
+ done
+fi
+
+frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+num_frames=${#frames[@]}
+i=0
+
+# Start tailing with -n 0 so it ONLY captures new lines written from this second forward
+exec 3< <(tail -n 0 -F "$LOG_FILE" 2>/dev/null | grep --line-buffered -E 'Invalid user|Accepted')
+
+# Infinite loop handling the spinner and incoming live logs
+while true; do
+ if read -t 0.1 -u 3 line; then
+  process_log_line "$line"
+ else
+  printf "\r\033[36m%s\033[0m Monitoring live..." "${frames[$i]}"
+  i=$(((i + 1) % num_frames))
+ fi
+done
