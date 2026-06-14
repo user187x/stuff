@@ -142,7 +142,6 @@ function terminal_soundFx {
 
  # Check if file exists (AND check for mpv)
  if [[ ! -f "$sound_file" ]]; then
-  [cite: 8]
   return 1
  fi
 

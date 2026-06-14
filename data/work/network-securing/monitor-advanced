@@ -3,6 +3,49 @@
 # Point this to your system's authentication log
 LOG_FILE="/var/log/auth.log"
 TAIL_LINES=5
+SPINNER_ACTIVE=0
+
+# Terminal Sound Fx
+function terminal_soundFx {
+
+ local action="$1"
+
+ # Check if argument count is 0
+ if [[ "$#" -eq 0 && -n "$PS1" ]]; then
+  echo -e "${GRAY}(!) SoundFx: No action specified${END}"
+  return 1
+ fi
+
+ declare -A actions
+ actions["open"]="$HOME/.local/share/audio/info.mp3"
+ actions["close"]="$HOME/.local/share/audio/megaman_teleport.wav"
+
+ # 3. Check if the action exists in the map
+ if [[ -z "${actions[$action]}" ]]; then
+  echo -e "${GRAY}(!) SoundFx: Action Unknown '$action'${END}"
+  return 1
+ fi
+
+ local sound_file="${actions[$action]}"
+
+ # Check if file exists (AND check for mpv)
+ if [[ ! -f "$sound_file" ]]; then
+  return 1
+ fi
+
+ # Check if file exists (AND check for mpv)
+ if [[ ! -f "$sound_file" ]]; then
+  return 1
+ fi
+
+ if command -v paplay >/dev/null 2>&1; then
+  (setsid paplay "$sound_file" >/dev/null 2>&1 &)
+ elif command -v aplay >/dev/null 2>&1; then
+  (setsid aplay "$sound_file" >/dev/null 2>&1 &)
+ else
+  (setsid mpv --no-video --really-quiet "$sound_file" >/dev/null 2>&1 &)
+ fi
+}
 
 while [[ "$#" -gt 0 ]]; do
  case $1 in
@@ -22,7 +65,8 @@ while [[ "$#" -gt 0 ]]; do
  esac
 done
 
-trap 'printf "\r\033[2K"; echo "Monitoring stopped."; exit 0' INT
+# Ensure the multi-line spinner is cleaned up if the user hits Ctrl+C
+trap 'if [[ $SPINNER_ACTIVE -eq 1 ]]; then printf "\r\033[2A\033[0J"; else printf "\r\033[2K"; fi; echo "Monitoring stopped."; exit 0' INT
 
 echo "=========================================================="
 printf "%-22s | %-12s | %-15s\n" "TIME" "USER" "IP ADDRESS"
@@ -53,15 +97,19 @@ process_log_line() {
  fi
 
  if [[ -n "$IP" ]]; then
-  # Clear the line (wipes spinner if active)
-  printf "\r\033[2K"
-
   # Print data: Time (22 chars) | User (12 chars) | Green IP (\033[32m)
-  printf "%-22s | %-12s | \033[32m%s\033[0m\n" "$FORMATTED_TIME" "$USER" "$IP"
+  printf "%-22s | %-12s | \033[32m%s\033[0m\n" "$FORMATTED_TIME" "$USER" "$IP" | tte slide
  fi
 }
 
 if [[ "$TAIL_LINES" -gt 0 ]]; then
+
+ if (( skip == 0 )); then
+  terminal_soundFx open
+ else
+  (( skip-- ))
+ fi
+
  grep -E 'Invalid user|Accepted' "$LOG_FILE" 2>/dev/null | tail -n "$TAIL_LINES" | while read -r line; do
   process_log_line "$line"
  done
@@ -77,10 +125,27 @@ exec 3< <(tail -n 0 -F "$LOG_FILE" 2>/dev/null | grep --line-buffered -E 'Invali
 # Infinite loop handling the spinner and incoming live logs
 while true; do
  if read -t 0.1 -u 3 line; then
+
+  if [[ $SPINNER_ACTIVE -eq 1 ]]; then
+   # Move up 2 lines (\033[2A) and clear to the end of the screen (\033[0J) to wipe the block
+   printf "\r\033[2A\033[0J"
+   SPINNER_ACTIVE=0
+  fi
+
   process_log_line "$line"
  else
-  # \033[2K clears the line. Added space before, and an extra space after the spinner.
-  printf "\r\033[2K \033[36m%s\033[0m  Monitoring live..." "${frames[$i]}"
+
+  if [[ $SPINNER_ACTIVE -eq 1 ]]; then
+   # Move cursor up 2 lines to cleanly overwrite the existing 3-line block
+   printf "\r\033[2A"
+  fi
+
+  printf "\r\033 \n"
+  printf "\r\033[2K \033[36m%s\033[0m monitoring live...\n" "${frames[$i]}"
+  printf "\r\033 "
+
+  SPINNER_ACTIVE=1
   i=$(((i + 1) % num_frames))
+
  fi
 done
