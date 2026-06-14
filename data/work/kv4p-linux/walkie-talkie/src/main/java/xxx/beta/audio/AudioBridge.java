@@ -1,4 +1,4 @@
-package xxx;
+package xxx.beta.audio;
 
 import javax.sound.sampled.*;
 import java.util.ArrayList;

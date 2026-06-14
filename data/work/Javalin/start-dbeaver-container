@@ -1,0 +1,3 @@
+#!/bin/bash
+
+docker run -d --name cloudbeaver   --restart unless-stopped   -p 8978:8978   -v /var/cloudbeaver/workspace:/opt/cloudbeaver/workspace   dbeaver/cloudbeaver:latest

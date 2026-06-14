@@ -116,6 +116,7 @@ shell_utilities=(
  "jq"                       # "command-line JSON surgeon"
  "yq"                       # "jq's sibling for YAML, XML, and TOML"
  "jc"                       # "converts command output into JSON"
+ "grc"                      # "add ansi colors to commands"
  "xmllint:libxml2-utils"    # "xml parsing and xpath from the shell"
  "glow"                     # "render markdown beautifully in the terminal"
  "pv"                       # "watch data flow through a pipe with a progress bar"
