@@ -1,0 +1,144 @@
+#!/bin/bash
+
+# =========================================
+# --- Configuration & Helpers ---
+# =========================================
+
+# Check if network is air-gapped or internet-facing
+check_network_type() {
+ # Ping Cloudflare's DNS to check for internet access (timeout 2 seconds)
+ if ping -c 1 -W 2 1.1.1.1 &>/dev/null; then
+  return 0 # Internet facing
+ else
+  return 1 # Air-gapped
+ fi
+}
+
+# Function to get the external IP address (Only run if internet-facing)
+get_external_ip() {
+ if command -v curl &>/dev/null; then
+  curl -s --max-time 3 ifconfig.me
+ elif command -v wget &>/dev/null; then
+  wget -qO- --timeout=3 ifconfig.me
+ else
+  echo "Error: Neither curl nor wget found." >&2
+  return 1
+ fi
+}
+
+# Native bash port scanner for fallback (checks high-risk SysAdmin ports)
+fallback_port_scan() {
+ local target_ip=$1
+ # Checking SSH, Telnet, HTTP, HTTPS, SMB, RDP
+ local common_ports=(22 23 80 443 445 3389)
+ local open_ports=""
+
+ for port in "${common_ports[@]}"; do
+  # Use bash built-in /dev/tcp to check port availability
+  timeout 1 bash -c "</dev/tcp/$target_ip/$port" &>/dev/null
+  if [ $? -eq 0 ]; then
+   open_ports="$open_ports $port"
+  fi
+ done
+
+ if [ -n "$open_ports" ]; then
+  echo -e "⚠️  Ports open: \e[93m$open_ports\e[0m"
+ else
+  echo "✅ Safe: No open ports detected"
+ fi
+
+ echo
+}
+
+# Function to find local network devices and scan ports
+scan_network() {
+
+ echo
+ echo -e "Scanning Local Network for Devices & Ports..."
+ echo
+
+ # Dynamically determine the local network interface and CIDR
+ DEFAULT_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n 1)
+
+ # Air-gapped fallback: if no default route, grab the first active non-loopback interface
+ if [ -z "$DEFAULT_INTERFACE" ]; then
+  DEFAULT_INTERFACE=$(ip -o link show up | awk -F': ' '$2 != "lo" {print $2}' | head -n 1)
+ fi
+
+ LOCAL_CIDR=$(ip -o -f inet addr show "$DEFAULT_INTERFACE" | awk '{print $4}' | head -n 1)
+
+ if [ -z "$LOCAL_CIDR" ]; then
+  echo "❌ Could not automatically detect local network range. Exiting."
+  exit 1
+ fi
+
+ echo -e "Network: \e[95m$LOCAL_CIDR\e[0m"
+ echo -e " Interface: \e[96m$DEFAULT_INTERFACE\e[0m"
+
+ # Check for nmap
+ if command -v nmap &>/dev/null; then
+
+  echo
+  echo "Searching ports..."
+  echo
+
+  # 1. ARP/Ping sweep to find live hosts quickly
+  live_hosts=$(nmap -sn -PR "$LOCAL_CIDR" -oG - | awk '/Status: Up/{print $2}')
+
+  # 2. Scan ports for each live host
+  for ip in $live_hosts; do
+
+   echo -e "🟢 Device Online: \e[92m$ip\e[0m"
+   ports=$(nmap -F -T4 "$ip" | grep "^[0-9].*open" | awk '{print $1 " ("$3")"}' | paste -sd ", ")
+
+   if [ -n "$ports" ]; then
+    echo -e "⚠️  Open Port: \e[93m$ports\e[0m"
+   else
+    echo "✅ No ports detected."
+   fi
+  done
+
+ else
+  echo
+  echo "⚠️ Ping Sweep..."
+  echo
+
+  # Extract base IP (Assumes a /24 subnet for the fallback)
+  IFS='/' read -r IP _ <<<"$LOCAL_CIDR"
+  BASE_IP="${IP%.*}"
+
+  # Ping sweep loop (backgrounded with & for speed)
+  for i in {1..254}; do
+   TARGET_IP="${BASE_IP}.$i"
+   (
+    if ping -c 1 -W 1 "${TARGET_IP}" &>/dev/null; then
+     echo -e "🟢 Device Online: \e[92m$TARGET_IPe\[0m"
+     fallback_port_scan "$TARGET_IP"
+    fi
+   ) &
+  done
+  wait
+ fi
+}
+
+echo
+echo "Analysing Netowrk...."
+echo
+
+if check_network_type; then
+
+ echo -e "🌐 Internet-Facing Network Detected."
+ EXTERNAL_IP=$(get_external_ip)
+
+ if [ -n "$EXTERNAL_IP" ]; then
+  echo -e "Public IP: \e[92m$EXTERNAL_IP\e[0m"
+ else
+  echo -e "❌ Could not retrieve external IP."
+ fi
+else
+ echo -e "🔒 Air-Gapped Network Detected"
+fi
+
+scan_network
+
+echo
