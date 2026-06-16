@@ -224,3 +224,7 @@ parse-args "$@"
 ((CFG)) && configure-settings
 
 ((SSH)) && configure-ssh
+
+# start agent with protected id_rsa
+eval $(ssh-agent -s)
+
