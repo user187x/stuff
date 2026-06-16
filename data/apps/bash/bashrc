@@ -207,3 +207,5 @@ export PATH="${PATH}:${BIN_HOME}:/usr/local/bin/"
 export PATH="${PATH}:${KITTY_HOME}/kitty"
 export PATH="${PATH}:${ANDROID_TOOLS}:${ANDROID_PLATFORM_TOOLS}"
 export PATH="${PATH}:${DEV_CNTR_HOME}/bin"
+
+source /home/xxx/.config/broot/launcher/bash/br

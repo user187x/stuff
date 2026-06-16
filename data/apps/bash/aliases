@@ -6,23 +6,59 @@
 
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ==========================================
+# LZ ALIAS & FZF PREVIEW HELPER
+# ==========================================
+
+function fzf-previewer {
+
+ # 1. Strip ALL ANSI sequences (The new regex catches \e[K which breaks dot files)
+ local clean_line
+ clean_line=$(echo "$1" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+
+ # 2. Strip the symlink arrow and target to isolate the link name itself
+ clean_line="${clean_line%% -> *}"
+
+ # 3. Extract the last field (the actual file/folder name)
+ local filepath
+ filepath=$(echo "$clean_line" | awk '{print $NF}')
+
+ if [[ -d "$filepath" ]]; then
+  eza --color=always --icons=always -1 "$filepath" 2>/dev/null
+ elif [[ -f "$filepath" || -L "$filepath" ]]; then
+
+  # Run bat once, if it fails, fallback to the unrenderable message
+  if ! bat --color=always --style=numbers "$filepath" 2>/dev/null; then
+   echo -e "\e[90m[ Non Renderable ]\e[0m"
+  fi
+
+ else
+  echo -e "\e[31m[ Unreadable or File Not Found: $filepath ]\e[0m"
+ fi
+}
+
+export -f fzf-previewer
+
 alias devbox="cd $HOME/devbox"
 alias dbx="cd $HOME/devbox"
 
 DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
 
 if command -v eza >/dev/null 2>&1; then
- 
+
  EZA_FLAGS="--color=always --icons=always --group-directories-first"
 
  alias ls="eza ${EZA_FLAGS} ${DATE_FORMAT}"
  alias ll="eza -al --header ${EZA_FLAGS} ${DATE_FORMAT}"
- alias lls='$(echo -e "\e[92m $(ll | fzf --ansi | awk  \"{print \$8}\") \e[0m")'
  alias la="eza -a ${EZA_FLAGS} ${DATE_FORMAT}"
+
+ alias lz='echo -e "\e[92m$(ll | fzf --ansi --border rounded --preview="fzf-previewer {}" | awk "{print \$8}")\e[0m"'
  alias l="eza -lF ${EZA_FLAGS} ${DATE_FORMAT}"
+
  alias dir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
  alias lh="eza -ld .* ${EZA_FLAGS} ${DATE_FORMAT}"
  alias vdir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
+
 else
  alias ls="ls --color=always ${DATE_FORMAT}"
  alias ll='ls -alF --color=always'
@@ -31,6 +67,19 @@ else
  alias dir='dir --color=always'
  alias vdir='vdir --color=always'
  alias lh='ls -ld .* --color=always'
+fi
+
+#########################################
+#
+#         LSD Enhancements
+#
+#########################################
+
+if command -v lsd >/dev/null 2>&1; then
+ alias tree="lsd --tree"
+ alias lt="lsd --tree --depth 2"
+ alias ldir="lsd -d */"
+ alias lbig="lsd -l --blocks size,name --sort size --reverse"
 fi
 
 alias fd='fdfind'
