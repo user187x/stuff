@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# ArgoCD
+chart:
+repo: https://argoproj.github.io/argo-helm
+namespace: argocd
+version:
+commands:
+
+# Postgres
+chart: cnpg/cloudnative-pg
+repo: https://cloudnative-pg.io/charts/
+namespace: cnpg-system
+version: 0.28.3
+commands: 
+
+# Coder
+chart: coder-v2 
+repo: https://helm.coder.com/v2
+namespace: coder
+version: 2.34.3
+commands: 
+
+# Keycloakx
+chart: codecentric/keycloakx
+repo: https://codecentric.github.io/helm-charts
+namespace: keycloak
+version: 7.2.0
+commands: 
+
+# Headlamp
+chart:
+repo:
+namespace:
+verion:
+commands:
+kubectl -n kube-system create serviceaccount headlamp-admin
+kubectl create clusterrolebinding headlamp-admin --serviceaccount=kube-system:headlamp-admin --clusterrole=cluster-admin
+kubectl create token headlamp-admin -n kube-system
+kubectl create clusterrolebinding headlamp-admin-binding --clusterrole=cluster-admin --serviceaccount=kube-system:headlamp-admin
+
+# Harbor
+chart:
+repo:
+namespace:
+verion:
+commands:
+
+# Treafik
+chart:
+repo:
+namespace:
+verion:
+commands:
+
+# Gitlab
+chart:
+repo:
+namespace:
+verion:
+commands:

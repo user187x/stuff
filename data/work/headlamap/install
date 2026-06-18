@@ -1,10 +1,29 @@
 #!/bin/bash
 
-helm repo add
+set -e
+
+echo "Adding Headlamp Helm repository..."
+helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/
 helm repo update
 
-helm upgrade --install
---namespace headlamp \
---create-namespace \
---set server=LoadeBalancer \
---set ?
+echo "Installing/Upgrading Headlamp..."
+helm upgrade --install headlamp headlamp/headlamp \
+  --namespace headlamp \
+  --create-namespace \
+  --set service.type=LoadBalancer
+
+echo "Configuring ServiceAccount and RBAC..."
+# Using dry-run and apply for idempotency (won't fail if they already exist)
+kubectl create serviceaccount headlamp-admin -n headlamp \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create clusterrolebinding headlamp-admin \
+  --serviceaccount=headlamp:headlamp-admin \
+  --clusterrole=cluster-admin \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+echo "========================================="
+echo "Headlamp deployment complete."
+echo "Headlamp Admin Token:"
+kubectl create token headlamp-admin -n headlamp
+echo "========================================="

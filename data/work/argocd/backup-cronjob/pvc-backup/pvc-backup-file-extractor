@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# 1. Spin up a temporary pod attached to the PVC
+kubectl run backup-extractor -n argocd --image=busybox --restart=Never --overrides='
+{
+  "spec": {
+    "volumes": [{"name": "vol", "persistentVolumeClaim": {"claimName": "argocd-backup-pvc"}}],
+    "containers": [{"name": "extractor", "image": "busybox", "command": ["sleep", "3600"], "volumeMounts": [{"name": "vol", "mountPath": "/backup"}]}]
+  }
+}'
+
+# 2. Copy the file to your local machine
+kubectl cp argocd/backup-extractor:/backup/full-argocd-backup-<TIMESTAMP>.yaml ./my-local-backup.yaml
+# 3. Clean up the dummy pod
+kubectl delete pod backup-extractor -n argocd

@@ -1,0 +1,78 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-backup-sa
+  namespace: argocd
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-backup-clusterrole
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-backup-clusterrolebinding
+subjects:
+  - kind: ServiceAccount
+    name: argocd-backup-sa
+    namespace: argocd
+roleRef:
+  kind: ClusterRole
+  name: argocd-backup-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: argocd-local-backup
+  namespace: argocd
+spec:
+  # Runs daily at 2:00 AM cluster time
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: argocd-backup-sa
+          restartPolicy: OnFailure
+          
+          # Map the volume to the directory we mounted into Minikube
+          volumes:
+            - name: local-backup-vol
+              hostPath:
+                path: /mnt/host-backups
+                type: DirectoryOrCreate
+          
+          # Single container to run the export and save directly to the mount
+          containers:
+            - name: argocd-export
+              image: quay.io/argoproj/argocd:v2.10.4 # Pin to your current ArgoCD version
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+                  FILENAME="full-argocd-backup-${TIMESTAMP}.yaml"
+                  DESTINATION="/backup/${FILENAME}"
+                  
+                  echo "Starting ArgoCD Admin Export..."
+                  argocd admin export -n argocd > "${DESTINATION}"
+                  echo "Export complete. File saved to ${DESTINATION}"
+              
+              volumeMounts:
+                - name: local-backup-vol
+                  mountPath: /backup

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+kubectl create -f - <<EOF
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.gitlab.io/
+    targetRevision: 9.11.5 # Downgraded to v9 to restore bundled PostgreSQL/Redis/MinIO
+    chart: gitlab
+    helm:
+      values: |
+        global:
+          hosts:
+            domain: xxx.com
+            externalIP: 10.0.0.5
+            https: false
+          gatewayApi:
+            httpToHttpsRedirect: false
+          appConfig:
+            kerberos:
+              dedicatedPort:
+                https: false
+            incomingEmail:
+              user: xxx@xxx.com
+              address: xxx@xxx.com
+            serviceDeskEmail:
+              address: xxx@xxx.com
+          ingress:
+            configureCertmanager: false
+            tls:
+              enabled: false
+
+        gatewayApiResources:
+          gateway:
+            protocol: HTTP
+
+        certmanager:
+          enabled: false
+
+        certmanager-issuer:
+          email: xxx@xxx.com
+
+        gitlab-runner:
+          install: false
+
+        # To save resources on Minikube, we can still scale down the heavy UI components
+        gitlab:
+          webservice:
+            minReplicas: 1
+            maxReplicas: 1
+          sidekiq:
+            minReplicas: 1
+            maxReplicas: 1
+        prometheus:
+          install: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+ EOF

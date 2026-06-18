@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Create the local directory
+mkdir -p ~/argocd-backups
+
+# Mount the local directory to /mnt/host-backups inside Minikube
+minikube mount ~/argocd-backups:/mnt/host-backups
+
+kubectl apply -f argocd-backup-cronjob.yaml
