@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="dd19ae44-d5bc-49b9-ae48-dd780f249483" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/encodings.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/google-java-format.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/vcs.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/pom.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/java/com/WaveshareLoRaReader.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/META-INF/maven/archetype.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/pom.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/main/java/App.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/test/java/AppTest.java" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="22" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Class" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$/../../../.." value="main" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../../../.." />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.450625231305415" />
+      <entry key="MS500" value="1.8526348917679567" />
+      <entry key="S2" value="1.9609278384610338" />
+      <entry key="S5" value="1.9841840220338" />
+      <entry key="S10" value="1.9920605031986087" />
+      <entry key="S30" value="2.068957197294308" />
+      <entry key="S60" value="6.709862380132659" />
+      <entry key="M2" value="44.736030050352234" />
+      <entry key="M5" value="174.1902589311554" />
+      <entry key="M10" value="280.76454221330175" />
+      <entry key="M15" value="330.6281246171851" />
+      <entry key="M30" value="397.84331880547427" />
+      <entry key="H1" value="468.10079590913557" />
+      <entry key="H2" value="552.2786935169715" />
+      <entry key="H4" value="629.8679758845241" />
+      <entry key="D1" value="730.2500298357028" />
+      <entry key="W1" value="752.1818318756548" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="1.5498145857312156E-249" />
+      <entry key="S2" value="6.277842869026014E-63" />
+      <entry key="S5" value="1.3814184796197723E-25" />
+      <entry key="S10" value="4.5125745917079543E-13" />
+      <entry key="S30" value="1.3426496658890927E-4" />
+      <entry key="S60" value="0.01945954184118383" />
+      <entry key="M2" value="0.2396106950656028" />
+      <entry key="M5" value="1.089380670248682" />
+      <entry key="M10" value="1.8104497635175412" />
+      <entry key="M15" value="2.196533716564649" />
+      <entry key="M30" value="3.5521709351719903" />
+      <entry key="H1" value="7.130310578615381" />
+      <entry key="H2" value="11.976876686075379" />
+      <entry key="H4" value="16.0816379211442" />
+      <entry key="D1" value="20.856741157481068" />
+      <entry key="W1" value="21.832353299090826" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.423841638170212" />
+      <entry key="MS500" value="1.8461239131586542" />
+      <entry key="S2" value="1.9592228243776177" />
+      <entry key="S5" value="1.9834953842678475" />
+      <entry key="S10" value="1.9917150610654826" />
+      <entry key="S30" value="2.0687560579121578" />
+      <entry key="S60" value="6.724211430868678" />
+      <entry key="M2" value="44.9560093117224" />
+      <entry key="M5" value="175.25106562273476" />
+      <entry key="M10" value="282.5527153103441" />
+      <entry key="M15" value="332.8071186184917" />
+      <entry key="M30" value="401.38277582588927" />
+      <entry key="H1" value="475.2199294246526" />
+      <entry key="H2" value="564.2467310780628" />
+      <entry key="H4" value="645.9438107035484" />
+      <entry key="D1" value="751.1055340088171" />
+      <entry key="W1" value="774.0140005588821" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3FKiYHX7j5GGchxRyj2qapitr18" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.App.executor": "Run",
+    "Application.Dashboard.executor": "Run",
+    "Application.Listener.executor": "Run",
+    "Application.xxx.claudewaveshare.App.executor": "Run",
+    "Application.xxx.simple.App.executor": "Run",
+    "Application.xxx.waveshare.App.executor": "Run",
+    "Application.xxx.waveshare.Dashboard.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "/home/xxx/devbox/data/work/kv4p-linux/walkie-talkie/src/main/java/xxx/claudewaveshare",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "project.structure.last.edited": "Libraries",
+    "project.structure.proportion": "0.15",
+    "project.structure.side.proportion": "0.2",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "settings.editor.selected.configurable": "configurable.group.tools",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/main/java/xxx/claudewaveshare" />
+      <recent name="$PROJECT_DIR$" />
+    </key>
+    <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
+      <recent name="xxx.advanced" />
+    </key>
+    <key name="CopyClassDialog.RECENTS_KEY">
+      <recent name="xxx.simple" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Application.xxx.claudewaveshare.App">
+    <configuration name="Dashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.advanced.Dashboard" />
+      <module name="walkie-talkie" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="xxx.advanced.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Listener" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.waveshare.Listener" />
+      <module name="walkie-talkie" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="xxx.waveshare.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="xxx.claudewaveshare.App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.claudewaveshare.App" />
+      <module name="walkie-talkie" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="xxx.claudewaveshare.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="xxx.waveshare.App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.waveshare.App" />
+      <module name="walkie-talkie" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="xxx.waveshare.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="xxx.waveshare.Dashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.waveshare.Dashboard" />
+      <module name="walkie-talkie" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="xxx.waveshare.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Application.xxx.claudewaveshare.App" />
+        <item itemvalue="Application.xxx.waveshare.Dashboard" />
+        <item itemvalue="Application.xxx.waveshare.App" />
+        <item itemvalue="Application.Listener" />
+        <item itemvalue="Application.Dashboard" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-30f59d01ecdd-37e91769500f-intellij.indexing.shared.core-IU-261.25134.95" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-IU-261.25134.95" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="dd19ae44-d5bc-49b9-ae48-dd780f249483" name="Changes" comment="" />
+      <created>1781830207144</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1781830207144</updated>
+      <workItem from="1781830208175" duration="2338000" />
+      <workItem from="1781838440495" duration="8714000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="OPEN_GENERIC_TABS">
+      <map>
+        <entry key="f93ae600-c66e-48a4-b6b8-479ec70f402c" value="TOOL_WINDOW" />
+        <entry key="cd9190c4-a87b-4e96-b05d-f5b391a5243e" value="TOOL_WINDOW" />
+      </map>
+    </option>
+    <option name="TAB_STATES">
+      <map>
+        <entry key="cd9190c4-a87b-4e96-b05d-f5b391a5243e">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="HEAD" />
+                      </list>
+                    </value>
+                  </entry>
+                  <entry key="structure">
+                    <value>
+                      <list>
+                        <option value="dir:/home/xxx/devbox/data/work/kv4p-linux/walkie-talkie" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+              <option name="SHOW_ONLY_AFFECTED_CHANGES" value="true" />
+            </State>
+          </value>
+        </entry>
+        <entry key="f93ae600-c66e-48a4-b6b8-479ec70f402c">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="HEAD" />
+                      </list>
+                    </value>
+                  </entry>
+                  <entry key="structure">
+                    <value>
+                      <list>
+                        <option value="dir:/home/xxx/devbox/data/work/kv4p-linux/walkie-talkie" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+              <option name="SHOW_ONLY_AFFECTED_CHANGES" value="true" />
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>
