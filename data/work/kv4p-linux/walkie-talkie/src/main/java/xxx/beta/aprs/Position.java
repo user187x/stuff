@@ -23,6 +23,7 @@ package xxx.beta.aprs;
 import java.io.Serializable;
 import java.text.DecimalFormat;
 import java.util.Locale;
+
 /**
  * 
  * @author johng

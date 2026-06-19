@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package xxx.beta.radio;
 
+import static xxx.beta.radio.Protocol.DRA818_12K5;
 import static xxx.beta.radio.Protocol.DRA818_25K;
 
 /**

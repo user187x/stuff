@@ -1,9 +1,9 @@
 package xxx.beta.audio;
 
-import org.concentus.OpusDecoder;
-import javax.sound.sampled.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import javax.sound.sampled.*;
+import org.concentus.OpusDecoder;
 
 public class OpusCodec {
 

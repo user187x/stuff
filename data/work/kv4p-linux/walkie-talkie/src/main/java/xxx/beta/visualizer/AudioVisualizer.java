@@ -1,10 +1,9 @@
 package xxx.beta.visualizer;
 
-import xxx.beta.audio.AudioBridge;
-
+import java.awt.*;
 import javax.sound.sampled.AudioFormat;
 import javax.swing.*;
-import java.awt.*;
+import xxx.beta.audio.AudioBridge;
 
 /**
  * Dual-mode visualizer for live audio streams.

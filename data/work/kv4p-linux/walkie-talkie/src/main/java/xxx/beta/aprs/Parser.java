@@ -28,6 +28,7 @@ package xxx.beta.aprs;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+
 /**
  * 
  * @author johng

@@ -1,10 +1,10 @@
 package xxx.beta.audio;
 
-import javax.sound.sampled.*;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import javax.sound.sampled.*;
 
 /**
  * Routes raw PCM audio from one device (input) to another (output).

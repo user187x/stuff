@@ -1,7 +1,6 @@
 package xxx.beta.usb;
 
 import com.fazecast.jSerialComm.SerialPort;
-
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;

@@ -1,9 +1,9 @@
 package xxx.alpha;
 
-import javax.swing.*;
-import javax.swing.event.ChangeEvent;
 import java.awt.*;
 import java.util.Arrays;
+import javax.swing.*;
+import javax.swing.event.ChangeEvent;
 
 public class MainWindow extends JFrame {
 
