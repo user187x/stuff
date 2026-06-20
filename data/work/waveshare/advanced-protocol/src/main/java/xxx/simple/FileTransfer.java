@@ -1,4 +1,4 @@
-package xxx.claudewaveshare;
+package xxx.simple;
 
 import java.io.File;
 import java.io.IOException;

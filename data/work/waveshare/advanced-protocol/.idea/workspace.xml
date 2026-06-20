@@ -5,18 +5,20 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="dd19ae44-d5bc-49b9-ae48-dd780f249483" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/encodings.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/google-java-format.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/pom.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/java/com/WaveshareLoRaReader.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/META-INF/maven/archetype.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/pom.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/main/java/App.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/test/java/AppTest.java" beforeDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/RadioConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../advanced-gui/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../advanced-gui/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/App.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/App.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Beacon.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Beacon.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/DeviceManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/DeviceManager.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/FileTransfer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/FileTransfer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Listener.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Listener.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/LogicTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/LogicTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Protocol.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Protocol.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Radio.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Radio.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/RadioConfig.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Sender.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Sender.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/SignalScanner.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/SignalScanner.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -24,7 +26,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="22" />
+    <option name="cachedIndexableFilesCount" value="24" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -47,61 +49,61 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.450625231305415" />
-      <entry key="MS500" value="1.8526348917679567" />
-      <entry key="S2" value="1.9609278384610338" />
-      <entry key="S5" value="1.9841840220338" />
-      <entry key="S10" value="1.9920605031986087" />
-      <entry key="S30" value="2.068957197294308" />
-      <entry key="S60" value="6.709862380132659" />
-      <entry key="M2" value="44.736030050352234" />
-      <entry key="M5" value="174.1902589311554" />
-      <entry key="M10" value="280.76454221330175" />
-      <entry key="M15" value="330.6281246171851" />
-      <entry key="M30" value="397.84331880547427" />
-      <entry key="H1" value="468.10079590913557" />
-      <entry key="H2" value="552.2786935169715" />
-      <entry key="H4" value="629.8679758845241" />
-      <entry key="D1" value="730.2500298357028" />
-      <entry key="W1" value="752.1818318756548" />
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.0" />
+      <entry key="S2" value="1.0" />
+      <entry key="S5" value="1.0" />
+      <entry key="S10" value="1.0" />
+      <entry key="S30" value="1.0" />
+      <entry key="S60" value="1.0000000000000344" />
+      <entry key="M2" value="1.000002694132368" />
+      <entry key="M5" value="1.2225536461800675" />
+      <entry key="M10" value="11.054244250327784" />
+      <entry key="M15" value="36.989264863597136" />
+      <entry key="M30" value="132.6502606584008" />
+      <entry key="H1" value="270.98178470369993" />
+      <entry key="H2" value="421.3587438542574" />
+      <entry key="H4" value="551.6393410042197" />
+      <entry key="D1" value="717.4365053695547" />
+      <entry key="W1" value="753.6833928345633" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
-      <entry key="MS500" value="1.5498145857312156E-249" />
-      <entry key="S2" value="6.277842869026014E-63" />
-      <entry key="S5" value="1.3814184796197723E-25" />
-      <entry key="S10" value="4.5125745917079543E-13" />
-      <entry key="S30" value="1.3426496658890927E-4" />
-      <entry key="S60" value="0.01945954184118383" />
-      <entry key="M2" value="0.2396106950656028" />
-      <entry key="M5" value="1.089380670248682" />
-      <entry key="M10" value="1.8104497635175412" />
-      <entry key="M15" value="2.196533716564649" />
-      <entry key="M30" value="3.5521709351719903" />
-      <entry key="H1" value="7.130310578615381" />
-      <entry key="H2" value="11.976876686075379" />
-      <entry key="H4" value="16.0816379211442" />
-      <entry key="D1" value="20.856741157481068" />
-      <entry key="W1" value="21.832353299090826" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="1.1157694367573437E-199" />
+      <entry key="S10" value="4.055542841943096E-100" />
+      <entry key="S30" value="1.2956993514422056E-33" />
+      <entry key="S60" value="6.045098442249995E-17" />
+      <entry key="M2" value="1.3354928962889434E-8" />
+      <entry key="M5" value="0.0013665760912084143" />
+      <entry key="M10" value="0.06412295902595111" />
+      <entry key="M15" value="0.23689501675095098" />
+      <entry key="M30" value="1.1665487213699728" />
+      <entry key="H1" value="4.0861373411969835" />
+      <entry key="H2" value="9.066628778670639" />
+      <entry key="H4" value="13.992051917505442" />
+      <entry key="D1" value="20.378473050016037" />
+      <entry key="W1" value="21.76012028818924" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.423841638170212" />
-      <entry key="MS500" value="1.8461239131586542" />
-      <entry key="S2" value="1.9592228243776177" />
-      <entry key="S5" value="1.9834953842678475" />
-      <entry key="S10" value="1.9917150610654826" />
-      <entry key="S30" value="2.0687560579121578" />
-      <entry key="S60" value="6.724211430868678" />
-      <entry key="M2" value="44.9560093117224" />
-      <entry key="M5" value="175.25106562273476" />
-      <entry key="M10" value="282.5527153103441" />
-      <entry key="M15" value="332.8071186184917" />
-      <entry key="M30" value="401.38277582588927" />
-      <entry key="H1" value="475.2199294246526" />
-      <entry key="H2" value="564.2467310780628" />
-      <entry key="H4" value="645.9438107035484" />
-      <entry key="D1" value="751.1055340088171" />
-      <entry key="W1" value="774.0140005588821" />
+      <entry key="MS100" value="0.9330329915368074" />
+      <entry key="MS500" value="0.9862327044933592" />
+      <entry key="S2" value="0.9965402628278678" />
+      <entry key="S5" value="0.9986146661010289" />
+      <entry key="S10" value="0.9993070929904525" />
+      <entry key="S30" value="0.9997689776295918" />
+      <entry key="S60" value="0.9998844821426427" />
+      <entry key="M2" value="0.9999449450956123" />
+      <entry key="M5" value="1.223855672020516" />
+      <entry key="M10" value="11.117490561548003" />
+      <entry key="M15" value="37.224107994306344" />
+      <entry key="M30" value="133.81240088363077" />
+      <entry key="H1" value="275.0613160748152" />
+      <entry key="H2" value="430.4185494232135" />
+      <entry key="H4" value="565.6262682457817" />
+      <entry key="D1" value="737.8137556778746" />
+      <entry key="W1" value="775.4433270603275" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -113,42 +115,45 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Application.App.executor": "Run",
-    "Application.Dashboard.executor": "Run",
-    "Application.Listener.executor": "Run",
-    "Application.xxx.claudewaveshare.App.executor": "Run",
-    "Application.xxx.simple.App.executor": "Run",
-    "Application.xxx.waveshare.App.executor": "Run",
-    "Application.xxx.waveshare.Dashboard.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "/home/xxx/devbox/data/work/kv4p-linux/walkie-talkie/src/main/java/xxx/claudewaveshare",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Libraries",
-    "project.structure.proportion": "0.15",
-    "project.structure.side.proportion": "0.2",
-    "run.code.analysis.last.selected.profile": "pProject Default",
-    "settings.editor.selected.configurable": "configurable.group.tools",
-    "to.speed.mode.migration.done": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Application.App.executor&quot;: &quot;Run&quot;,
+    &quot;Application.Dashboard.executor&quot;: &quot;Run&quot;,
+    &quot;Application.Listener.executor&quot;: &quot;Run&quot;,
+    &quot;Application.LogicTest.executor&quot;: &quot;Run&quot;,
+    &quot;Application.RadioDashboard.executor&quot;: &quot;Run&quot;,
+    &quot;Application.xxx.claudewaveshare.App.executor&quot;: &quot;Run&quot;,
+    &quot;Application.xxx.simple.App.executor&quot;: &quot;Run&quot;,
+    &quot;Application.xxx.simple.RadioDashboard.executor&quot;: &quot;Run&quot;,
+    &quot;Application.xxx.waveshare.App.executor&quot;: &quot;Run&quot;,
+    &quot;Application.xxx.waveshare.Dashboard.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/xxx/devbox/data/work/waveshare/advanced-protocol&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Libraries&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;editor.preferences.fonts.default&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/src/main/java/xxx/claudewaveshare" />
@@ -161,13 +166,13 @@
       <recent name="xxx.simple" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.xxx.claudewaveshare.App">
-    <configuration name="Dashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="xxx.advanced.Dashboard" />
+  <component name="RunManager" selected="Application.xxx.simple.App">
+    <configuration name="LogicTest" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.simple.LogicTest" />
       <module name="walkie-talkie" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="xxx.advanced.*" />
+          <option name="PATTERN" value="xxx.simple.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -175,12 +180,12 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Listener" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="xxx.waveshare.Listener" />
+    <configuration name="RadioDashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.claude.RadioDashboard" />
       <module name="walkie-talkie" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="xxx.waveshare.*" />
+          <option name="PATTERN" value="xxx.simple.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -188,12 +193,12 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="xxx.claudewaveshare.App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="xxx.claudewaveshare.App" />
+    <configuration name="xxx.simple.App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.simple.App" />
       <module name="walkie-talkie" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="xxx.claudewaveshare.*" />
+          <option name="PATTERN" value="xxx.simple.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -201,12 +206,12 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="xxx.waveshare.App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="xxx.waveshare.App" />
+    <configuration name="xxx.simple.RadioDashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="xxx.simple.RadioDashboard" />
       <module name="walkie-talkie" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="xxx.waveshare.*" />
+          <option name="PATTERN" value="xxx.simple.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -229,11 +234,11 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Application.xxx.claudewaveshare.App" />
+        <item itemvalue="Application.xxx.simple.App" />
+        <item itemvalue="Application.xxx.simple.RadioDashboard" />
+        <item itemvalue="Application.LogicTest" />
+        <item itemvalue="Application.RadioDashboard" />
         <item itemvalue="Application.xxx.waveshare.Dashboard" />
-        <item itemvalue="Application.xxx.waveshare.App" />
-        <item itemvalue="Application.Listener" />
-        <item itemvalue="Application.Dashboard" />
       </list>
     </recent_temporary>
   </component>
@@ -254,6 +259,8 @@
       <updated>1781830207144</updated>
       <workItem from="1781830208175" duration="2338000" />
       <workItem from="1781838440495" duration="8714000" />
+      <workItem from="1781855666056" duration="433000" />
+      <workItem from="1781905118287" duration="9152000" />
     </task>
     <servers />
   </component>

@@ -5,18 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="dd19ae44-d5bc-49b9-ae48-dd780f249483" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/encodings.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/google-java-format.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/pom.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/java/com/WaveshareLoRaReader.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/META-INF/maven/archetype.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/pom.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/main/java/App.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../waveshare-lora/Waveshare/src/main/resources/archetype-resources/src/test/java/AppTest.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -134,7 +123,7 @@
     "git-widget-placeholder": "main",
     "junie.onboarding.icon.badge.shown": "true",
     "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "/home/xxx/devbox/data/work/kv4p-linux/walkie-talkie/src/main/java/xxx/claudewaveshare",
+    "last_opened_file_path": "/home/xxx/devbox/data/work/waveshare/advanced-protocol",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -161,7 +150,7 @@
       <recent name="xxx.simple" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.xxx.claudewaveshare.App">
+  <component name="RunManager" selected="Application.xxx.waveshare.Dashboard">
     <configuration name="Dashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="xxx.advanced.Dashboard" />
       <module name="walkie-talkie" />
@@ -229,9 +218,9 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Application.xxx.claudewaveshare.App" />
         <item itemvalue="Application.xxx.waveshare.Dashboard" />
         <item itemvalue="Application.xxx.waveshare.App" />
+        <item itemvalue="Application.xxx.claudewaveshare.App" />
         <item itemvalue="Application.Listener" />
         <item itemvalue="Application.Dashboard" />
       </list>
@@ -254,6 +243,7 @@
       <updated>1781830207144</updated>
       <workItem from="1781830208175" duration="2338000" />
       <workItem from="1781838440495" duration="8714000" />
+      <workItem from="1781855541231" duration="122000" />
     </task>
     <servers />
   </component>

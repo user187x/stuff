@@ -1,4 +1,4 @@
-package xxx.claudewaveshare;
+package xxx.simple;
 
 import com.fazecast.jSerialComm.SerialPort;
 
@@ -52,6 +52,18 @@ public class Radio {
 
     public interface MessageHandler { void onMessage(int src, String text); }
 
+    /** Live receive-activity feed for visualizers: (channel, byteCount, timestampMs). */
+    public interface ActivitySink { void onActivity(int channel, int byteCount, long timestampMs); }
+    /** Per-step scan progress for visualizers. */
+    public interface ScanStepSink { void onStep(int channel, double frequencyMHz); }
+    /** Completed-inbound-file notifications for the UI. */
+    public interface FileReceiveSink { void onFile(int src, String name, int bytes, boolean crcOk); }
+
+    private volatile ActivitySink activitySink;
+    private volatile ScanStepSink scanStepSink;
+    private volatile FileReceiveSink fileReceiveSink;
+    private volatile int currentChannel = -1; // unknown until first tune/scan in this session
+
     /**
      * @param port     an already-open serial port (from {@link DeviceManager})
      * @param myAddr   this node's application address (0..0xFFFE; 0xFFFF is broadcast)
@@ -76,6 +88,13 @@ public class Radio {
         // One decoder, one frame handler, on the single receive path.
         listener.setDecoder(new Protocol.Decoder());
         listener.setFrameHandler(this::onFrame);
+        // Measure raw receive activity for the frequency visualizer. This runs
+        // alongside (not instead of) frame decoding. SignalScanner saves and
+        // restores this tap around a sweep, so it resumes afterwards.
+        listener.setRawTap(bytes -> {
+            ActivitySink s = activitySink;
+            if (s != null) s.onActivity(currentChannel, bytes.length, System.currentTimeMillis());
+        });
         listener.start();
     }
 
@@ -90,17 +109,46 @@ public class Radio {
                 : (src, text) -> { };
     }
 
+    public void setActivitySink(ActivitySink sink)       { this.activitySink = sink; }
+    public void setScanStepSink(ScanStepSink sink)       { this.scanStepSink = sink; }
+    public void setFileReceiveSink(FileReceiveSink sink) { this.fileReceiveSink = sink; }
+
+    /**
+     * Watch the raw AT dialog with the dongle (every command sent and reply
+     * received). Optional - tuning works whether or not anything is attached.
+     */
+    public void setAtTrace(java.util.function.Consumer<String> trace) {
+        config.commander().setTrace(trace);
+    }
+
+    /** Whether the module acknowledged (with OK) the most recent AT operation. */
+    public boolean lastCommandAcknowledged() { return config.lastOk(); }
+
+    /** Currently tuned channel, or -1 if not tuned via this session yet. */
+    public int currentChannel() { return currentChannel; }
+
+    /** Currently tuned frequency in MHz, or -1 if unknown. */
+    public double currentFrequencyMHz() {
+        return currentChannel < 0 ? -1 : config.frequencyForChannel(currentChannel);
+    }
+
     /** Tune both TX and RX to a frequency in MHz (rounded to nearest channel). */
     public int setFrequency(double mhz) {
         int ch = config.tuneFrequency(mhz);
-        log.accept(String.format("tuned to channel %d (%.0f MHz)", ch, config.frequencyForChannel(ch)));
+        currentChannel = ch;
+        log.accept(String.format("tune %.0f MHz -> channel %d: module %s",
+                config.frequencyForChannel(ch), ch,
+                config.lastOk() ? "acknowledged (OK)" : "did NOT acknowledge"));
         return ch;
     }
 
     /** Tune both TX and RX to a channel number. */
     public int setChannel(int channel) {
         int ch = config.tuneChannel(channel);
-        log.accept(String.format("tuned to channel %d (%.0f MHz)", ch, config.frequencyForChannel(ch)));
+        currentChannel = ch;
+        log.accept(String.format("tune channel %d (%.0f MHz): module %s",
+                ch, config.frequencyForChannel(ch),
+                config.lastOk() ? "acknowledged (OK)" : "did NOT acknowledge"));
         return ch;
     }
 
@@ -108,18 +156,21 @@ public class Radio {
      * Configure the module so a group of dongles share one "net": same module
      * RF address and channel means they hear each other in stream mode. Peers
      * agree on these out of band (or use the broadcast address 0xFFFF to listen
-     * to everything on the channel).
+     * to everything on the channel). Stream mode is set here too, because that is
+     * the mode under which TX/RX channel actually governs the operating frequency.
      */
     public void joinNet(int moduleAddr, int channel) {
         config.beginSession();
         try {
+            config.setMode(RadioConfig.Mode.STREAM);
             config.setAddress(moduleAddr);
             config.setTransmitChannel(channel);
             config.setReceiveChannel(channel);
         } finally {
             config.endSession();
         }
-        log.accept(String.format("joined net: module addr 0x%04X on channel %d (%.0f MHz)",
+        currentChannel = Math.max(RadioConfig.MIN_CHANNEL, Math.min(RadioConfig.MAX_CHANNEL, channel));
+        log.accept(String.format("joined net: module addr 0x%04X on channel %d (%.0f MHz), stream mode",
                 moduleAddr & 0xFFFF, channel, config.frequencyForChannel(channel)));
     }
 
@@ -131,13 +182,34 @@ public class Radio {
         log.accept(String.format("scanning channels %d..%d step %d, dwell %dms",
                 startChannel, endChannel, step, dwellMs));
         SignalScanner.ScanResult r = scanner.scan(startChannel, endChannel, step, dwellMs,
-                (ch, mhz) -> log.accept(String.format("  ch %d (%.0f MHz)...", ch, mhz)));
+                (ch, mhz) -> {
+                    currentChannel = ch;
+                    ScanStepSink s = scanStepSink;
+                    if (s != null) s.onStep(ch, mhz);
+                    log.accept(String.format("  ch %d (%.0f MHz)...", ch, mhz));
+                });
+        currentChannel = r.channel;
         log.accept("scan result: " + r);
         return r;
     }
 
     public SignalScanner.ScanResult scanBand(long dwellMs) {
         return scan(RadioConfig.MIN_CHANNEL, RadioConfig.MAX_CHANNEL, 1, dwellMs);
+    }
+
+    /**
+     * Non-stopping band survey for the live visualizer: sweeps every channel in
+     * the range, reporting per-channel byte activity. The tuned channel follows
+     * the sweep so a UI marker can track where the receiver currently is. Stop a
+     * continuous monitor with {@link #cancelScan()}.
+     */
+    public List<SignalScanner.ChannelActivity> survey(int startChannel, int endChannel,
+                                                      int step, long dwellMs,
+                                                      SignalScanner.SurveyCallback cb) {
+        return scanner.survey(startChannel, endChannel, step, dwellMs, (ch, mhz, bytes) -> {
+            currentChannel = ch;
+            if (cb != null) cb.onChannel(ch, mhz, bytes);
+        });
     }
 
     public void cancelScan() { scanner.cancel(); }
@@ -161,10 +233,14 @@ public class Radio {
     // --- file transfer (feature #5) ----------------------------------------
 
     public void sendFile(int dstAddr, File file) throws IOException {
+        sendFile(dstAddr, file, (name, sent, total) ->
+                log.accept(String.format("  %s: %d/%d chunks", name, sent, total)));
+    }
+
+    /** Send a file, reporting progress to the supplied callback (used by the GUI). */
+    public void sendFile(int dstAddr, File file, FileTransfer.Progress progress) throws IOException {
         log.accept("sending file " + file.getName() + " (" + file.length() + " bytes)");
-        fileTransfer.sendFile(file, dstAddr, FileTransfer.DEFAULT_CHUNK,
-                (name, sent, total) ->
-                        log.accept(String.format("  %s: %d/%d chunks", name, sent, total)));
+        fileTransfer.sendFile(file, dstAddr, FileTransfer.DEFAULT_CHUNK, progress);
         log.accept("file send complete: " + file.getName());
     }
 
@@ -212,6 +288,8 @@ public class Radio {
             log.accept(String.format("file \"%s\" from 0x%04X FAILED (incomplete or CRC mismatch)",
                     name, src & 0xFFFF));
         }
+        FileReceiveSink s = fileReceiveSink;
+        if (s != null) s.onFile(src & 0xFFFF, name, data == null ? 0 : data.length, crcOk);
     }
 
     // --- lifecycle ----------------------------------------------------------

@@ -1,4 +1,4 @@
-package xxx.claudewaveshare;
+package xxx.simple;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;

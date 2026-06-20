@@ -1,4 +1,4 @@
-package xxx.claudewaveshare;
+package xxx.simple;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

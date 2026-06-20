@@ -1,4 +1,4 @@
-package xxx.claudewaveshare;
+package xxx.simple;
 
 import com.fazecast.jSerialComm.SerialPort;
 
