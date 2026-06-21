@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#!/bin/bash
+
+# Repackage the entire project from the root directory
+if [[ ! -f "MyRadioApp.jar" ]]; then
+    echo "Building the jar..."
+    jar cvfe MyRadioApp.jar iFrogLabAPP.iFrogLabAPP .
+fi
+
+java -cp MyRadioApp.jar -Djava.library.path=./Linux/x86_64 \
+    -Dsun.java2d.uiScale=2 iFrogLabAPP.iFrogLabAPP

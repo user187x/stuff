@@ -1,0 +1,3 @@
+#!/bin/bash
+
+minikube start --cni=calico --cpus=6 --memory=16GB

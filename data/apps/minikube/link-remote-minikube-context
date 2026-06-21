@@ -1,0 +1,25 @@
+#!/bin/bash
+
+read -r -p "Enter IP of remote Minikube: " minikube_ip
+
+# 1. Set the new cluster with your custom 10.x.x.x address
+kubectl config set-cluster custom-minikube \
+ --server=https://"${minikube_ip}":8443 \
+ --certificate-authority=$HOME/.minikube/ca.crt \
+ --embed-certs=true
+
+# 2. Set the client credentials using Minikube's keys
+kubectl config set-credentials minikube-user \
+ --client-certificate=$HOME/.minikube/profiles/minikube/client.crt \
+ --client-key=$HOME/.minikube/profiles/minikube/client.key \
+ --embed-certs=true
+
+# 3. Create the context tying the cluster and user together
+kubectl config set-context custom-minikube \
+ --cluster=custom-minikube \
+ --user=minikube-user
+
+# 4. Switch to the new context to make it active
+kubectl config use-context custom-minikube
+
+echo -e "Minkube at \e[92m${minikube_ip}\e[0m added!"

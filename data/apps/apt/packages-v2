@@ -1,0 +1,981 @@
+#!/bin/bash
+
+# Update repositories
+echo "--- 🔄 Updating Package Lists ---"
+sudo apt update -y && sudo apt upgrade -y
+
+# ==========================================
+# APT Package Catalog
+# ==========================================
+
+# -- Build & Compilation Toolchain --------------------------------------------
+build_toolchain=(
+ "build-essential"
+ "make"
+ "libc6-dev"
+ "gcc"
+ "g++"
+ "clang"
+ "cmake"
+ "ninja-build"
+ "meson"
+ "pkg-config"
+ "autoconf"
+ "automake"
+ "libtool-bin"
+ "checkinstall"
+ "ccache"
+ "gdb"
+ "lldb"
+ "valgrind"
+ "strace"
+ "ltrace"
+ "bpftrace"
+ "musl"
+)
+
+# -- Development Libraries ----------------------------------------------------
+dev_libraries=(
+ "libssl-dev"
+ "libzip-dev"
+ "libcurl4-openssl-dev"
+ "libnss3-tools"
+ "zlib1g-dev"
+ "libreadline-dev"
+ "libsqlite3-dev"
+ "libpq-dev"
+ "libffi-dev"
+ "libbz2-dev"
+ "liblzma-dev"
+ "libncurses-dev"
+ "libxml2-dev"
+ "libyaml-dev"
+ "libplist-dev"
+ "libimobiledevice-glue-dev"
+ "libusbmuxd-dev"
+ "libirecovery-1.0-dev"
+ "usbmuxd"
+ "libglib2.0-dev-bin"
+)
+
+# -- Version Control ----------------------------------------------------------
+version_control=(
+ "git"
+ "lazygit"
+ "delta:git-delta"
+ "tig"
+ "git-lfs"
+ "git-extras"
+ "hg:mercurial"
+)
+
+# -- Editors ------------------------------------------------------------------
+editors=(
+ "vim"
+ "nvim:neovim"
+ "nano"
+ "micro"
+ "emacs"
+ "pluma"
+ "gedit"
+)
+
+# -- Terminals & Multiplexers -------------------------------------------------
+terminals=(
+ "tmux"
+ "kitty"
+ "alacritty"
+ "screen"
+ "gnome-terminal"
+ "terminator"
+ "tilix"
+)
+
+# -- Shell Utilities ----------------------------------------------------------
+shell_utilities=(
+ "bat"
+ "broot"
+ "lsd"
+ "stow"
+ "eza"
+ "rg:ripgrep"
+ "fd:fd-find"
+ "fzf"
+ "zoxide"
+ "thefuck"
+ "jq"
+ "yq"
+ "jc"
+ "grc"
+ "xmllint:libxml2-utils"
+ "glow"
+ "pv"
+ "tree"
+ "rename"
+ "expect"
+ "direnv"
+ "apt-file"
+ "entr"
+ "parallel"
+ "moreutils"
+ "http:httpie"
+ "tealdeer:tldr"
+ "socat"
+ "bc"
+ "dateutils.dadd:dateutils"
+ "gettext-base"
+ "util-linux-extra"
+ "openssl"
+)
+
+# -- File Managers ------------------------------------------------------------
+file_managers=(
+ "ranger"
+ "mc"
+ "nnn"
+ "vifm"
+)
+
+# -- System Monitors & Disk Usage --------------------------------------------
+system_monitors=(
+ "htop"
+ "btop"
+ "bmon"
+ "duf"
+ "ncdu"
+ "gdu"
+ "diskonaut"
+ "fastfetch"
+ "indicator-multiload"
+ "stacer"
+ "iotop"
+ "nethogs"
+ "iftop"
+ "glances"
+ "sar:sysstat"
+ "lsof"
+ "powertop"
+ "s-tui"
+)
+
+# -- Networking ---------------------------------------------------------------
+networking=(
+ "curl"
+ "wget"
+ "nmap"
+ "netstat:net-tools"
+ "inotifywait:inotify-tools"
+ "ab:apache2-utils"
+ "mtr"
+ "zenmap"
+ "traceroute"
+ "aircrack-ng"
+ "tcpdump"
+ "openssh-server"
+ "tshark"
+ "iperf3"
+ "dig:dnsutils"
+ "libnet1-dev"
+ "libpcap-dev"
+ "whois"
+ "wg:wireguard-tools"
+ "mosh"
+ "ngrep"
+ "ettercap:ettercap-graphical"
+)
+
+# -- Remote Desktop / VNC -----------------------------------------------------
+remote_desktop=(
+ "wayvnc"
+ "tigervnc-common"
+ "tigervnc-viewer"
+ "tigervnc-tools"
+ "tigervnc-standalone-server"
+ "remmina"
+ "x11vnc"
+ "xfreerdp:freerdp3-x11:freerdp2-x11"
+ "xrdp"
+ "barrier"
+)
+
+# -- Virtualization -----------------------------------------------------------
+virtualization=(
+ "qemu-system-x86"
+ "qemu-utils"
+ "libvirt-daemon-system"
+ "libvirt-clients"
+ "bridge-utils"
+ "virt-manager"
+ "ovmf"
+ "podman"
+ "docker:docker.io"
+ "lxc"
+ "dnsmasq"
+)
+
+# -- Media: Audio, Video, Images ---------------------------------------------
+media=(
+ "mpv"
+ "ffmpeg"
+ "ffmpegthumbnailer"
+ "imagemagick"
+ "cava"
+ "pulseaudio-utils"
+ "jp2a"
+ "poppler-utils"
+ "tesseract-ocr"
+ "vlc"
+ "audacity"
+ "gimp"
+ "inkscape"
+ "obs:obs-studio"
+ "kdenlive"
+ "HandBrakeCLI:handbrake-cli"
+ "sox"
+ "mediainfo"
+ "exiftool:libimage-exiftool-perl"
+)
+
+# -- Archives & Compression ---------------------------------------------------
+archives=(
+ "7zip"
+ "bzip:bzip2"
+ "unrar"
+ "rpm2cpio"
+ "cpio"
+ "alien"
+ "file-roller"
+ "zip"
+ "unzip"
+ "xz:xz-utils"
+ "zstd"
+ "pigz"
+ "pbzip2"
+ "lz4"
+)
+
+# -- Disk & Partitioning ------------------------------------------------------
+disk_tools=(
+ "gparted"
+ "rsync"
+ "parted"
+ "gdisk"
+ "lvm:lvm2"
+ "cryptsetup"
+ "smartctl:smartmontools"
+ "hdparm"
+ "nvme:nvme-cli"
+ "mkfs.ext4:e2fsprogs"
+ "xfsprogs"
+ "btrfs:btrfs-progs"
+ "mkfs.fat:dosfstools"
+ "ntfs-3g"
+ "exfatprogs"
+ "testdisk"
+ "ddrescue:gddrescue"
+ "udisksctl:udisks2"
+ "rclone"
+ "lsscsi"
+ "secure-delete"
+)
+
+# -- Package Management -------------------------------------------------------
+package_management=(
+ "snapd"
+ "flatpak"
+ "gnome-software-plugin-flatpak"
+ "synaptic"
+ "apt-clone"
+ "pipx"
+ "npm"
+ "node:nodejs"
+ "aptitude"
+ "gdebi"
+ "dpkg-dev"
+)
+
+# -- Code Quality & Linting ---------------------------------------------------
+linters=(
+ "shfmt"
+ "shellcheck"
+ "yamllint"
+ "colordiff"
+ "cppcheck"
+ "clang-tidy"
+ "clang-format"
+ "flawfinder"
+)
+
+# -- Java ---------------------------------------------------------------------
+java=(
+ "java:default-jdk"
+ "visualvm"
+ "mvn:maven"
+ "gradle"
+ "ant"
+ "procyon-decompiler"
+)
+
+# -- GNOME / Desktop Tweaks ---------------------------------------------------
+desktop_tweaks=(
+ "gnome-tweaks"
+ "gnome-shell-extension-manager"
+ "dconf-editor"
+ "gnome-sushi"
+ "gufw"
+ "zenity"
+ "notify-send:libnotify-bin"
+ "wmctrl"
+ "xdotool"
+ "ydotool"
+ "xdg-open:xdg-utils"
+ "redshift"
+ "caffeine"
+)
+
+# -- Browsers -----------------------------------------------------------------
+browsers=(
+ "chromium:chromium-browser"
+ "firefox"
+ "lynx"
+ "w3m"
+)
+
+# -- Clipboard ----------------------------------------------------------------
+clipboard=(
+ "xclip"
+ "wl-copy:wl-clipboard"
+ "xsel"
+ "copyq"
+ "gpaste-client:gpaste-2"
+)
+
+# -- TUI Toys & Banners -------------------------------------------------------
+tui_toys=(
+ "tty-clock"
+ "lolcat"
+ "figlet"
+ "toilet"
+ "sysvbanner"
+ "cmatrix"
+ "whiptail"
+ "qrencode"
+ "python3-segno"
+ "cowsay"
+ "fortune:fortune-mod"
+ "boxes"
+ "sl"
+ "bsdgames"
+ "nyancat"
+)
+
+# -- Binary Analysis & Patching ----------------------------------------------
+binary_analysis=(
+ "hexedit"
+ "ghex"
+ "wxhexeditor:wxhexeditor"
+ "hexdump:bsdmainutils"
+ "upx:upx-ucl"
+ "patchelf"
+ "chrpath"
+ "eu-readelf:elfutils"
+)
+
+# -- Android / APK Reverse Engineering ---------------------------------------
+android_re=(
+ "apktool"
+ "androguard"
+ "adb:android-tools-adb:adb"
+ "fastboot:android-tools-fastboot:fastboot"
+ "aapt:aapt"
+)
+
+# -- Forensics & Security ----------------------------------------------------
+security_tools=(
+ "binwalk"
+ "foremost"
+ "scalpel"
+ "fls:sleuthkit"
+ "autopsy"
+ "dc3dd"
+ "ewfinfo:ewf-tools"
+ "affinfo:afflib-tools"
+ "yara"
+ "clamscan:clamav"
+ "ssdeep"
+ "chkrootkit"
+ "rkhunter"
+ "aide"
+ "nikto"
+ "sqlmap"
+ "wfuzz"
+ "gobuster"
+ "dirb"
+ "mitmproxy"
+ "hashcat"
+ "john"
+ "hydra"
+ "hashid"
+ "afl-fuzz:afl++"
+)
+
+# Combine APT Packages
+packages=(
+ "${build_toolchain[@]}"
+ "${dev_libraries[@]}"
+ "${version_control[@]}"
+ "${editors[@]}"
+ "${terminals[@]}"
+ "${shell_utilities[@]}"
+ "${file_managers[@]}"
+ "${system_monitors[@]}"
+ "${networking[@]}"
+ "${remote_desktop[@]}"
+ "${virtualization[@]}"
+ "${media[@]}"
+ "${archives[@]}"
+ "${disk_tools[@]}"
+ "${package_management[@]}"
+ "${linters[@]}"
+ "${java[@]}"
+ "${desktop_tweaks[@]}"
+ "${browsers[@]}"
+ "${clipboard[@]}"
+ "${tui_toys[@]}"
+ "${binary_analysis[@]}"
+ "${android_re[@]}"
+ "${security_tools[@]}"
+)
+
+# ==========================================
+# pipx-Installed Python Tools
+# ==========================================
+pipx_tools=(
+ "frida:frida-tools"
+ "vol:volatility3"
+ "unblob"
+ "semgrep"
+ "black"
+ "pylint"
+)
+
+# ==========================================
+# Snaps and Flatpaks
+# ==========================================
+snaps=(
+ "gtk-common-themes"
+ "asciiquarium"
+ "zaproxy:--classic"
+ "helm:--classic"
+)
+
+flatpaks=(
+ "io.github.realmazharhasan.GdmSettings"
+)
+
+# ==========================================
+# GitHub-Released Tools (single binary)
+# ==========================================
+declare -A github_tools=(
+ ["k9s"]="derailed/k9s"
+ ["kind"]="kubernetes-sigs/kind"
+ ["minikube"]="kubernetes/minikube"
+ ["kubectx"]="ahmetb/kubectx"
+ ["kubens"]="ahmetb/kubectx"
+ ["stern"]="stern/stern"
+ ["kustomize"]="kubernetes-sigs/kustomize"
+ ["kubecolor"]="kubecolor/kubecolor"
+ ["gh"]="cli/cli"
+ ["lf"]="gokcehan/lf"
+ ["xplr"]="sayanarijit/xplr"
+ ["bettercap"]="bettercap/bettercap"
+ ["httpx"]="projectdiscovery/httpx"
+ ["zellij"]="zellij-org/zellij"
+ ["yazi"]="sxyazi/yazi"
+ ["rizin"]="rizinorg/rizin"
+)
+
+# ==========================================
+# GitHub-Released Applications (zip + launcher, or jar wrapper)
+# ==========================================
+github_apps=(
+ "ghidra|NationalSecurityAgency/ghidra|^ghidra_.*_PUBLIC_.*\\.zip\$|ghidraRun"
+ "jadx|skylot/jadx|^jadx-[0-9].*\\.zip\$|bin/jadx"
+ "cfr|leibnitz27/cfr|^cfr-.*\\.jar\$|@jar"
+ "bytecode-viewer|Konloch/bytecode-viewer|[Bb]ytecode-?[Vv]iewer.*\\.jar\$|@jar"
+ "recaf|Col-E/Recaf|^recaf.*\\.jar\$|@jar"
+)
+
+# ==========================================
+# Tracking arrays for run summary
+# ==========================================
+installed=()
+failed=()
+
+echo
+echo "--- 📦 Starting APT Package Installation ---"
+
+function install-packages {
+ echo ""
+ echo "--- 📦 Starting APT Package Installation ---"
+ for item in "${packages[@]}"; do
+  IFS=':' read -r -a parts <<<"$item"
+  binary="${parts[0]}"
+
+  if [[ ${#parts[@]} -eq 1 ]]; then
+   pkg_variations=("$binary")
+  else
+   pkg_variations=("${parts[@]:1}")
+  fi
+
+  if ! command -v "$binary" >/dev/null 2>&1; then
+   echo "Installing $binary..."
+   success=false
+   for pkg in "${pkg_variations[@]}"; do
+    if sudo apt install "$pkg" -y; then
+     echo -e "Tool [\e[1;92m$binary\e[0m] Installed (via '$pkg')"
+     installed+=("$binary")
+     success=true
+     break
+    else
+     echo -e "⚠️ Attempt to install via [\e[1;93m$pkg\e[0m] failed. Trying next..."
+    fi
+   done
+   if [ "$success" = false ]; then
+    echo -e "Tool [\e[1;91m$binary\e[0m] failed to install completely."
+    failed+=("$binary")
+   fi
+  else
+   echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+   installed+=("$binary")
+  fi
+ done
+}
+
+function cache-packages {
+ local target_dir="${XDG_CACHE_DIR:-$HOME/.cache}/apt-package-backups"
+ mkdir -p "$target_dir"
+ pushd "$target_dir" >/dev/null || {
+  echo "Failed to access cache directory"
+  return 1
+ }
+
+ echo
+ echo "Caching packages..."
+ for item in "${packages[@]}"; do
+  IFS=':' read -r -a parts <<<"$item"
+  if [[ ${#parts[@]} -eq 1 ]]; then
+   pkg_variations=("${parts[0]}")
+  else
+   pkg_variations=("${parts[@]:1}")
+  fi
+  local success=false
+  for pkg in "${pkg_variations[@]}"; do
+   if apt-get download "$pkg" >/dev/null 2>&1; then
+    echo -e "✅ Cached: [\e[1;92m$pkg\e[0m]"
+    success=true
+    break
+   else
+    echo -e "⚠️ Attempt to cache [\e[1;93m$pkg\e[0m] failed."
+   fi
+  done
+  if [ "$success" = false ]; then
+   echo -e "❌ \e[1;91mFailed completely to cache:\e[0m $item"
+  fi
+ done
+ popd >/dev/null
+ echo "🏁 Caching Complete"
+}
+
+function install-cached {
+ local cache_dir="${1:-${XDG_CACHE_DIR:-$HOME/.cache}/apt-package-backups}"
+ echo "📂 Checking for cached packages in: $cache_dir"
+ if [[ ! -d "$cache_dir" ]]; then
+  echo -e "❌ \e[1;91mError:\e[0m Cache directory does not exist."
+  return 1
+ fi
+ shopt -s nullglob
+ local deb_files=("$cache_dir"/*.deb)
+ shopt -u nullglob
+ if [[ ${#deb_files[@]} -eq 0 ]]; then
+  echo -e "⚠️ \e[1;93mNo .deb files found in the cache directory.\e[0m"
+  return 0
+ fi
+ echo "📦 Found ${#deb_files[@]} package(s). Starting bulk installation..."
+ if sudo apt install -y "${deb_files[@]}"; then
+  echo -e "✅ \e[1;92mSuccessfully installed cached packages!\e[0m"
+  return 0
+ else
+  echo -e "❌ \e[1;91mErrors occurred during installation.\e[0m"
+  return 1
+ fi
+}
+
+function install-pipx-tools {
+ echo
+ echo "--- 🐍 Starting pipx Tool Installation ---"
+ if ! command -v pipx >/dev/null 2>&1; then
+  echo -e "❌ \e[1;91mpipx not found.\e[0m Run install-packages first."
+  return 1
+ fi
+ pipx ensurepath >/dev/null 2>&1 || true
+ export PATH="$HOME/.local/bin:$PATH"
+
+ for item in "${pipx_tools[@]}"; do
+  IFS=':' read -r -a parts <<<"$item"
+  local binary="${parts[0]}"
+  local pkg="${parts[1]:-$binary}"
+  if command -v "$binary" >/dev/null 2>&1; then
+   echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+   installed+=("$binary")
+   continue
+  fi
+  echo "Installing $binary (pipx: $pkg)..."
+  if pipx install "$pkg" >/dev/null 2>&1; then
+   echo -e "Tool [\e[1;92m$binary\e[0m] Installed (pipx '$pkg')"
+   installed+=("$binary")
+  else
+   echo -e "Tool [\e[1;91m$binary\e[0m] failed to install via pipx"
+   failed+=("$binary")
+  fi
+ done
+ echo "🏁 pipx installations complete"
+}
+
+function install-containers {
+ echo
+ echo "--- 📦 Starting Snap & Flatpak Installations ---"
+ for item in "${snaps[@]}"; do
+  IFS=':' read -r snap_pkg flag <<<"$item"
+  if ! snap list | grep -q "^$snap_pkg "; then
+   echo "Installing Snap: $snap_pkg..."
+   sudo snap install "$snap_pkg" $flag && installed+=("snap:$snap_pkg") || failed+=("snap:$snap_pkg")
+  else
+   echo -e "Tool [\e[1;92m$snap_pkg\e[0m] already installed via snap"
+   installed+=("snap:$snap_pkg")
+  fi
+ done
+
+ for fp in "${flatpaks[@]}"; do
+  if ! flatpak list --app --columns=application | grep -q "^$fp$"; then
+   echo "Installing Flatpak: $fp..."
+   flatpak install -y flathub "$fp" && installed+=("flatpak:$fp") || failed+=("flatpak:$fp")
+  else
+   echo -e "Tool [\e[1;92m$fp\e[0m] already installed via flatpak"
+   installed+=("flatpak:$fp")
+  fi
+ done
+}
+
+function github_install {
+ local repo="$1"
+ local binary_name="${2:-${repo##*/}}"
+
+ if command -v "$binary_name" >/dev/null 2>&1; then
+  echo -e "Tool [\e[1;92m$binary_name\e[0m] already installed"
+  installed+=("$binary_name")
+  return 0
+ fi
+
+ local arch arch_pattern
+ arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+ case "$arch" in
+  amd64) arch_pattern="amd64|x86_64|x64" ;;
+  arm64) arch_pattern="arm64|aarch64" ;;
+  armhf) arch_pattern="armv7|armhf" ;;
+  *) arch_pattern="$arch" ;;
+ esac
+
+ echo
+ echo -e "🔍 Querying GitHub for latest release of \e[1;94m$repo\e[0m..."
+ local auth_header=()
+ [[ -n "${GITHUB_TOKEN:-}" ]] && auth_header=(-H "Authorization: Bearer $GITHUB_TOKEN")
+ local api_url="https://api.github.com/repos/${repo}/releases/latest"
+ local release_json
+ if ! release_json=$(curl -fsSL -H "Accept: application/vnd.github+json" "${auth_header[@]}" "$api_url"); then
+  echo -e "❌ \e[1;91mFailed to query GitHub API\e[0m for $repo (rate limit? bad repo?)"
+  failed+=("$binary_name")
+  return 1
+ fi
+
+ local tag
+ tag=$(echo "$release_json" | jq -r '.tag_name // "unknown"')
+ echo -e "📌 Latest release: \e[1;95m$tag\e[0m"
+
+ # Stage 1: prefer .deb
+ local deb_url
+ deb_url=$(echo "$release_json" | jq -r --arg arch "$arch_pattern" '
+  [.assets[]
+   | select(.name | test("\\.deb$"; "i"))
+   | select(.name | test($arch; "i"))
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$deb_url" ]]; then
+  echo "📦 Found .deb: ${deb_url##*/}"
+  local tmp_deb
+  tmp_deb=$(mktemp --suffix=.deb)
+  if curl -fsSL "$deb_url" -o "$tmp_deb"; then
+   if sudo dpkg -i "$tmp_deb" >/dev/null 2>&1; then
+    sudo apt install -fy >/dev/null 2>&1
+    rm -f "$tmp_deb"
+    echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag)"
+    installed+=("$binary_name")
+    return 0
+   fi
+  fi
+  rm -f "$tmp_deb"
+  echo -e "⚠️  .deb install failed for $binary_name, trying archive..."
+ fi
+
+ # Stage 2: archive (tarball or zip)
+ local archive_url
+ archive_url=$(echo "$release_json" | jq -r --arg arch "$arch_pattern" --arg bin "$binary_name" '
+  [.assets[]
+   | select(.name | test("linux"; "i"))
+   | select(.name | test($arch; "i"))
+   | select(.name | test($bin; "i"))
+   | select(.name | test("\\.(tar\\.(gz|xz|bz2)|tgz|zip)$"; "i"))
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$archive_url" ]]; then
+  local archive_name="${archive_url##*/}"
+  echo "📦 Found archive: $archive_name"
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local archive_path="${tmp_dir}/${archive_name}"
+  local extracted=false
+
+  if curl -fsSL "$archive_url" -o "$archive_path"; then
+   case "$archive_name" in
+    *.zip) unzip -q "$archive_path" -d "$tmp_dir" 2>/dev/null && extracted=true ;;
+    *.tar | *.tar.gz | *.tgz | *.tar.xz | *.tar.bz2) tar -xf "$archive_path" -C "$tmp_dir" 2>/dev/null && extracted=true ;;
+   esac
+  fi
+
+  if $extracted; then
+   local binary_path
+   binary_path=$(find "$tmp_dir" -type f -name "$binary_name" -executable 2>/dev/null | head -1)
+   [[ -z "$binary_path" ]] && binary_path=$(find "$tmp_dir" -type f -name "$binary_name" 2>/dev/null | head -1)
+
+   if [[ -n "$binary_path" ]]; then
+    sudo install -m 755 "$binary_path" "/usr/local/bin/$binary_name"
+    rm -rf "$tmp_dir"
+    echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag) → /usr/local/bin"
+    installed+=("$binary_name")
+    return 0
+   fi
+   echo -e "⚠️  Binary '\e[1;93m$binary_name\e[0m' not found inside archive"
+  fi
+  rm -rf "$tmp_dir"
+ fi
+
+ # Stage 3: raw binary asset
+ local bin_url
+ bin_url=$(echo "$release_json" | jq -r --arg bin "$binary_name" --arg arch "$arch_pattern" '
+  [.assets[]
+   | select(.name | test("linux"; "i"))
+   | select(.name | test($arch; "i"))
+   | select(.name | test($bin; "i"))
+   | select(.name | test("\\.(tar|zip|deb|rpm|sig|asc|sha|sbom|txt|json|md)"; "i") | not)
+   | .browser_download_url][0] // empty
+ ')
+
+ if [[ -n "$bin_url" ]]; then
+  echo "📦 Found raw binary: ${bin_url##*/}"
+  local tmp_bin
+  tmp_bin=$(mktemp)
+  if curl -fsSL "$bin_url" -o "$tmp_bin"; then
+   sudo install -m 755 "$tmp_bin" "/usr/local/bin/$binary_name"
+   rm -f "$tmp_bin"
+   echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag) → /usr/local/bin"
+   installed+=("$binary_name")
+   return 0
+  fi
+  rm -f "$tmp_bin"
+ fi
+
+ echo -e "Tool [\e[1;91m$binary_name\e[0m] failed — no compatible asset in $repo"
+ failed+=("$binary_name")
+ return 1
+}
+
+function install-github-tools {
+ echo
+ echo "--- 🐙 Starting GitHub Release Installations ---"
+ local missing_deps=()
+ for dep in curl jq tar unzip; do
+  command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
+ done
+ if ((${#missing_deps[@]} > 0)); then
+  echo -e "❌ \e[1;91mMissing dependencies for GitHub installs:\e[0m ${missing_deps[*]}"
+  echo "   Run install-packages first."
+  return 1
+ fi
+
+ for binary in "${!github_tools[@]}"; do
+  github_install "${github_tools[$binary]}" "$binary"
+ done
+ echo "🏁 GitHub installations complete"
+}
+
+function github_install_app {
+ local binary="$1"
+ local repo="$2"
+ local asset_pattern="$3"
+ local launcher="$4"
+
+ if command -v "$binary" >/dev/null 2>&1; then
+  echo -e "Tool [\e[1;92m$binary\e[0m] already installed"
+  installed+=("$binary")
+  return 0
+ fi
+
+ echo
+ echo -e "🔍 Querying GitHub for latest release of \e[1;94m$repo\e[0m..."
+ local auth_header=()
+ [[ -n "${GITHUB_TOKEN:-}" ]] && auth_header=(-H "Authorization: Bearer $GITHUB_TOKEN")
+ local api_url="https://api.github.com/repos/${repo}/releases/latest"
+ local release_json
+ if ! release_json=$(curl -fsSL -H "Accept: application/vnd.github+json" "${auth_header[@]}" "$api_url"); then
+  echo -e "❌ \e[1;91mFailed to query GitHub API\e[0m for $repo"
+  failed+=("$binary")
+  return 1
+ fi
+
+ local tag
+ tag=$(echo "$release_json" | jq -r '.tag_name // "unknown"')
+ echo -e "📌 Latest release: \e[1;95m$tag\e[0m"
+
+ local asset_url asset_name
+ asset_url=$(echo "$release_json" | jq -r --arg pattern "$asset_pattern" '
+  [.assets[] | select(.name | test($pattern; "i")) | .browser_download_url][0] // empty
+ ')
+
+ if [[ -z "$asset_url" ]]; then
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — no asset matched: $asset_pattern"
+  failed+=("$binary")
+  return 1
+ fi
+
+ asset_name="${asset_url##*/}"
+ echo "📦 Found asset: $asset_name"
+
+ local install_dir="/opt/$binary"
+ local tmp_dir
+ tmp_dir=$(mktemp -d)
+ local downloaded="${tmp_dir}/${asset_name}"
+
+ if ! curl -fsSL "$asset_url" -o "$downloaded"; then
+  rm -rf "$tmp_dir"
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — download error"
+  failed+=("$binary")
+  return 1
+ fi
+
+ if [[ "$launcher" == "@jar" ]]; then
+  if ! command -v java >/dev/null 2>&1; then
+   echo -e "⚠️  java not found — install default-jdk first; $binary will not run"
+  fi
+  sudo mkdir -p "$install_dir"
+  sudo install -m 644 "$downloaded" "$install_dir/$binary.jar"
+  sudo tee "/usr/local/bin/$binary" >/dev/null <<WRAPPER
+#!/bin/sh
+exec java -jar "${install_dir}/${binary}.jar" "\$@"
+WRAPPER
+  sudo chmod 755 "/usr/local/bin/$binary"
+  rm -rf "$tmp_dir"
+  echo -e "Tool [\e[1;92m$binary\e[0m] Installed from $repo ($tag) → $install_dir + /usr/local/bin/$binary"
+  installed+=("$binary")
+  return 0
+ fi
+
+ local stage="${tmp_dir}/stage"
+ mkdir -p "$stage"
+ case "$asset_name" in
+  *.zip)
+   unzip -q "$downloaded" -d "$stage" 2>/dev/null
+   ;;
+  *.tar.gz | *.tgz | *.tar.xz | *.tar.bz2 | *.tar)
+   tar -xf "$downloaded" -C "$stage" 2>/dev/null
+   ;;
+  *)
+   echo -e "Tool [\e[1;91m$binary\e[0m] failed — unknown archive format: $asset_name"
+   rm -rf "$tmp_dir"
+   failed+=("$binary")
+   return 1
+   ;;
+ esac
+
+ local launcher_path
+ launcher_path=$(find "$stage" -path "*/$launcher" -type f 2>/dev/null | head -1)
+ [[ -z "$launcher_path" ]] && launcher_path=$(find "$stage" -name "$(basename "$launcher")" -type f 2>/dev/null | head -1)
+
+ if [[ -z "$launcher_path" ]]; then
+  echo -e "Tool [\e[1;91m$binary\e[0m] failed — launcher '$launcher' not found in archive"
+  rm -rf "$tmp_dir"
+  failed+=("$binary")
+  return 1
+ fi
+
+ local real_root="${launcher_path%/$launcher}"
+ [[ "$real_root" == "$launcher_path" ]] && real_root="$(dirname "$launcher_path")"
+
+ sudo rm -rf "$install_dir"
+ sudo mkdir -p "$(dirname "$install_dir")"
+ sudo mv "$real_root" "$install_dir"
+ sudo chmod +x "$install_dir/$launcher" 2>/dev/null || true
+ sudo ln -sf "$install_dir/$launcher" "/usr/local/bin/$binary"
+
+ rm -rf "$tmp_dir"
+ echo -e "Tool [\e[1;92m$binary\e[0m] Installed from $repo ($tag) → $install_dir + /usr/local/bin/$binary"
+ installed+=("$binary")
+ return 0
+}
+
+function install-github-apps {
+ echo
+ echo "--- 📦 Starting GitHub Application Installations ---"
+ local missing_deps=()
+ for dep in curl jq tar unzip; do
+  command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
+ done
+ if ((${#missing_deps[@]} > 0)); then
+  echo -e "❌ \e[1;91mMissing dependencies for GitHub apps:\e[0m ${missing_deps[*]}"
+  echo "   Run install-packages first."
+  return 1
+ fi
+
+ for entry in "${github_apps[@]}"; do
+  IFS='|' read -r binary repo asset_pattern launcher <<<"$entry"
+  github_install_app "$binary" "$repo" "$asset_pattern" "$launcher"
+ done
+ echo "🏁 GitHub app installations complete"
+}
+
+function print-summary {
+ echo
+ echo "=========================================="
+ echo "📊 Installation Summary"
+ echo "=========================================="
+ echo -e "✅ \e[1;92mInstalled / already present:\e[0m ${#installed[@]}"
+ echo -e "❌ \e[1;91mFailed:\e[0m ${#failed[@]}"
+ if ((${#failed[@]} > 0)); then
+  echo
+  echo "Failed tools:"
+  printf '   - %s\n' "${failed[@]}"
+ fi
+}
+
+# ==========================================
+# Main Execution
+# ==========================================
+
+install-packages
+install-pipx-tools
+install-containers
+install-github-tools
+install-github-apps
+cache-packages
+print-summary

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo "Warning this will delete everything from Docker! Everything!"
+
+read -r -p "Continue? (y/n) : " proceed
+
+if [[ "proceed" == "y" ]]; then
+ docker stop $(docker ps -aq) 2>/dev/null
+ docker system prune -a --volumes -f
+fi

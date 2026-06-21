@@ -5,20 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="dd19ae44-d5bc-49b9-ae48-dd780f249483" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/RadioConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../advanced-gui/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../advanced-gui/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../programming/java/Multiverse/swing/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../../programming/java/Multiverse/swing/pom.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/App.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/App.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Beacon.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Beacon.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/DeviceManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/DeviceManager.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/FileTransfer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/FileTransfer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Listener.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Listener.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/LogicTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/LogicTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Protocol.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Protocol.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Radio.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Radio.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/RadioConfig.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/Sender.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/Sender.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/xxx/claude/SignalScanner.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/xxx/simple/SignalScanner.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -26,7 +14,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="24" />
+    <option name="cachedIndexableFilesCount" value="27" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -166,7 +154,7 @@
       <recent name="xxx.simple" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.xxx.simple.App">
+  <component name="RunManager" selected="Application.xxx.simple.RadioDashboard">
     <configuration name="LogicTest" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="xxx.simple.LogicTest" />
       <module name="walkie-talkie" />
@@ -206,7 +194,7 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="xxx.simple.RadioDashboard" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+    <configuration name="xxx.simple.RadioDashboard" type="Application" factoryName="Application" singleton="false" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="xxx.simple.RadioDashboard" />
       <module name="walkie-talkie" />
       <extension name="coverage">
@@ -232,10 +220,18 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
+    <list>
+      <item itemvalue="Application.App" />
+      <item itemvalue="Application.LogicTest" />
+      <item itemvalue="Application.RadioDashboard" />
+      <item itemvalue="Application.xxx.simple.App" />
+      <item itemvalue="Application.xxx.simple.RadioDashboard" />
+      <item itemvalue="Application.xxx.waveshare.Dashboard" />
+    </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Application.xxx.simple.App" />
         <item itemvalue="Application.xxx.simple.RadioDashboard" />
+        <item itemvalue="Application.xxx.simple.App" />
         <item itemvalue="Application.LogicTest" />
         <item itemvalue="Application.RadioDashboard" />
         <item itemvalue="Application.xxx.waveshare.Dashboard" />
@@ -261,6 +257,9 @@
       <workItem from="1781838440495" duration="8714000" />
       <workItem from="1781855666056" duration="433000" />
       <workItem from="1781905118287" duration="9152000" />
+      <workItem from="1781923422109" duration="1311000" />
+      <workItem from="1781985196079" duration="1149000" />
+      <workItem from="1782044553399" duration="1153000" />
     </task>
     <servers />
   </component>

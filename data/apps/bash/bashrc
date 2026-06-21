@@ -209,3 +209,5 @@ export PATH="${PATH}:${ANDROID_TOOLS}:${ANDROID_PLATFORM_TOOLS}"
 export PATH="${PATH}:${DEV_CNTR_HOME}/bin"
 
 source /home/xxx/.config/broot/launcher/bash/br
+
+alias phobos='ssh 10.42.0.161'
