@@ -1,0 +1,8 @@
+#!/bin/bash
+
+service=$(kubectl get services --all-namespaces | fzf --header-line=1)
+echo "Exposing Kuberentes service: ${service}"
+
+minikube service "${service}"
+echo "Complete!"
+
