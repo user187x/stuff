@@ -1,6 +1,10 @@
 package xxx.com.pki.gui;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
@@ -33,7 +37,11 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,6 +63,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -87,16 +96,16 @@ import javax.swing.table.DefaultTableModel;
 
 /**
  * A Java Swing application to generate PKI certificates for a client/server setup using
- * keytool. This utility provides a graphical interface to create a Certificate Authority (CA), a
- * server certificate, and a client certificate, complete with SAN and Wildcard support.
+ * keytool. This utility provides a graphical interface to create an Enterprise PKI hierarchy,
+ * including Root CAs, Intermediate CAs, CRLs, and a Mock ACME/GitOps Provisioning API.
  */
 public class PKICertGenV2 extends JFrame {
 
     // Corporate Base Fields
-    private final JTextField tfOrg = new JTextField("USA", 20);
+    private final JTextField tfOrg = new JTextField("OmniCorp", 20);
     private final List<JTextField> ouFields = new ArrayList<>();
     private JPanel ouPanelContainer;
-    private final JTextField tfCity = new JTextField("DC", 20);
+    private final JTextField tfCity = new JTextField("Baltimore", 20);
     private final JTextField tfState = new JTextField("Maryland", 20);
     private final JTextField tfCountry = new JTextField("US", 20);
 
@@ -110,15 +119,21 @@ public class PKICertGenV2 extends JFrame {
     private final JCheckBox chkNeverExpire = new JCheckBox("Never Expire");
 
     // Specific Entity CNs
-    private final JTextField tfCaIdentity = new JTextField("MyCompany Local Root CA", 20);
+    private final JTextField tfCaIdentity = new JTextField("OmniCorp Root CA", 20);
+    private final JTextField tfIntCaIdentity = new JTextField("OmniCorp Issuing Intermediate CA", 20);
     private final JTextField tfServerDomain = new JTextField("api.internal.local", 20);
     private final JTextField tfClientName = new JTextField("Jane Doe", 20);
 
     private final JTextArea logArea = new JTextArea(15, 80);
-    private final JButton generateCaButton = new JButton("Generate CA Keystore");
+    private final JButton generateCaButton = new JButton("Generate Root CA");
+    private final JButton generateIntCaButton = new JButton("Generate Intermediate CA");
     private final JButton generateServerButton = new JButton("Generate Server Keystore");
     private final JButton generateClientButton = new JButton("Generate Client Keystore");
+
+    private final JComboBox<String> signerCombo = new JComboBox<>(new String[]{"Root CA", "Intermediate CA"});
+
     private final JLabel caCheckLabel = new JLabel();
+    private final JLabel intCaCheckLabel = new JLabel();
     private final JLabel serverCheckLabel = new JLabel();
     private final JLabel clientCheckLabel = new JLabel();
 
@@ -138,11 +153,19 @@ public class PKICertGenV2 extends JFrame {
     private JMenuItem saveItem;
     private JMenuItem createDerItem;
     private JMenuItem createPemItem;
+    private JMenuItem revokeItem;
     private JMenuItem exportItem;
 
-    // State Trackers for dynamic filenames
+    // State Trackers
     private String activeCaFilename = null;
+    private String activeIntCaFilename = null;
     private String activeClientFilename = null;
+    private final List<String> revokedSerials = new CopyOnWriteArrayList<>();
+
+    // Embedded API Server
+    private HttpServer apiServer;
+    private final JButton btnToggleApi = new JButton("Start API Server (Port 8080)");
+    private final JTextArea apiLogArea = new JTextArea(15, 80);
 
     private static Image appIcon;
 
@@ -184,23 +207,31 @@ public class PKICertGenV2 extends JFrame {
     }
 
     public PKICertGenV2() {
-        super("PKI Certificate Generator");
+        super("Enterprise PKI Sandbox");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         initComponents();
-        setSize(850, 680);
+        setSize(900, 750);
         setLocationRelativeTo(null);
         setVisible(true);
         validateEnvironment();
     }
 
     private void initComponents() {
-        Image image = Toolkit.getDefaultToolkit().getImage(getClass().getResource("/png/pki/storm.png"));
-        appIcon = image.getScaledInstance(40, 40, Image.SCALE_SMOOTH);
-        setIconImage(appIcon);
+        try {
+            Image image = Toolkit.getDefaultToolkit().getImage(getClass().getResource("/png/pki/storm.png"));
+            appIcon = image.getScaledInstance(40, 40, Image.SCALE_SMOOTH);
+            setIconImage(appIcon);
+        } catch (Exception e) {
+            // Fallback if icon missing
+        }
 
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 0));
-        mainPanel.setPreferredSize(new Dimension(850, 680));
-        mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        JTabbedPane mainTabs = new JTabbedPane();
+
+        // ---------------------------------------------------------
+        // TAB 1: PKI Generator (The core GUI)
+        // ---------------------------------------------------------
+        JPanel generatorTab = new JPanel(new BorderLayout(10, 0));
+        generatorTab.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         // --- Configuration Panel ---
         JPanel configPanel = new JPanel(new GridBagLayout());
@@ -212,7 +243,6 @@ public class PKICertGenV2 extends JFrame {
 
         addConfigRow(configPanel, gbc, gridY++, "Organization (O):", tfOrg);
 
-        // Dynamic OU panel
         gbc.gridy = gridY++;
         gbc.gridx = 0;
         gbc.anchor = GridBagConstraints.NORTHEAST;
@@ -228,7 +258,6 @@ public class PKICertGenV2 extends JFrame {
         addConfigRow(configPanel, gbc, gridY++, "State/Province (S):", tfState);
         addConfigRow(configPanel, gbc, gridY++, "Country Code (C):", tfCountry);
 
-        // Dynamic SAN panel
         gbc.gridy = gridY++;
         gbc.gridx = 0;
         gbc.anchor = GridBagConstraints.NORTHEAST;
@@ -240,7 +269,6 @@ public class PKICertGenV2 extends JFrame {
         gbc.anchor = GridBagConstraints.WEST;
         configPanel.add(sanPanelContainer, gbc);
 
-        // Password reveal
         JPanel passwordPanel = new JPanel(new BorderLayout());
         passwordPanel.add(tfPassword, BorderLayout.CENTER);
         ImageIcon eyeOpenIcon = recolorIcon(new ImageIcon(new ImageIcon(Objects.requireNonNull(getClass().getResource("/png/password/eye-open.png"))).getImage().getScaledInstance(20, 20, Image.SCALE_SMOOTH)), KINDA_GRAY);
@@ -271,6 +299,8 @@ public class PKICertGenV2 extends JFrame {
         addConfigRow(configPanel, gbc, gridY++, "Expiration (Days):", validityPanel);
         chkNeverExpire.addActionListener(e -> tfValidity.setEnabled(!chkNeverExpire.isSelected()));
 
+        addConfigRow(configPanel, gbc, gridY++, "Sign Entities With:", signerCombo);
+
         // --- Generation Control Panel ---
         JPanel generatorPanel = new JPanel();
         generatorPanel.setLayout(new BoxLayout(generatorPanel, BoxLayout.Y_AXIS));
@@ -283,17 +313,22 @@ public class PKICertGenV2 extends JFrame {
 
         Icon checkIcon = createCheckIcon();
         caCheckLabel.setIcon(checkIcon);
+        intCaCheckLabel.setIcon(checkIcon);
         serverCheckLabel.setIcon(checkIcon);
         clientCheckLabel.setIcon(checkIcon);
         caCheckLabel.setVisible(false);
+        intCaCheckLabel.setVisible(false);
         serverCheckLabel.setVisible(false);
         clientCheckLabel.setVisible(false);
 
-        JPanel caPanel = createStepPanel("CA Identity (CN):", caIcon, tfCaIdentity, generateCaButton, caCheckLabel);
+        JPanel caPanel = createStepPanel("Root CA (CN):", caIcon, tfCaIdentity, generateCaButton, caCheckLabel);
+        JPanel intCaPanel = createStepPanel("Intermediate CA (CN):", caIcon, tfIntCaIdentity, generateIntCaButton, intCaCheckLabel);
         JPanel serverPanel = createStepPanel("Server Domain (CN):", serverIcon, tfServerDomain, generateServerButton, serverCheckLabel);
         JPanel clientPanel = createStepPanel("User/Employee Name (CN):", clientIcon, tfClientName, generateClientButton, clientCheckLabel);
 
         generatorPanel.add(caPanel);
+        generatorPanel.add(Box.createRigidArea(new Dimension(0, 5)));
+        generatorPanel.add(intCaPanel);
         generatorPanel.add(Box.createRigidArea(new Dimension(0, 5)));
         generatorPanel.add(serverPanel);
         generatorPanel.add(Box.createRigidArea(new Dimension(0, 5)));
@@ -354,13 +389,15 @@ public class PKICertGenV2 extends JFrame {
         viewItem = new JMenuItem("View");
         saveItem = new JMenuItem("Save");
         createDerItem = new JMenuItem("Create DER");
-        createPemItem = new JMenuItem("Create PEM");
+        createPemItem = new JMenuItem("Create PEM Bundle");
+        revokeItem = new JMenuItem("Revoke & Update CRL");
         exportItem = new JMenuItem("Export");
 
         viewItem.addActionListener(e -> viewFileAction());
         saveItem.addActionListener(e -> saveSingleFileAction());
         createDerItem.addActionListener(e -> createExtractedFormatAction(false));
         createPemItem.addActionListener(e -> createExtractedFormatAction(true));
+        revokeItem.addActionListener(e -> revokeCertificateAction());
         exportItem.addActionListener(e -> exportFilesAction());
 
         fileTableContextMenu.add(viewItem);
@@ -368,6 +405,8 @@ public class PKICertGenV2 extends JFrame {
         fileTableContextMenu.addSeparator();
         fileTableContextMenu.add(createDerItem);
         fileTableContextMenu.add(createPemItem);
+        fileTableContextMenu.addSeparator();
+        fileTableContextMenu.add(revokeItem);
         fileTableContextMenu.addSeparator();
         fileTableContextMenu.add(exportItem);
 
@@ -392,16 +431,20 @@ public class PKICertGenV2 extends JFrame {
                         int[] selectedRows = fileTable.getSelectedRows();
                         boolean canDer = false;
                         boolean canPem = false;
+                        boolean canRevoke = false;
 
                         for (int r : selectedRows) {
                             String filename = (String) fileTable.getValueAt(r, 1);
+                            String type = (String) fileTable.getValueAt(r, 3);
                             String lower = filename.toLowerCase();
                             if (lower.endsWith(".p12") || lower.endsWith(".pem")) canDer = true;
                             if (lower.endsWith(".p12")) canPem = true;
+                            if (type.contains("Server") || type.contains("Client")) canRevoke = true;
                         }
 
                         createDerItem.setEnabled(canDer);
                         createPemItem.setEnabled(canPem);
+                        revokeItem.setEnabled(canRevoke && selectedRows.length == 1);
 
                         boolean isSingleSelection = selectedRows.length == 1;
                         viewItem.setEnabled(isSingleSelection);
@@ -419,25 +462,58 @@ public class PKICertGenV2 extends JFrame {
         JScrollPane fileTableScrollPane = new JScrollPane(fileTable);
         bottomTabbedPane.addTab("Generated Files", fileTableScrollPane);
 
-        mainPanel.add(topSectionPanel, BorderLayout.NORTH);
-        mainPanel.add(bottomTabbedPane, BorderLayout.CENTER);
+        generatorTab.add(topSectionPanel, BorderLayout.NORTH);
+        generatorTab.add(bottomTabbedPane, BorderLayout.CENTER);
+
+        // ---------------------------------------------------------
+        // TAB 2: API Provisioner
+        // ---------------------------------------------------------
+        JPanel apiTab = new JPanel(new BorderLayout(10, 10));
+        apiTab.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        JPanel apiHeader = new JPanel(new BorderLayout());
+        JLabel apiInstructions = new JLabel("<html><b>Mock ACME/GitOps API Server</b><br/>" +
+                "Start the server to listen on <i>http://localhost:8080/api/sign</i>.<br/>" +
+                "POST a raw CSR to this endpoint, and it will be signed by the currently selected CA and returned as a PEM certificate.</html>");
+        apiInstructions.setBorder(new EmptyBorder(10, 0, 10, 0));
+
+        btnToggleApi.addActionListener(e -> toggleApiServer());
+        apiHeader.add(apiInstructions, BorderLayout.CENTER);
+        apiHeader.add(btnToggleApi, BorderLayout.EAST);
+
+        apiLogArea.setEditable(false);
+        apiLogArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        JScrollPane apiLogScroll = new JScrollPane(apiLogArea);
+
+        apiTab.add(apiHeader, BorderLayout.NORTH);
+        apiTab.add(apiLogScroll, BorderLayout.CENTER);
+
+        // ---------------------------------------------------------
+        // Compile Main Frame
+        // ---------------------------------------------------------
+        mainTabs.addTab("PKI Generator", generatorTab);
+        mainTabs.addTab("API Provisioner", apiTab);
 
         progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
-        mainPanel.add(progressBar, BorderLayout.SOUTH);
 
-        generateCaButton.addActionListener(this::generateCaAction);
+        JPanel wrapperPanel = new JPanel(new BorderLayout());
+        wrapperPanel.add(mainTabs, BorderLayout.CENTER);
+        wrapperPanel.add(progressBar, BorderLayout.SOUTH);
+
+        generateCaButton.addActionListener(this::generateRootCaAction);
+        generateIntCaButton.addActionListener(this::generateIntCaAction);
         generateServerButton.addActionListener(this::generateServerAction);
         generateClientButton.addActionListener(this::generateClientAction);
         generatePublicKeyButton.addActionListener(this::generatePublicKeyAction);
 
-        mainPanel.setDropTarget(new DropTarget(this, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
+        wrapperPanel.setDropTarget(new DropTarget(this, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
             @Override public void drop(DropTargetDropEvent dtde) { handleFileDrop(dtde); }
         }));
 
-        add(mainPanel);
+        add(wrapperPanel);
     }
 
     private void validateEnvironment() {
@@ -450,6 +526,7 @@ public class PKICertGenV2 extends JFrame {
                                     "Please ensure the Java JDK is installed and configured correctly.",
                             "Missing Dependency", JOptionPane.ERROR_MESSAGE);
                     generateCaButton.setEnabled(false);
+                    generateIntCaButton.setEnabled(false);
                     generateServerButton.setEnabled(false);
                     generateClientButton.setEnabled(false);
                     generatePublicKeyButton.setEnabled(false);
@@ -474,6 +551,7 @@ public class PKICertGenV2 extends JFrame {
             progressBar.setString(message);
             progressBar.setVisible(true);
             generateCaButton.setEnabled(false);
+            generateIntCaButton.setEnabled(false);
             generateServerButton.setEnabled(false);
             generateClientButton.setEnabled(false);
             generatePublicKeyButton.setEnabled(false);
@@ -485,6 +563,7 @@ public class PKICertGenV2 extends JFrame {
             progressBar.setVisible(false);
             progressBar.setString("");
             generateCaButton.setEnabled(true);
+            generateIntCaButton.setEnabled(true);
             generateServerButton.setEnabled(true);
             generateClientButton.setEnabled(true);
             generatePublicKeyButton.setEnabled(true);
@@ -509,8 +588,6 @@ public class PKICertGenV2 extends JFrame {
         ouPanelContainer.add(ouRowPanel);
         ouPanelContainer.revalidate();
         ouPanelContainer.repaint();
-        Window window = SwingUtilities.getWindowAncestor(ouPanelContainer);
-        if (window != null) window.pack();
     }
 
     private void removeOuField(JPanel panelToRemove, JTextField fieldToRemove) {
@@ -518,8 +595,6 @@ public class PKICertGenV2 extends JFrame {
         ouPanelContainer.remove(panelToRemove);
         ouPanelContainer.revalidate();
         ouPanelContainer.repaint();
-        Window window = SwingUtilities.getWindowAncestor(ouPanelContainer);
-        if (window != null) window.pack();
     }
 
     private void addSanField() {
@@ -529,8 +604,6 @@ public class PKICertGenV2 extends JFrame {
         sanPanelContainer.add(sanPanel);
         sanPanelContainer.revalidate();
         sanPanelContainer.repaint();
-        Window window = SwingUtilities.getWindowAncestor(sanPanelContainer);
-        if (window != null) window.pack();
     }
 
     private void removeSanField(SanEntryPanel panelToRemove) {
@@ -538,8 +611,6 @@ public class PKICertGenV2 extends JFrame {
         sanPanelContainer.remove(panelToRemove);
         sanPanelContainer.revalidate();
         sanPanelContainer.repaint();
-        Window window = SwingUtilities.getWindowAncestor(sanPanelContainer);
-        if (window != null) window.pack();
     }
 
     private String buildSanString() {
@@ -567,307 +638,34 @@ public class PKICertGenV2 extends JFrame {
         return names;
     }
 
-    private void viewFileAction() {
-        List<String> filenames = getSelectedFilenames();
-        if (filenames.size() != 1) return;
+    // ---------------------------------------------------------
+    // GUI Action Handlers
+    // ---------------------------------------------------------
 
-        String filename = filenames.getFirst();
-        byte[] content = generatedFiles.get(filename);
-        if (content == null) {
-            JOptionPane.showMessageDialog(this, "Could not find file content in memory for: " + filename, "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        String displayContent;
-        if (filename.toLowerCase().endsWith(".p12")) {
-            displayContent = inspectKeystoreInMemory(filename, content);
-        } else {
-            displayContent = new String(content);
-        }
-
-        JTextArea textArea = new JTextArea(displayContent);
-        textArea.setEditable(false);
-        textArea.setLineWrap(true);
-        textArea.setWrapStyleWord(true);
-        textArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
-        textArea.setCaretPosition(0);
-
-        JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(700, 500));
-        JOptionPane.showMessageDialog(this, scrollPane, "Viewing File: " + filename, JOptionPane.PLAIN_MESSAGE);
-    }
-
-    private String inspectKeystoreInMemory(String filename, byte[] content) {
-        String password = new String(tfPassword.getPassword());
-        Path tempKeystore = null;
-        try {
-            tempKeystore = Files.createTempFile("inspect", ".p12");
-            Files.write(tempKeystore, content);
-            List<String> command = Arrays.asList(
-                    "keytool", "-list", "-v",
-                    "-keystore", tempKeystore.toAbsolutePath().toString(),
-                    "-storepass", password,
-                    "-storetype", "pkcs12"
-            );
-
-            CommandResult result = executeCommand(command, true, password);
-            if (result.isSuccess()) {
-                return "--- Keystore Details for " + filename + " ---\n\n" + result.output();
-            } else {
-                return "Failed to inspect keystore. Password might be incorrect.\n\n" + result.output();
-            }
-        } catch (Exception e) {
-            return "Error inspecting keystore: " + e.getMessage();
-        } finally {
-            if (tempKeystore != null) {
-                try { Files.deleteIfExists(tempKeystore); } catch (Exception ignored) {}
-            }
-        }
-    }
-
-    private void saveSingleFileAction() {
-        List<String> filenames = getSelectedFilenames();
-        if (filenames.size() == 1) {
-            saveSingleFilePrompt(filenames.getFirst());
-        }
-    }
-
-    private void saveSingleFilePrompt(String filename) {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("Save " + filename);
-        fileChooser.setSelectedFile(new File(filename));
-        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File fileToSave = fileChooser.getSelectedFile();
-            byte[] content = generatedFiles.get(filename);
-            if (content != null) {
-                try (FileOutputStream fos = new FileOutputStream(fileToSave)) {
-                    fos.write(content);
-                    log("Successfully saved file: " + fileToSave.getAbsolutePath());
-                } catch (Exception e) {
-                    log("ERROR: Could not save file " + fileToSave.getName());
-                    JOptionPane.showMessageDialog(this, "Error saving file: " + e.getMessage(), "File Save Error", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }
-    }
-
-    private void exportFilesAction() {
-        List<String> filenames = getSelectedFilenames();
-        if (filenames.isEmpty()) return;
-
-        JFileChooser directoryChooser = new JFileChooser();
-        directoryChooser.setDialogTitle("Select Export Directory for " + filenames.size() + " files");
-        directoryChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-
-        if (directoryChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File dir = directoryChooser.getSelectedFile();
-            for (String fname : filenames) {
-                byte[] content = generatedFiles.get(fname);
-                if (content != null) {
-                    try (FileOutputStream fos = new FileOutputStream(new File(dir, fname))) {
-                        fos.write(content);
-                        log("Successfully exported: " + fname);
-                    } catch (Exception ex) {
-                        log("ERROR: Could not export " + fname + " - " + ex.getMessage());
-                    }
-                }
-            }
-            JOptionPane.showMessageDialog(this, "Exported " + filenames.size() + " files to:\n" + dir.getAbsolutePath(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
-        }
-    }
-
-    /**
-     * Generates DER or PEM formats in memory from the selected files.
-     */
-    private void createExtractedFormatAction(boolean asPem) {
-        int[] selectedRows = fileTable.getSelectedRows();
-
-        for (int r : selectedRows) {
-            String filename = (String) fileTable.getValueAt(r, 1);
-            String type = (String) fileTable.getValueAt(r, 3);
-            String lower = filename.toLowerCase();
-
-            if (asPem && !lower.endsWith(".p12")) continue;
-            if (!asPem && !(lower.endsWith(".p12") || lower.endsWith(".pem"))) continue;
-
-            String extension = asPem ? ".pem" : ".der";
-            String newFilename = filename.substring(0, filename.lastIndexOf('.')) + extension;
-            byte[] extractedBytes = null;
-
-            try {
-                if (!asPem && lower.endsWith(".pem")) {
-                    log("--- Converting " + filename + " from PEM to DER ---");
-                    byte[] pemBytes = generatedFiles.get(filename);
-                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
-                    X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(pemBytes));
-                    extractedBytes = cert.getEncoded();
-                } else if (lower.endsWith(".p12")) {
-                    if (asPem) {
-                        log(String.format("--- Creating Full PEM Bundle from %s ---", filename));
-                        extractedBytes = createFullPemBundle(generatedFiles.get(filename), new String(tfPassword.getPassword()));
-                    } else {
-                        log(String.format("--- Creating DER format from %s ---", filename));
-                        String alias = null;
-                        if (type.contains("Authority")) alias = "rootca";
-                        else if (type.contains("Server")) alias = "server";
-                        else if (type.contains("Client")) alias = "client";
-
-                        if (alias != null) {
-                            extractedBytes = exportCertificateFromKeystore(filename, alias, false);
-                        } else {
-                            log("Skipping " + filename + ": Cannot determine keystore alias automatically for DER.");
-                        }
-                    }
-                }
-
-                if (extractedBytes != null) {
-                    String newType = asPem ? "PEM Bundle (Key + Certs)" : "Certificate (DER)";
-                    addGeneratedFile(newFilename, extractedBytes, newType, calculateSha256(extractedBytes));
-                    log("Successfully generated " + newFilename + " in memory.");
-                } else {
-                    log("ERROR: Failed to generate content for " + filename);
-                }
-            } catch (Exception e) {
-                log("ERROR during memory creation for " + filename + ": " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Reads a PKCS12 in memory and manually extracts the private key, certificate, and CA chain
-     * into a formatted PEM bundle, circumventing keytool's limitations with private key exports.
-     */
-    private byte[] createFullPemBundle(byte[] p12Bytes, String password) throws Exception {
-        KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(new ByteArrayInputStream(p12Bytes), password.toCharArray());
-        StringBuilder pemBuilder = new StringBuilder();
-        Base64.Encoder encoder = Base64.getMimeEncoder(64, new byte[]{'\n'});
-
-        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
-            String alias = e.nextElement();
-            pemBuilder.append("Bag Attributes\n    friendlyName: ").append(alias).append("\n");
-
-            if (ks.isKeyEntry(alias)) {
-                Key key = ks.getKey(alias, password.toCharArray());
-                if (key != null) {
-                    pemBuilder.append("Key Attributes: <No Attributes>\n");
-                    pemBuilder.append("-----BEGIN PRIVATE KEY-----\n");
-                    pemBuilder.append(encoder.encodeToString(key.getEncoded()));
-                    pemBuilder.append("\n-----END PRIVATE KEY-----\n\n");
-                }
-
-                Certificate[] chain = ks.getCertificateChain(alias);
-                if (chain != null) {
-                    for (Certificate cert : chain) {
-                        if (cert instanceof X509Certificate x509) {
-                            pemBuilder.append("Bag Attributes\n");
-                            pemBuilder.append("    subject: ").append(x509.getSubjectX500Principal().getName()).append("\n");
-                            pemBuilder.append("    issuer: ").append(x509.getIssuerX500Principal().getName()).append("\n");
-                        }
-                        pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
-                        pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
-                        pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
-                    }
-                }
-            } else if (ks.isCertificateEntry(alias)) {
-                Certificate cert = ks.getCertificate(alias);
-                if (cert instanceof X509Certificate x509) {
-                    pemBuilder.append("Bag Attributes\n");
-                    pemBuilder.append("    subject: ").append(x509.getSubjectX500Principal().getName()).append("\n");
-                    pemBuilder.append("    issuer: ").append(x509.getIssuerX500Principal().getName()).append("\n");
-                }
-                pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
-                pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
-                pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
-            }
-        }
-        return pemBuilder.toString().getBytes(StandardCharsets.UTF_8);
-    }
-
-    private byte[] exportCertificateFromKeystore(String keystoreFilename, String alias, boolean asPem) {
-        final String password = new String(tfPassword.getPassword());
-        byte[] keystoreBytes = generatedFiles.get(keystoreFilename);
-
-        Path tempKeystore = null;
-        Path tempOutFile = null;
-
-        try {
-            tempKeystore = Files.createTempFile("keystore_temp", ".p12");
-            Files.write(tempKeystore, keystoreBytes);
-
-            tempOutFile = Files.createTempFile("cert_export", asPem ? ".pem" : ".der");
-            Files.delete(tempOutFile);
-
-            List<String> command = new ArrayList<>(Arrays.asList(
-                    "keytool", "-exportcert", "-alias", alias,
-                    "-keystore", tempKeystore.toAbsolutePath().toString(),
-                    "-storetype", "pkcs12", "-storepass", password,
-                    "-file", tempOutFile.toAbsolutePath().toString()
-            ));
-
-            if (asPem) command.add("-rfc");
-
-            if (executeCommand(command, true, password).isSuccess()) {
-                return Files.readAllBytes(tempOutFile);
-            }
-            return null;
-        } catch (Exception ex) {
-            log("ERROR during keystore certificate export: " + ex.getMessage());
-            return null;
-        } finally {
-            try {
-                if (tempKeystore != null) Files.deleteIfExists(tempKeystore);
-                if (tempOutFile != null) Files.deleteIfExists(tempOutFile);
-            } catch (Exception ex) {
-                log("Warning: Failed to clean up temporary files for export.");
-            }
-        }
-    }
-
-    private void addConfigRow(JPanel panel, GridBagConstraints gbc, int y, String labelText, JComponent component) {
-        gbc.gridy = y;
-        gbc.gridx = 0;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.weightx = 0;
-        panel.add(new JLabel(labelText), gbc);
-
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1;
-        panel.add(component, gbc);
-    }
-
-    private JPanel createStepPanel(String labelText, ImageIcon icon, JTextField textField, JButton button, JLabel checkLabel) {
-        JPanel panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        headerPanel.add(new JLabel(icon));
-        headerPanel.add(new JLabel(labelText));
-        panel.add(headerPanel, BorderLayout.NORTH);
-
-        panel.add(textField, BorderLayout.CENTER);
-
-        JPanel buttonPanel = new JPanel(new BorderLayout(5, 0));
-        buttonPanel.add(button, BorderLayout.CENTER);
-        buttonPanel.add(checkLabel, BorderLayout.EAST);
-        panel.add(buttonPanel, BorderLayout.EAST);
-
-        return panel;
-    }
-
-    private void generateCaAction(ActionEvent e) {
+    private void generateRootCaAction(ActionEvent e) {
         String dynamicFilename = sanitizeFilename(tfCaIdentity.getText()) + ".p12";
         if (activeCaFilename != null && generatedFiles.containsKey(activeCaFilename)) {
-            if (JOptionPane.showConfirmDialog(this, "A CA keystore already exists in memory. Overwrite?", "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.NO_OPTION) {
+            if (JOptionPane.showConfirmDialog(this, "A Root CA already exists. Overwrite?", "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.NO_OPTION) {
                 return;
             }
             removeGeneratedFile(activeCaFilename);
         }
-        showProgress("Generating Certificate Authority...");
-        generateCaAsync().whenComplete((success, ex) -> hideProgress());
+        showProgress("Generating Root Certificate Authority...");
+        generateRootCaAsync().whenComplete((success, ex) -> hideProgress());
+    }
+
+    private void generateIntCaAction(ActionEvent e) {
+        String dynamicFilename = sanitizeFilename(tfIntCaIdentity.getText()) + ".p12";
+        if (activeIntCaFilename != null && generatedFiles.containsKey(activeIntCaFilename)) {
+            if (JOptionPane.showConfirmDialog(this, "An Intermediate CA already exists. Overwrite?", "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.NO_OPTION) {
+                return;
+            }
+            removeGeneratedFile(activeIntCaFilename);
+        }
+        showProgress("Generating Intermediate CA...");
+        ensureRootCaExists().thenComposeAsync(caSuccess ->
+                caSuccess ? generateIntermediateCaAsync() : CompletableFuture.completedFuture(false)
+        ).whenComplete((success, ex) -> hideProgress());
     }
 
     private void generateServerAction(ActionEvent e) {
@@ -875,8 +673,8 @@ public class PKICertGenV2 extends JFrame {
         final String serverCN = tfServerDomain.getText();
         final String sanParams = buildSanString();
 
-        ensureCaExists().thenComposeAsync(caSuccess ->
-                caSuccess ? generateCertificate("server", serverCN, sanParams) : CompletableFuture.completedFuture(false)
+        ensureSignerExists().thenComposeAsync(signerSuccess ->
+                signerSuccess ? generateLeafCertificate("server", serverCN, sanParams) : CompletableFuture.completedFuture(false)
         ).whenComplete((success, ex) -> hideProgress());
     }
 
@@ -884,8 +682,8 @@ public class PKICertGenV2 extends JFrame {
         showProgress("Generating Client Keystore...");
         final String sanParams = buildSanString();
 
-        ensureCaExists().thenComposeAsync(caSuccess ->
-                caSuccess ? generateCertificate("client", tfClientName.getText(), sanParams) : CompletableFuture.completedFuture(false)
+        ensureSignerExists().thenComposeAsync(signerSuccess ->
+                signerSuccess ? generateLeafCertificate("client", tfClientName.getText(), sanParams) : CompletableFuture.completedFuture(false)
         ).whenComplete((success, ex) -> hideProgress());
     }
 
@@ -907,45 +705,91 @@ public class PKICertGenV2 extends JFrame {
         }).whenComplete((v, ex) -> hideProgress());
     }
 
-    private void clearAllAction(ActionEvent e) {
-        tfOrg.setText("USA");
-        tfCity.setText("DC");
-        tfState.setText("Maryland");
-        tfCountry.setText("US");
-        tfPassword.setText("password");
+    private void revokeCertificateAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.size() != 1) return;
+        String targetFilename = filenames.getFirst();
 
-        ouPanelContainer.removeAll();
-        ouFields.clear();
-        addOuField();
+        showProgress("Revoking Certificate and Updating CRL...");
+        CompletableFuture.runAsync(() -> {
+            try {
+                byte[] ksBytes = generatedFiles.get(targetFilename);
+                KeyStore ks = KeyStore.getInstance("PKCS12");
+                ks.load(new ByteArrayInputStream(ksBytes), new String(tfPassword.getPassword()).toCharArray());
+                String targetAlias = targetFilename.contains("server") ? "server" : "client";
+                Certificate cert = ks.getCertificate(targetAlias);
+                if (!(cert instanceof X509Certificate x509)) {
+                    log("ERROR: Could not find valid X509 certificate in " + targetFilename);
+                    return;
+                }
 
-        sanPanelContainer.removeAll();
-        sanFields.clear();
-        addSanField();
+                String serial = x509.getSerialNumber().toString(10);
+                if (!revokedSerials.contains(serial)) {
+                    revokedSerials.add(serial);
+                }
+                log("Revoking serial number: " + serial);
 
-        tfValidity.setText("365");
-        chkNeverExpire.setSelected(false);
-        tfValidity.setEnabled(true);
+                String signerSelection = (String) signerCombo.getSelectedItem();
+                boolean useIntCa = "Intermediate CA".equals(signerSelection);
+                String activeSignerFile = useIntCa ? activeIntCaFilename : activeCaFilename;
+                String signerAlias = useIntCa ? "intermediate" : "rootca";
 
-        tfCaIdentity.setText("MyCompany Local Root CA");
-        tfServerDomain.setText("api.internal.local");
-        tfClientName.setText("Jane Doe");
-        tfPublicKeyFilename.setText("public-key.pem");
+                if (activeSignerFile == null || !generatedFiles.containsKey(activeSignerFile)) {
+                    log("ERROR: The required Signer CA is not in memory to generate the CRL.");
+                    return;
+                }
 
-        caCheckLabel.setVisible(false);
-        serverCheckLabel.setVisible(false);
-        clientCheckLabel.setVisible(false);
-        publicKeyCheckLabel.setVisible(false);
+                Path tempCaKs = Files.createTempFile("signer_temp", ".p12");
+                Files.write(tempCaKs, generatedFiles.get(activeSignerFile));
+                Path tempCrl = Files.createTempFile("revoked", ".crl");
+                Files.delete(tempCrl);
 
-        togglePublicKeyPanel(false);
+                List<String> command = new ArrayList<>(Arrays.asList(
+                        "keytool", "-gencrl",
+                        "-alias", signerAlias,
+                        "-keystore", tempCaKs.toAbsolutePath().toString(),
+                        "-storetype", "pkcs12",
+                        "-storepass", new String(tfPassword.getPassword()),
+                        "-file", tempCrl.toAbsolutePath().toString()
+                ));
 
-        generatedFiles.clear();
-        fileTableModel.setRowCount(0);
-        activeCaFilename = null;
-        activeClientFilename = null;
-        logArea.setText("");
-        log("UI cleared.");
+                for (String s : revokedSerials) {
+                    command.add("-id");
+                    command.add(s);
+                }
+
+                if (executeCommand(command, new String(tfPassword.getPassword())).isSuccess()) {
+                    byte[] crlBytes = Files.readAllBytes(tempCrl);
+                    String crlFilename = (useIntCa ? "intermediate" : "root") + ".crl";
+                    addGeneratedFile(crlFilename, crlBytes, "Revocation List (CRL)", calculateSha256(crlBytes));
+                    log("--- Successfully generated/updated CRL. ---");
+                }
+
+                Files.deleteIfExists(tempCaKs);
+                Files.deleteIfExists(tempCrl);
+
+            } catch (Exception ex) {
+                log("ERROR during revocation: " + ex.getMessage());
+            }
+        }).whenComplete((v, ex) -> hideProgress());
     }
 
+    private void clearAllAction(ActionEvent e) {
+        tfOrg.setText("OmniCorp"); tfCity.setText("Baltimore"); tfState.setText("Maryland"); tfCountry.setText("US"); tfPassword.setText("password");
+        ouPanelContainer.removeAll(); ouFields.clear(); addOuField();
+        sanPanelContainer.removeAll(); sanFields.clear(); addSanField();
+        tfValidity.setText("365"); chkNeverExpire.setSelected(false); tfValidity.setEnabled(true);
+        tfCaIdentity.setText("OmniCorp Root CA"); tfIntCaIdentity.setText("OmniCorp Issuing Intermediate CA");
+        tfServerDomain.setText("api.internal.local"); tfClientName.setText("Jane Doe"); tfPublicKeyFilename.setText("public-key.pem");
+
+        caCheckLabel.setVisible(false); intCaCheckLabel.setVisible(false); serverCheckLabel.setVisible(false); clientCheckLabel.setVisible(false); publicKeyCheckLabel.setVisible(false);
+        togglePublicKeyPanel(false);
+        generatedFiles.clear(); fileTableModel.setRowCount(0);
+        activeCaFilename = null; activeIntCaFilename = null; activeClientFilename = null; revokedSerials.clear();
+        logArea.setText(""); log("UI cleared.");
+    }
+
+    // --- The Previously Truncated Missing Method ---
     private void togglePublicKeyPanel(boolean show) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> togglePublicKeyPanel(show));
@@ -981,15 +825,32 @@ public class PKICertGenV2 extends JFrame {
         timer.start();
     }
 
-    private CompletableFuture<Boolean> ensureCaExists() {
+    // ---------------------------------------------------------
+    // PKI Generation Logic
+    // ---------------------------------------------------------
+
+    private CompletableFuture<Boolean> ensureRootCaExists() {
         if (activeCaFilename != null && generatedFiles.containsKey(activeCaFilename)) {
             return CompletableFuture.completedFuture(true);
         }
-        return generateCaAsync();
+        return generateRootCaAsync();
     }
 
-    private CompletableFuture<Boolean> generateCaAsync() {
-        log("--- Generating Certificate Authority (CA) ---");
+    private CompletableFuture<Boolean> ensureSignerExists() {
+        String selection = (String) signerCombo.getSelectedItem();
+        if ("Intermediate CA".equals(selection)) {
+            if (activeIntCaFilename != null && generatedFiles.containsKey(activeIntCaFilename)) {
+                return CompletableFuture.completedFuture(true);
+            } else {
+                return ensureRootCaExists().thenCompose(success -> success ? generateIntermediateCaAsync() : CompletableFuture.completedFuture(false));
+            }
+        } else {
+            return ensureRootCaExists();
+        }
+    }
+
+    private CompletableFuture<Boolean> generateRootCaAsync() {
+        log("--- Generating Root Certificate Authority ---");
         final String dname = buildDname(tfCaIdentity.getText());
         final String password = new String(tfPassword.getPassword());
         final String validity = chkNeverExpire.isSelected() ? "99999" : "3650";
@@ -999,11 +860,11 @@ public class PKICertGenV2 extends JFrame {
         CompletableFuture.runAsync(() -> {
             Path tempKeystore = null;
             try {
-                tempKeystore = Files.createTempFile("ca", ".p12");
+                tempKeystore = Files.createTempFile("rootca", ".p12");
                 Files.delete(tempKeystore);
 
                 List<String> command = Arrays.asList(
-                        "keytool", "-genkeypair", "-alias", "rootca", "-keyalg", "RSA", "-keysize", "2048",
+                        "keytool", "-genkeypair", "-alias", "rootca", "-keyalg", "RSA", "-keysize", "4096",
                         "-validity", validity, "-dname", dname,
                         "-keystore", tempKeystore.toAbsolutePath().toString(),
                         "-storetype", "pkcs12", "-storepass", password, "-keypass", password, "-ext", "bc=ca:true");
@@ -1011,14 +872,14 @@ public class PKICertGenV2 extends JFrame {
                 if (executeCommand(command, password).isSuccess()) {
                     byte[] fileBytes = Files.readAllBytes(tempKeystore);
                     activeCaFilename = dynamicFilename;
-                    addGeneratedFile(dynamicFilename, fileBytes, "Certificate Authority", calculateSha256(fileBytes));
-                    log("--- Successfully generated CA. ---");
+                    addGeneratedFile(dynamicFilename, fileBytes, "Root CA", calculateSha256(fileBytes));
+                    log("--- Successfully generated Root CA. ---");
                     future.complete(true);
                 } else {
                     future.complete(false);
                 }
             } catch (Exception ex) {
-                log("ERROR during CA generation: " + ex.getMessage());
+                log("ERROR during Root CA generation: " + ex.getMessage());
                 future.completeExceptionally(ex);
             } finally {
                 try { if (tempKeystore != null) Files.deleteIfExists(tempKeystore); } catch (Exception ignored) {}
@@ -1027,45 +888,96 @@ public class PKICertGenV2 extends JFrame {
         return future;
     }
 
-    private CompletableFuture<Boolean> generateCertificate(String alias, String cn, String san) {
+    private CompletableFuture<Boolean> generateIntermediateCaAsync() {
+        log("--- Generating Intermediate CA ---");
+        final String dname = buildDname(tfIntCaIdentity.getText());
+        final String password = new String(tfPassword.getPassword());
+        final String validity = chkNeverExpire.isSelected() ? "99999" : "1825"; // 5 years
+        final String dynamicFilename = sanitizeFilename(tfIntCaIdentity.getText()) + ".p12";
+
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        CompletableFuture.runAsync(() -> {
+            Path tempRootKs = null, tempIntKs = null, tempCsr = null, tempCert = null, tempRootCert = null;
+            try {
+                tempRootKs = Files.createTempFile("root_temp", ".p12");
+                Files.write(tempRootKs, generatedFiles.get(activeCaFilename));
+
+                tempIntKs = Files.createTempFile("intca", ".p12"); Files.delete(tempIntKs);
+                tempCsr = Files.createTempFile("intca", ".csr"); Files.delete(tempCsr);
+                tempCert = Files.createTempFile("intca", ".cer"); Files.delete(tempCert);
+                tempRootCert = Files.createTempFile("rootca", ".cer"); Files.delete(tempRootCert);
+
+                String intKsPath = tempIntKs.toAbsolutePath().toString();
+                String rootKsPath = tempRootKs.toAbsolutePath().toString();
+
+                if (!executeCommand(Arrays.asList("keytool", "-genkeypair", "-alias", "intermediate", "-keyalg", "RSA", "-keysize", "4096", "-dname", dname, "-keystore", intKsPath, "-storetype", "pkcs12", "-storepass", password, "-keypass", password), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-certreq", "-alias", "intermediate", "-file", tempCsr.toAbsolutePath().toString(), "-keystore", intKsPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-gencert", "-alias", "rootca", "-infile", tempCsr.toAbsolutePath().toString(), "-outfile", tempCert.toAbsolutePath().toString(), "-keystore", rootKsPath, "-storetype", "pkcs12", "-storepass", password, "-validity", validity, "-ext", "bc=ca:true,pathlen:0"), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-exportcert", "-alias", "rootca", "-file", tempRootCert.toAbsolutePath().toString(), "-keystore", rootKsPath, "-storetype", "pkcs12", "-storepass", password, "-rfc"), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", "rootca", "-file", tempRootCert.toAbsolutePath().toString(), "-keystore", intKsPath, "-storetype", "pkcs12", "-storepass", password, "-noprompt"), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", "intermediate", "-file", tempCert.toAbsolutePath().toString(), "-keystore", intKsPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
+
+                byte[] finalKeystoreBytes = Files.readAllBytes(tempIntKs);
+                activeIntCaFilename = dynamicFilename;
+                addGeneratedFile(dynamicFilename, finalKeystoreBytes, "Intermediate CA", calculateSha256(finalKeystoreBytes));
+                log("--- Successfully created Intermediate CA. ---");
+                future.complete(true);
+            } catch (Exception ex) {
+                log("ERROR during Int CA generation: " + ex.getMessage());
+                future.complete(false);
+            } finally {
+                try {
+                    if (tempRootKs != null) Files.deleteIfExists(tempRootKs);
+                    if (tempIntKs != null) Files.deleteIfExists(tempIntKs);
+                    if (tempCsr != null) Files.deleteIfExists(tempCsr);
+                    if (tempCert != null) Files.deleteIfExists(tempCert);
+                    if (tempRootCert != null) Files.deleteIfExists(tempRootCert);
+                } catch (Exception ignored) {}
+            }
+        });
+        return future;
+    }
+
+    private CompletableFuture<Boolean> generateLeafCertificate(String alias, String cn, String san) {
         final String password = new String(tfPassword.getPassword());
         final String validity = chkNeverExpire.isSelected() ? "99999" : tfValidity.getText();
         final String dname = buildDname(cn);
         final String dynamicFilename = sanitizeFilename(cn) + ".p12";
 
+        final boolean useIntCa = "Intermediate CA".equals(signerCombo.getSelectedItem());
+        final String activeSignerFile = useIntCa ? activeIntCaFilename : activeCaFilename;
+        final String signerAlias = useIntCa ? "intermediate" : "rootca";
+
         final CompletableFuture<Boolean> future = new CompletableFuture<>();
-        log(String.format("--- Generating %s Certificate ---", alias));
+        log(String.format("--- Generating %s Certificate (Signed by %s) ---", alias, signerAlias));
 
         CompletableFuture.runAsync(() -> {
-            Path tempCaKeystore = null, tempKeystore = null, tempCsr = null, tempCert = null, tempCaCert = null;
+            Path tempSignerKs = null, tempKeystore = null, tempCsr = null, tempCert = null, tempSignerCert = null;
             try {
-                byte[] caBytes = generatedFiles.get(activeCaFilename);
-                tempCaKeystore = Files.createTempFile("ca_temp", ".p12");
-                Files.write(tempCaKeystore, caBytes);
+                byte[] signerBytes = generatedFiles.get(activeSignerFile);
+                tempSignerKs = Files.createTempFile("signer_temp", ".p12");
+                Files.write(tempSignerKs, signerBytes);
 
                 tempKeystore = Files.createTempFile(alias, ".p12"); Files.delete(tempKeystore);
                 tempCsr = Files.createTempFile(alias, ".csr"); Files.delete(tempCsr);
                 tempCert = Files.createTempFile(alias, ".cer"); Files.delete(tempCert);
-                tempCaCert = Files.createTempFile("rootca", ".cer"); Files.delete(tempCaCert);
+                tempSignerCert = Files.createTempFile("signer", ".cer"); Files.delete(tempSignerCert);
 
                 String ksPath = tempKeystore.toAbsolutePath().toString();
-                String caKsPath = tempCaKeystore.toAbsolutePath().toString();
-                String csrPath = tempCsr.toAbsolutePath().toString();
-                String certPath = tempCert.toAbsolutePath().toString();
-                String caCertPath = tempCaCert.toAbsolutePath().toString();
+                String signerKsPath = tempSignerKs.toAbsolutePath().toString();
 
                 if (!executeCommand(Arrays.asList("keytool", "-genkeypair", "-alias", alias, "-keyalg", "RSA", "-keysize", "2048", "-dname", dname, "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password, "-keypass", password), password).isSuccess()) { future.complete(false); return; }
-                if (!executeCommand(Arrays.asList("keytool", "-certreq", "-alias", alias, "-file", csrPath, "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-certreq", "-alias", alias, "-file", tempCsr.toAbsolutePath().toString(), "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
 
-                List<String> signCsrCommand = new ArrayList<>(Arrays.asList("keytool", "-gencert", "-alias", "rootca", "-infile", csrPath, "-outfile", certPath, "-keystore", caKsPath, "-storetype", "pkcs12", "-storepass", password, "-validity", validity));
+                List<String> signCsrCommand = new ArrayList<>(Arrays.asList("keytool", "-gencert", "-alias", signerAlias, "-infile", tempCsr.toAbsolutePath().toString(), "-outfile", tempCert.toAbsolutePath().toString(), "-keystore", signerKsPath, "-storetype", "pkcs12", "-storepass", password, "-validity", validity));
                 if (san != null && !san.trim().isEmpty()) {
                     signCsrCommand.add("-ext"); signCsrCommand.add(san);
                 }
 
                 if (!executeCommand(signCsrCommand, password).isSuccess()) { future.complete(false); return; }
-                if (!executeCommand(Arrays.asList("keytool", "-exportcert", "-alias", "rootca", "-file", caCertPath, "-keystore", caKsPath, "-storetype", "pkcs12", "-storepass", password, "-rfc"), password).isSuccess()) { future.complete(false); return; }
-                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", "rootca", "-file", caCertPath, "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password, "-noprompt"), password).isSuccess()) { future.complete(false); return; }
-                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", alias, "-file", certPath, "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-exportcert", "-alias", signerAlias, "-file", tempSignerCert.toAbsolutePath().toString(), "-keystore", signerKsPath, "-storetype", "pkcs12", "-storepass", password, "-rfc"), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", signerAlias, "-file", tempSignerCert.toAbsolutePath().toString(), "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password, "-noprompt"), password).isSuccess()) { future.complete(false); return; }
+                if (!executeCommand(Arrays.asList("keytool", "-importcert", "-alias", alias, "-file", tempCert.toAbsolutePath().toString(), "-keystore", ksPath, "-storetype", "pkcs12", "-storepass", password), password).isSuccess()) { future.complete(false); return; }
 
                 byte[] finalKeystoreBytes = Files.readAllBytes(tempKeystore);
                 String type = alias.substring(0, 1).toUpperCase() + alias.substring(1) + " Keystore";
@@ -1080,16 +992,146 @@ public class PKICertGenV2 extends JFrame {
                 future.complete(false);
             } finally {
                 try {
-                    if (tempCaKeystore != null) Files.deleteIfExists(tempCaKeystore);
+                    if (tempSignerKs != null) Files.deleteIfExists(tempSignerKs);
                     if (tempKeystore != null) Files.deleteIfExists(tempKeystore);
                     if (tempCsr != null) Files.deleteIfExists(tempCsr);
                     if (tempCert != null) Files.deleteIfExists(tempCert);
-                    if (tempCaCert != null) Files.deleteIfExists(tempCaCert);
+                    if (tempSignerCert != null) Files.deleteIfExists(tempSignerCert);
                 } catch (Exception ignored) {}
             }
         });
         return future;
     }
+
+    // ---------------------------------------------------------
+    // MOCK ACME / GITOPS API SERVER
+    // ---------------------------------------------------------
+
+    private void toggleApiServer() {
+        if (apiServer == null) {
+            try {
+                apiServer = HttpServer.create(new InetSocketAddress(8080), 0);
+                apiServer.createContext("/api/sign", new ApiSignHandler());
+                apiServer.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+                apiServer.start();
+                btnToggleApi.setText("Stop API Server");
+                apiLog("SUCCESS: API Server started on http://localhost:8080");
+                apiLog("Waiting for POST requests containing CSRs at /api/sign...");
+            } catch (IOException e) {
+                apiLog("ERROR: Could not start API server: " + e.getMessage());
+            }
+        } else {
+            apiServer.stop(0);
+            apiServer = null;
+            btnToggleApi.setText("Start API Server (Port 8080)");
+            apiLog("API Server stopped.");
+        }
+    }
+
+    private void apiLog(String msg) {
+        SwingUtilities.invokeLater(() -> {
+            apiLogArea.append(SDF.format(new Date()) + " | " + msg + "\n");
+            apiLogArea.setCaretPosition(apiLogArea.getDocument().getLength());
+        });
+    }
+
+    private class ApiSignHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+
+            apiLog("Received CSR via API...");
+            String signerSelection = (String) signerCombo.getSelectedItem();
+            boolean useIntCa = "Intermediate CA".equals(signerSelection);
+            String activeSignerFile = useIntCa ? activeIntCaFilename : activeCaFilename;
+            String signerAlias = useIntCa ? "intermediate" : "rootca";
+
+            if (activeSignerFile == null || !generatedFiles.containsKey(activeSignerFile)) {
+                String err = "ERROR: Required Signer CA is not generated yet.";
+                apiLog(err);
+                exchange.sendResponseHeaders(500, err.length());
+                OutputStream os = exchange.getResponseBody();
+                os.write(err.getBytes());
+                os.close();
+                return;
+            }
+
+            InputStream is = exchange.getRequestBody();
+            String csrBody = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))
+                    .lines().collect(Collectors.joining("\n"));
+
+            if (!csrBody.contains("BEGIN CERTIFICATE REQUEST")) {
+                String err = "Bad Request: Body does not contain a valid PEM CSR.";
+                apiLog(err);
+                exchange.sendResponseHeaders(400, err.length());
+                OutputStream os = exchange.getResponseBody();
+                os.write(err.getBytes());
+                os.close();
+                return;
+            }
+
+            Path tempCsr = null;
+            Path tempCert = null;
+            Path tempSignerKs = null;
+
+            try {
+                tempCsr = Files.createTempFile("api_req", ".csr");
+                Files.write(tempCsr, csrBody.getBytes(StandardCharsets.UTF_8));
+
+                tempCert = Files.createTempFile("api_res", ".cer");
+                Files.delete(tempCert);
+
+                tempSignerKs = Files.createTempFile("signer", ".p12");
+                Files.write(tempSignerKs, generatedFiles.get(activeSignerFile));
+
+                String password = new String(tfPassword.getPassword());
+
+                List<String> command = new ArrayList<>(Arrays.asList(
+                        "keytool", "-gencert",
+                        "-alias", signerAlias,
+                        "-infile", tempCsr.toAbsolutePath().toString(),
+                        "-outfile", tempCert.toAbsolutePath().toString(),
+                        "-keystore", tempSignerKs.toAbsolutePath().toString(),
+                        "-storetype", "pkcs12",
+                        "-storepass", password,
+                        "-validity", "90",
+                        "-rfc"
+                ));
+
+                CommandResult result = executeCommand(command, true, password);
+                if (result.isSuccess()) {
+                    byte[] certBytes = Files.readAllBytes(tempCert);
+                    exchange.sendResponseHeaders(200, certBytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(certBytes);
+                    os.close();
+                    apiLog("Successfully signed and returned certificate payload.");
+                } else {
+                    String err = "Internal CA Error processing CSR.";
+                    apiLog("ERROR: " + result.output());
+                    exchange.sendResponseHeaders(500, err.length());
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(err.getBytes());
+                    os.close();
+                }
+            } catch (Exception e) {
+                apiLog("Exception handling API request: " + e.getMessage());
+            } finally {
+                try {
+                    if (tempCsr != null) Files.deleteIfExists(tempCsr);
+                    if (tempCert != null) Files.deleteIfExists(tempCert);
+                    if (tempSignerKs != null) Files.deleteIfExists(tempSignerKs);
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Utility and Action Methods
+    // ---------------------------------------------------------
 
     private String buildDname(String cn) {
         final List<String> ouTexts = ouFields.stream().map(JTextField::getText).toList();
@@ -1100,13 +1142,10 @@ public class PKICertGenV2 extends JFrame {
     private void removeGeneratedFile(String filename) {
         if (generatedFiles.remove(filename) == null) return;
         SwingUtilities.invokeLater(() -> {
-            if (filename.equals(activeCaFilename)) {
-                caCheckLabel.setVisible(false);
-                activeCaFilename = null;
-            }
+            if (filename.equals(activeCaFilename)) { caCheckLabel.setVisible(false); activeCaFilename = null; }
+            if (filename.equals(activeIntCaFilename)) { intCaCheckLabel.setVisible(false); activeIntCaFilename = null; }
             if (filename.equals(activeClientFilename)) {
-                clientCheckLabel.setVisible(false);
-                togglePublicKeyPanel(false);
+                clientCheckLabel.setVisible(false); togglePublicKeyPanel(false);
                 removeGeneratedFile(tfPublicKeyFilename.getText());
                 activeClientFilename = null;
             }
@@ -1125,10 +1164,10 @@ public class PKICertGenV2 extends JFrame {
         generatedFiles.put(filename, content);
         SwingUtilities.invokeLater(() -> {
             if (filename.equals(activeCaFilename)) caCheckLabel.setVisible(true);
+            if (filename.equals(activeIntCaFilename)) intCaCheckLabel.setVisible(true);
             if (type.contains("Server")) serverCheckLabel.setVisible(true);
             if (filename.equals(activeClientFilename)) {
-                clientCheckLabel.setVisible(true);
-                togglePublicKeyPanel(true);
+                clientCheckLabel.setVisible(true); togglePublicKeyPanel(true);
             }
             if (filename.equals(tfPublicKeyFilename.getText())) publicKeyCheckLabel.setVisible(true);
 
@@ -1143,12 +1182,10 @@ public class PKICertGenV2 extends JFrame {
         });
     }
 
-    // Standard execution (logs everything)
     private CommandResult executeCommand(List<String> command, String... passwordsToMask) {
         return executeCommand(command, false, passwordsToMask);
     }
 
-    // Core execution engine with a silent toggle
     private CommandResult executeCommand(List<String> command, boolean silent, String... passwordsToMask) {
         try {
             String commandString = String.join(" ", command);
@@ -1179,12 +1216,14 @@ public class PKICertGenV2 extends JFrame {
 
             return new CommandResult(exitCode, finalOutput);
         } catch (Exception e) {
-            if (!silent) {
-                log("ERROR: Failed to execute command. Is 'keytool' in your system's PATH?");
-            }
+            if (!silent) log("ERROR: Failed to execute command. Is 'keytool' in your system's PATH?");
             return new CommandResult(-1, e.getMessage());
         }
     }
+
+    // ---------------------------------------------------------
+    // Restored Drag and Drop & Inspect Logic
+    // ---------------------------------------------------------
 
     private void handleFileDrop(DropTargetDropEvent dtde) {
         try {
@@ -1241,10 +1280,17 @@ public class PKICertGenV2 extends JFrame {
                             String internalFilename = file.getName();
 
                             if (output.contains("BasicConstraints:[CA:true")) {
-                                type = "Certificate Authority";
-                                activeCaFilename = internalFilename;
-                                generatedFiles.put(internalFilename, fileBytes);
-                                SwingUtilities.invokeLater(() -> { caCheckLabel.setVisible(true); tfCaIdentity.setText(getCnFromDn(ownerDn)); });
+                                if (output.contains("pathlen:0")) {
+                                    type = "Intermediate CA";
+                                    activeIntCaFilename = internalFilename;
+                                    generatedFiles.put(internalFilename, fileBytes);
+                                    SwingUtilities.invokeLater(() -> { intCaCheckLabel.setVisible(true); tfIntCaIdentity.setText(getCnFromDn(ownerDn)); });
+                                } else {
+                                    type = "Root CA";
+                                    activeCaFilename = internalFilename;
+                                    generatedFiles.put(internalFilename, fileBytes);
+                                    SwingUtilities.invokeLater(() -> { caCheckLabel.setVisible(true); tfCaIdentity.setText(getCnFromDn(ownerDn)); });
+                                }
                             } else if (output.contains("SubjectAlternativeName")) {
                                 type = "Server Keystore";
                                 generatedFiles.put(internalFilename, fileBytes);
@@ -1343,36 +1389,253 @@ public class PKICertGenV2 extends JFrame {
         });
     }
 
+    // ---------------------------------------------------------
+    // View & Export Formatting
+    // ---------------------------------------------------------
+
+    private void viewFileAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.size() != 1) return;
+
+        String filename = filenames.getFirst();
+        byte[] content = generatedFiles.get(filename);
+        if (content == null) {
+            JOptionPane.showMessageDialog(this, "Could not find file content in memory for: " + filename, "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String displayContent;
+        if (filename.toLowerCase().endsWith(".p12")) {
+            displayContent = inspectKeystoreInMemory(filename, content);
+        } else {
+            displayContent = new String(content);
+        }
+
+        JTextArea textArea = new JTextArea(displayContent);
+        textArea.setEditable(false);
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        textArea.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(700, 500));
+        JOptionPane.showMessageDialog(this, scrollPane, "Viewing File: " + filename, JOptionPane.PLAIN_MESSAGE);
+    }
+
+    private String inspectKeystoreInMemory(String filename, byte[] content) {
+        String password = new String(tfPassword.getPassword());
+        Path tempKeystore = null;
+        try {
+            tempKeystore = Files.createTempFile("inspect", ".p12");
+            Files.write(tempKeystore, content);
+            List<String> command = Arrays.asList("keytool", "-list", "-v", "-keystore", tempKeystore.toAbsolutePath().toString(), "-storepass", password, "-storetype", "pkcs12");
+            CommandResult result = executeCommand(command, true, password);
+            if (result.isSuccess()) return "--- Keystore Details for " + filename + " ---\n\n" + result.output();
+            else return "Failed to inspect keystore.\n\n" + result.output();
+        } catch (Exception e) {
+            return "Error inspecting keystore: " + e.getMessage();
+        } finally {
+            if (tempKeystore != null) { try { Files.deleteIfExists(tempKeystore); } catch (Exception ignored) {} }
+        }
+    }
+
+    private void saveSingleFileAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.size() == 1) saveSingleFilePrompt(filenames.getFirst());
+    }
+
+    private void saveSingleFilePrompt(String filename) {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Save " + filename);
+        fileChooser.setSelectedFile(new File(filename));
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            byte[] content = generatedFiles.get(filename);
+            if (content != null) {
+                try (FileOutputStream fos = new FileOutputStream(fileToSave)) {
+                    fos.write(content);
+                    log("Successfully saved file: " + fileToSave.getAbsolutePath());
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(this, "Error saving file: " + e.getMessage(), "File Save Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+    }
+
+    private void exportFilesAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.isEmpty()) return;
+
+        JFileChooser directoryChooser = new JFileChooser();
+        directoryChooser.setDialogTitle("Select Export Directory for " + filenames.size() + " files");
+        directoryChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+
+        if (directoryChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File dir = directoryChooser.getSelectedFile();
+            for (String fname : filenames) {
+                byte[] content = generatedFiles.get(fname);
+                if (content != null) {
+                    try (FileOutputStream fos = new FileOutputStream(new File(dir, fname))) {
+                        fos.write(content);
+                        log("Successfully exported: " + fname);
+                    } catch (Exception ex) {
+                        log("ERROR: Could not export " + fname + " - " + ex.getMessage());
+                    }
+                }
+            }
+            JOptionPane.showMessageDialog(this, "Exported " + filenames.size() + " files to:\n" + dir.getAbsolutePath(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void createExtractedFormatAction(boolean asPem) {
+        int[] selectedRows = fileTable.getSelectedRows();
+        for (int r : selectedRows) {
+            String filename = (String) fileTable.getValueAt(r, 1);
+            String type = (String) fileTable.getValueAt(r, 3);
+            String lower = filename.toLowerCase();
+
+            if (asPem && !lower.endsWith(".p12")) continue;
+            if (!asPem && !(lower.endsWith(".p12") || lower.endsWith(".pem"))) continue;
+
+            String extension = asPem ? ".pem" : ".der";
+            String newFilename = filename.substring(0, filename.lastIndexOf('.')) + extension;
+            byte[] extractedBytes = null;
+
+            try {
+                if (!asPem && lower.endsWith(".pem")) {
+                    log("--- Converting " + filename + " from PEM to DER ---");
+                    byte[] pemBytes = generatedFiles.get(filename);
+                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                    X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(pemBytes));
+                    extractedBytes = cert.getEncoded();
+                } else if (lower.endsWith(".p12")) {
+                    if (asPem) {
+                        log(String.format("--- Creating Full PEM Bundle from %s ---", filename));
+                        extractedBytes = createFullPemBundle(generatedFiles.get(filename), new String(tfPassword.getPassword()));
+                    } else {
+                        log(String.format("--- Creating DER format from %s ---", filename));
+                        String alias = null;
+                        if (type.contains("Root Authority") || type.contains("Root CA")) alias = "rootca";
+                        else if (type.contains("Intermediate")) alias = "intermediate";
+                        else if (type.contains("Server")) alias = "server";
+                        else if (type.contains("Client")) alias = "client";
+
+                        if (alias != null) extractedBytes = exportCertificateFromKeystore(filename, alias, false);
+                    }
+                }
+
+                if (extractedBytes != null) {
+                    String newType = asPem ? "PEM Bundle (Key + Certs)" : "Certificate (DER)";
+                    addGeneratedFile(newFilename, extractedBytes, newType, calculateSha256(extractedBytes));
+                    log("Successfully generated " + newFilename + " in memory.");
+                }
+            } catch (Exception e) {
+                log("ERROR during memory creation for " + filename + ": " + e.getMessage());
+            }
+        }
+    }
+
+    private byte[] createFullPemBundle(byte[] p12Bytes, String password) throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(new ByteArrayInputStream(p12Bytes), password.toCharArray());
+        StringBuilder pemBuilder = new StringBuilder();
+        Base64.Encoder encoder = Base64.getMimeEncoder(64, new byte[]{'\n'});
+
+        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
+            String alias = e.nextElement();
+            pemBuilder.append("Bag Attributes\n    friendlyName: ").append(alias).append("\n");
+
+            if (ks.isKeyEntry(alias)) {
+                Key key = ks.getKey(alias, password.toCharArray());
+                if (key != null) {
+                    pemBuilder.append("Key Attributes: <No Attributes>\n");
+                    pemBuilder.append("-----BEGIN PRIVATE KEY-----\n");
+                    pemBuilder.append(encoder.encodeToString(key.getEncoded()));
+                    pemBuilder.append("\n-----END PRIVATE KEY-----\n\n");
+                }
+
+                Certificate[] chain = ks.getCertificateChain(alias);
+                if (chain != null) {
+                    for (Certificate cert : chain) {
+                        if (cert instanceof X509Certificate x509) {
+                            pemBuilder.append("Bag Attributes\n");
+                            pemBuilder.append("    subject: ").append(x509.getSubjectX500Principal().getName()).append("\n");
+                            pemBuilder.append("    issuer: ").append(x509.getIssuerX500Principal().getName()).append("\n");
+                        }
+                        pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
+                        pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
+                        pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
+                    }
+                }
+            } else if (ks.isCertificateEntry(alias)) {
+                Certificate cert = ks.getCertificate(alias);
+                pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
+                pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
+                pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
+            }
+        }
+        return pemBuilder.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] exportCertificateFromKeystore(String keystoreFilename, String alias, boolean asPem) {
+        final String password = new String(tfPassword.getPassword());
+        byte[] keystoreBytes = generatedFiles.get(keystoreFilename);
+        Path tempKeystore = null, tempOutFile = null;
+
+        try {
+            tempKeystore = Files.createTempFile("keystore_temp", ".p12");
+            Files.write(tempKeystore, keystoreBytes);
+            tempOutFile = Files.createTempFile("cert_export", asPem ? ".pem" : ".der");
+            Files.delete(tempOutFile);
+
+            List<String> command = new ArrayList<>(Arrays.asList(
+                    "keytool", "-exportcert", "-alias", alias,
+                    "-keystore", tempKeystore.toAbsolutePath().toString(),
+                    "-storetype", "pkcs12", "-storepass", password,
+                    "-file", tempOutFile.toAbsolutePath().toString()
+            ));
+            if (asPem) command.add("-rfc");
+
+            if (executeCommand(command, true, password).isSuccess()) return Files.readAllBytes(tempOutFile);
+            return null;
+        } catch (Exception ex) { return null; }
+        finally {
+            try { if (tempKeystore != null) Files.deleteIfExists(tempKeystore); if (tempOutFile != null) Files.deleteIfExists(tempOutFile); } catch (Exception ex) {}
+        }
+    }
+
+    private void addConfigRow(JPanel panel, GridBagConstraints gbc, int y, String labelText, JComponent component) {
+        gbc.gridy = y; gbc.gridx = 0; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel(labelText), gbc); gbc.gridx = 1; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(component, gbc);
+    }
+
+    private JPanel createStepPanel(String labelText, ImageIcon icon, JTextField textField, JButton button, JLabel checkLabel) {
+        JPanel panel = new JPanel(new BorderLayout(5, 5)); panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        if (icon != null) headerPanel.add(new JLabel(icon));
+        headerPanel.add(new JLabel(labelText)); panel.add(headerPanel, BorderLayout.NORTH); panel.add(textField, BorderLayout.CENTER);
+        JPanel buttonPanel = new JPanel(new BorderLayout(5, 0)); buttonPanel.add(button, BorderLayout.CENTER); buttonPanel.add(checkLabel, BorderLayout.EAST); panel.add(buttonPanel, BorderLayout.EAST);
+        return panel;
+    }
+
     private void log(String message) {
-        SwingUtilities.invokeLater(() -> {
-            logArea.append(message + "\n");
-            logArea.setCaretPosition(logArea.getDocument().getLength());
-        });
+        SwingUtilities.invokeLater(() -> { logArea.append(message + "\n"); logArea.setCaretPosition(logArea.getDocument().getLength()); });
     }
 
     private String calculateSha256(byte[] fileBytes) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(fileBytes);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256"); byte[] hash = digest.digest(fileBytes);
             StringBuilder hexString = new StringBuilder(2 * hash.length);
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
+            for (byte b : hash) { String hex = Integer.toHexString(0xff & b); if (hex.length() == 1) hexString.append('0'); hexString.append(hex); }
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) { return "N/A"; }
     }
 
     private Icon createCheckIcon() {
         return new Icon() {
-            @Override public void paintIcon(Component c, Graphics g, int x, int y) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setStroke(new BasicStroke(2.5f)); g2.setColor(new Color(0, 153, 0));
-                g2.drawLine(x + 3, y + 8, x + 8, y + 13); g2.drawLine(x + 8, y + 13, x + 15, y + 4);
-                g2.dispose();
-            }
+            @Override public void paintIcon(Component c, Graphics g, int x, int y) { Graphics2D g2 = (Graphics2D) g.create(); g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g2.setStroke(new BasicStroke(2.5f)); g2.setColor(new Color(0, 153, 0)); g2.drawLine(x + 3, y + 8, x + 8, y + 13); g2.drawLine(x + 8, y + 13, x + 15, y + 4); g2.dispose(); }
             @Override public int getIconWidth() { return 20; }
             @Override public int getIconHeight() { return 20; }
         };
@@ -1384,7 +1647,6 @@ public class PKICertGenV2 extends JFrame {
         UIManager.put("TextField.selectionBackground", new Color(0x44475a));
         UIManager.put("Button.default.background", new Color(0x6272a4));
         UIManager.put("ProgressBar.foreground", new Color(0x50fa7b));
-
         FlatDarkLaf.setup();
         SwingUtilities.invokeLater(PKICertGenV2::new);
     }
