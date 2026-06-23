@@ -30,19 +30,26 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.Key;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -85,25 +92,27 @@ import javax.swing.table.DefaultTableModel;
  */
 public class PKICertGenV2 extends JFrame {
 
-    private final JTextField tfCn = new JTextField("Integration-Server", 20);
+    // Corporate Base Fields
     private final JTextField tfOrg = new JTextField("USA", 20);
     private final List<JTextField> ouFields = new ArrayList<>();
     private JPanel ouPanelContainer;
+    private final JTextField tfCity = new JTextField("DC", 20);
+    private final JTextField tfState = new JTextField("Maryland", 20);
+    private final JTextField tfCountry = new JTextField("US", 20);
 
     // SAN Components
     private final List<SanEntryPanel> sanFields = new ArrayList<>();
     private JPanel sanPanelContainer;
 
-    private final JTextField tfCity = new JTextField("DC", 20);
-    private final JTextField tfState = new JTextField("Maryland", 20);
-    private final JTextField tfCountry = new JTextField("US", 20);
+    // Global Settings
     private final JPasswordField tfPassword = new JPasswordField("password", 20);
-
-    private final JTextField tfCaCN = new JTextField("ca-authority.p12", 20);
-    private final JTextField tfServerCN = new JTextField("server.p12", 20);
-    private final JTextField tfClientCN = new JTextField("client.p12", 20);
     private final JTextField tfValidity = new JTextField("365", 5);
     private final JCheckBox chkNeverExpire = new JCheckBox("Never Expire");
+
+    // Specific Entity CNs
+    private final JTextField tfCaIdentity = new JTextField("MyCompany Local Root CA", 20);
+    private final JTextField tfServerDomain = new JTextField("api.internal.local", 20);
+    private final JTextField tfClientName = new JTextField("Jane Doe", 20);
 
     private final JTextArea logArea = new JTextArea(15, 80);
     private final JButton generateCaButton = new JButton("Generate CA Keystore");
@@ -131,6 +140,10 @@ public class PKICertGenV2 extends JFrame {
     private JMenuItem createPemItem;
     private JMenuItem exportItem;
 
+    // State Trackers for dynamic filenames
+    private String activeCaFilename = null;
+    private String activeClientFilename = null;
+
     private static Image appIcon;
 
     private static final Color KINDA_GRAY = new Color(135, 135, 135);
@@ -152,7 +165,7 @@ public class PKICertGenV2 extends JFrame {
             setBorder(new EmptyBorder(0, 0, 2, 0));
 
             typeCombo = new JComboBox<>(new String[]{"dns", "ip"});
-            valueField = new JTextField(isFirst ? "xxx.my-domain.com" : "", 14);
+            valueField = new JTextField(isFirst ? "127.0.0.1" : "", 14);
 
             JButton button = new JButton(isFirst ? "+" : "-");
             button.setMargin(new Insets(2, 5, 2, 5));
@@ -191,13 +204,12 @@ public class PKICertGenV2 extends JFrame {
 
         // --- Configuration Panel ---
         JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("Certificate Details"));
+        configPanel.setBorder(BorderFactory.createTitledBorder("Corporate Identity Base"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 5, 2, 5);
         gbc.anchor = GridBagConstraints.WEST;
         int gridY = 0;
 
-        addConfigRow(configPanel, gbc, gridY++, "Common Name (CN):", tfCn);
         addConfigRow(configPanel, gbc, gridY++, "Organization (O):", tfOrg);
 
         // Dynamic OU panel
@@ -262,7 +274,7 @@ public class PKICertGenV2 extends JFrame {
         // --- Generation Control Panel ---
         JPanel generatorPanel = new JPanel();
         generatorPanel.setLayout(new BoxLayout(generatorPanel, BoxLayout.Y_AXIS));
-        generatorPanel.setBorder(BorderFactory.createTitledBorder("Certificate Generation"));
+        generatorPanel.setBorder(BorderFactory.createTitledBorder("Entity Generation"));
 
         ImageIcon caIcon = new ImageIcon(new ImageIcon(Objects.requireNonNull(getClass().getResource("/png/pki/certificate5.png"))).getImage().getScaledInstance(24, 24, Image.SCALE_SMOOTH));
         ImageIcon serverIcon = new ImageIcon(new ImageIcon(Objects.requireNonNull(getClass().getResource("/png/server2.png"))).getImage().getScaledInstance(22, 22, Image.SCALE_SMOOTH));
@@ -277,9 +289,9 @@ public class PKICertGenV2 extends JFrame {
         serverCheckLabel.setVisible(false);
         clientCheckLabel.setVisible(false);
 
-        JPanel caPanel = createStepPanel("Certificate Authority (CA)", caIcon, tfCaCN, generateCaButton, caCheckLabel);
-        JPanel serverPanel = createStepPanel("Server Certificate", serverIcon, tfServerCN, generateServerButton, serverCheckLabel);
-        JPanel clientPanel = createStepPanel("Client Certificate", clientIcon, tfClientCN, generateClientButton, clientCheckLabel);
+        JPanel caPanel = createStepPanel("CA Identity (CN):", caIcon, tfCaIdentity, generateCaButton, caCheckLabel);
+        JPanel serverPanel = createStepPanel("Server Domain (CN):", serverIcon, tfServerDomain, generateServerButton, serverCheckLabel);
+        JPanel clientPanel = createStepPanel("User/Employee Name (CN):", clientIcon, tfClientName, generateClientButton, clientCheckLabel);
 
         generatorPanel.add(caPanel);
         generatorPanel.add(Box.createRigidArea(new Dimension(0, 5)));
@@ -331,9 +343,9 @@ public class PKICertGenV2 extends JFrame {
         fileTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         fileTable.setRowHeight(24);
         fileTable.getColumnModel().getColumn(0).setMaxWidth(30);
-        fileTable.getColumnModel().getColumn(1).setPreferredWidth(120);
+        fileTable.getColumnModel().getColumn(1).setPreferredWidth(220);
         fileTable.getColumnModel().getColumn(2).setPreferredWidth(80);
-        fileTable.getColumnModel().getColumn(3).setPreferredWidth(120);
+        fileTable.getColumnModel().getColumn(3).setPreferredWidth(140);
         fileTable.getColumnModel().getColumn(4).setPreferredWidth(140);
         fileTable.getColumnModel().getColumn(5).setPreferredWidth(450);
 
@@ -373,7 +385,6 @@ public class PKICertGenV2 extends JFrame {
                 if (e.isPopupTrigger()) {
                     int row = fileTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
-                        // Keep multi-selection intact if clicking within it, otherwise select new row
                         if (!fileTable.isRowSelected(row)) {
                             fileTable.setRowSelectionInterval(row, row);
                         }
@@ -431,7 +442,6 @@ public class PKICertGenV2 extends JFrame {
 
     private void validateEnvironment() {
         CompletableFuture.runAsync(() -> {
-            // Pass 'true' to execute silently
             CommandResult result = executeCommand(List.of("keytool", "-help"), true);
             if (!result.isSuccess()) {
                 SwingUtilities.invokeLater(() -> {
@@ -485,7 +495,7 @@ public class PKICertGenV2 extends JFrame {
         JPanel ouRowPanel = new JPanel(new BorderLayout(5, 0));
         ouRowPanel.setBorder(new EmptyBorder(0, 0, 2, 0));
         boolean isFirst = ouFields.isEmpty();
-        JTextField ouField = new JTextField(isFirst ? "Cyber" : "", 20);
+        JTextField ouField = new JTextField(isFirst ? "Platform Engineering" : "", 20);
         ouFields.add(ouField);
 
         JButton button = new JButton(isFirst ? "+" : "-");
@@ -543,6 +553,11 @@ public class PKICertGenV2 extends JFrame {
         return validSans.isEmpty() ? null : "san=" + String.join(",", validSans);
     }
 
+    private String sanitizeFilename(String input) {
+        if (input == null || input.trim().isEmpty()) return "keystore";
+        return input.trim().toLowerCase().replaceAll("[^a-z0-9\\.]", "-").replaceAll("-+", "-");
+    }
+
     private List<String> getSelectedFilenames() {
         int[] rows = fileTable.getSelectedRows();
         List<String> names = new ArrayList<>();
@@ -558,17 +573,55 @@ public class PKICertGenV2 extends JFrame {
 
         String filename = filenames.getFirst();
         byte[] content = generatedFiles.get(filename);
-        if (content != null) {
-            JTextArea textArea = new JTextArea(new String(content));
-            textArea.setEditable(false);
-            textArea.setLineWrap(true);
-            textArea.setWrapStyleWord(true);
-            textArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
-            JScrollPane scrollPane = new JScrollPane(textArea);
-            scrollPane.setPreferredSize(new Dimension(600, 400));
-            JOptionPane.showMessageDialog(this, scrollPane, "Viewing File: " + filename, JOptionPane.PLAIN_MESSAGE);
-        } else {
+        if (content == null) {
             JOptionPane.showMessageDialog(this, "Could not find file content in memory for: " + filename, "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String displayContent;
+        if (filename.toLowerCase().endsWith(".p12")) {
+            displayContent = inspectKeystoreInMemory(filename, content);
+        } else {
+            displayContent = new String(content);
+        }
+
+        JTextArea textArea = new JTextArea(displayContent);
+        textArea.setEditable(false);
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        textArea.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(700, 500));
+        JOptionPane.showMessageDialog(this, scrollPane, "Viewing File: " + filename, JOptionPane.PLAIN_MESSAGE);
+    }
+
+    private String inspectKeystoreInMemory(String filename, byte[] content) {
+        String password = new String(tfPassword.getPassword());
+        Path tempKeystore = null;
+        try {
+            tempKeystore = Files.createTempFile("inspect", ".p12");
+            Files.write(tempKeystore, content);
+            List<String> command = Arrays.asList(
+                    "keytool", "-list", "-v",
+                    "-keystore", tempKeystore.toAbsolutePath().toString(),
+                    "-storepass", password,
+                    "-storetype", "pkcs12"
+            );
+
+            CommandResult result = executeCommand(command, true, password);
+            if (result.isSuccess()) {
+                return "--- Keystore Details for " + filename + " ---\n\n" + result.output();
+            } else {
+                return "Failed to inspect keystore. Password might be incorrect.\n\n" + result.output();
+            }
+        } catch (Exception e) {
+            return "Error inspecting keystore: " + e.getMessage();
+        } finally {
+            if (tempKeystore != null) {
+                try { Files.deleteIfExists(tempKeystore); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -627,11 +680,13 @@ public class PKICertGenV2 extends JFrame {
      * Generates DER or PEM formats in memory from the selected files.
      */
     private void createExtractedFormatAction(boolean asPem) {
-        List<String> filenames = getSelectedFilenames();
+        int[] selectedRows = fileTable.getSelectedRows();
 
-        for (String filename : filenames) {
+        for (int r : selectedRows) {
+            String filename = (String) fileTable.getValueAt(r, 1);
+            String type = (String) fileTable.getValueAt(r, 3);
             String lower = filename.toLowerCase();
-            // Intelligent filter: only try to extract if the file type supports it
+
             if (asPem && !lower.endsWith(".p12")) continue;
             if (!asPem && !(lower.endsWith(".p12") || lower.endsWith(".pem"))) continue;
 
@@ -644,26 +699,30 @@ public class PKICertGenV2 extends JFrame {
                     log("--- Converting " + filename + " from PEM to DER ---");
                     byte[] pemBytes = generatedFiles.get(filename);
                     CertificateFactory cf = CertificateFactory.getInstance("X.509");
-                    X509Certificate cert = (X509Certificate) cf.generateCertificate(new java.io.ByteArrayInputStream(pemBytes));
+                    X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(pemBytes));
                     extractedBytes = cert.getEncoded();
                 } else if (lower.endsWith(".p12")) {
-                    log(String.format("--- Creating %s format from %s ---", asPem ? "PEM" : "DER", filename));
-                    String alias = switch (filename) {
-                        case "certificate-authority.p12" -> "rootca";
-                        case "server.p12" -> "server";
-                        case "client.p12" -> "client";
-                        default -> null;
-                    };
-                    if (alias != null) {
-                        extractedBytes = exportCertificateFromKeystore(filename, alias, asPem);
+                    if (asPem) {
+                        log(String.format("--- Creating Full PEM Bundle from %s ---", filename));
+                        extractedBytes = createFullPemBundle(generatedFiles.get(filename), new String(tfPassword.getPassword()));
                     } else {
-                        log("Skipping " + filename + ": Cannot determine keystore alias automatically.");
+                        log(String.format("--- Creating DER format from %s ---", filename));
+                        String alias = null;
+                        if (type.contains("Authority")) alias = "rootca";
+                        else if (type.contains("Server")) alias = "server";
+                        else if (type.contains("Client")) alias = "client";
+
+                        if (alias != null) {
+                            extractedBytes = exportCertificateFromKeystore(filename, alias, false);
+                        } else {
+                            log("Skipping " + filename + ": Cannot determine keystore alias automatically for DER.");
+                        }
                     }
                 }
 
                 if (extractedBytes != null) {
-                    String type = asPem ? "Certificate (PEM)" : "Certificate (DER)";
-                    addGeneratedFile(newFilename, extractedBytes, type, calculateSha256(extractedBytes));
+                    String newType = asPem ? "PEM Bundle (Key + Certs)" : "Certificate (DER)";
+                    addGeneratedFile(newFilename, extractedBytes, newType, calculateSha256(extractedBytes));
                     log("Successfully generated " + newFilename + " in memory.");
                 } else {
                     log("ERROR: Failed to generate content for " + filename);
@@ -672,6 +731,57 @@ public class PKICertGenV2 extends JFrame {
                 log("ERROR during memory creation for " + filename + ": " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Reads a PKCS12 in memory and manually extracts the private key, certificate, and CA chain
+     * into a formatted PEM bundle, circumventing keytool's limitations with private key exports.
+     */
+    private byte[] createFullPemBundle(byte[] p12Bytes, String password) throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(new ByteArrayInputStream(p12Bytes), password.toCharArray());
+        StringBuilder pemBuilder = new StringBuilder();
+        Base64.Encoder encoder = Base64.getMimeEncoder(64, new byte[]{'\n'});
+
+        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
+            String alias = e.nextElement();
+            pemBuilder.append("Bag Attributes\n    friendlyName: ").append(alias).append("\n");
+
+            if (ks.isKeyEntry(alias)) {
+                Key key = ks.getKey(alias, password.toCharArray());
+                if (key != null) {
+                    pemBuilder.append("Key Attributes: <No Attributes>\n");
+                    pemBuilder.append("-----BEGIN PRIVATE KEY-----\n");
+                    pemBuilder.append(encoder.encodeToString(key.getEncoded()));
+                    pemBuilder.append("\n-----END PRIVATE KEY-----\n\n");
+                }
+
+                Certificate[] chain = ks.getCertificateChain(alias);
+                if (chain != null) {
+                    for (Certificate cert : chain) {
+                        if (cert instanceof X509Certificate x509) {
+                            pemBuilder.append("Bag Attributes\n");
+                            pemBuilder.append("    subject: ").append(x509.getSubjectX500Principal().getName()).append("\n");
+                            pemBuilder.append("    issuer: ").append(x509.getIssuerX500Principal().getName()).append("\n");
+                        }
+                        pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
+                        pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
+                        pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
+                    }
+                }
+            } else if (ks.isCertificateEntry(alias)) {
+                Certificate cert = ks.getCertificate(alias);
+                if (cert instanceof X509Certificate x509) {
+                    pemBuilder.append("Bag Attributes\n");
+                    pemBuilder.append("    subject: ").append(x509.getSubjectX500Principal().getName()).append("\n");
+                    pemBuilder.append("    issuer: ").append(x509.getIssuerX500Principal().getName()).append("\n");
+                }
+                pemBuilder.append("-----BEGIN CERTIFICATE-----\n");
+                pemBuilder.append(encoder.encodeToString(cert.getEncoded()));
+                pemBuilder.append("\n-----END CERTIFICATE-----\n\n");
+            }
+        }
+        return pemBuilder.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private byte[] exportCertificateFromKeystore(String keystoreFilename, String alias, boolean asPem) {
@@ -697,7 +807,7 @@ public class PKICertGenV2 extends JFrame {
 
             if (asPem) command.add("-rfc");
 
-            if (executeCommand(command, password).isSuccess()) {
+            if (executeCommand(command, true, password).isSuccess()) {
                 return Files.readAllBytes(tempOutFile);
             }
             return null;
@@ -749,14 +859,12 @@ public class PKICertGenV2 extends JFrame {
     }
 
     private void generateCaAction(ActionEvent e) {
-        String caFilename = "certificate-authority.p12";
-        if (generatedFiles.containsKey(caFilename)) {
-            if (JOptionPane.showConfirmDialog(this, "A CA keystore already exists. Overwrite?", "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.NO_OPTION) {
+        String dynamicFilename = sanitizeFilename(tfCaIdentity.getText()) + ".p12";
+        if (activeCaFilename != null && generatedFiles.containsKey(activeCaFilename)) {
+            if (JOptionPane.showConfirmDialog(this, "A CA keystore already exists in memory. Overwrite?", "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.NO_OPTION) {
                 return;
             }
-            removeGeneratedFile("server.p12");
-            removeGeneratedFile("client.p12");
-            removeGeneratedFile(caFilename);
+            removeGeneratedFile(activeCaFilename);
         }
         showProgress("Generating Certificate Authority...");
         generateCaAsync().whenComplete((success, ex) -> hideProgress());
@@ -764,7 +872,7 @@ public class PKICertGenV2 extends JFrame {
 
     private void generateServerAction(ActionEvent e) {
         showProgress("Generating Server Keystore...");
-        final String serverCN = tfServerCN.getText();
+        final String serverCN = tfServerDomain.getText();
         final String sanParams = buildSanString();
 
         ensureCaExists().thenComposeAsync(caSuccess ->
@@ -777,7 +885,7 @@ public class PKICertGenV2 extends JFrame {
         final String sanParams = buildSanString();
 
         ensureCaExists().thenComposeAsync(caSuccess ->
-                caSuccess ? generateCertificate("client", tfClientCN.getText(), sanParams) : CompletableFuture.completedFuture(false)
+                caSuccess ? generateCertificate("client", tfClientName.getText(), sanParams) : CompletableFuture.completedFuture(false)
         ).whenComplete((success, ex) -> hideProgress());
     }
 
@@ -786,7 +894,12 @@ public class PKICertGenV2 extends JFrame {
         final String publicKeyFilename = tfPublicKeyFilename.getText();
 
         CompletableFuture.runAsync(() -> {
-            byte[] exported = exportCertificateFromKeystore("client.p12", "client", true);
+            if (activeClientFilename == null || !generatedFiles.containsKey(activeClientFilename)) {
+                log("ERROR: Active Client Keystore not found in memory. Please generate a client first.");
+                return;
+            }
+
+            byte[] exported = exportCertificateFromKeystore(activeClientFilename, "client", true);
             if (exported != null) {
                 addGeneratedFile(publicKeyFilename, exported, "Public Key (PEM)", calculateSha256(exported));
                 log("--- Successfully generated public key. ---");
@@ -795,8 +908,7 @@ public class PKICertGenV2 extends JFrame {
     }
 
     private void clearAllAction(ActionEvent e) {
-        tfCn.setText("MyCn");
-        tfOrg.setText("MyOrg");
+        tfOrg.setText("USA");
         tfCity.setText("DC");
         tfState.setText("Maryland");
         tfCountry.setText("US");
@@ -814,9 +926,9 @@ public class PKICertGenV2 extends JFrame {
         chkNeverExpire.setSelected(false);
         tfValidity.setEnabled(true);
 
-        tfCaCN.setText("ca-authority.p12");
-        tfServerCN.setText("server.p12");
-        tfClientCN.setText("client.p12");
+        tfCaIdentity.setText("MyCompany Local Root CA");
+        tfServerDomain.setText("api.internal.local");
+        tfClientName.setText("Jane Doe");
         tfPublicKeyFilename.setText("public-key.pem");
 
         caCheckLabel.setVisible(false);
@@ -828,6 +940,8 @@ public class PKICertGenV2 extends JFrame {
 
         generatedFiles.clear();
         fileTableModel.setRowCount(0);
+        activeCaFilename = null;
+        activeClientFilename = null;
         logArea.setText("");
         log("UI cleared.");
     }
@@ -868,14 +982,18 @@ public class PKICertGenV2 extends JFrame {
     }
 
     private CompletableFuture<Boolean> ensureCaExists() {
-        return generatedFiles.containsKey("certificate-authority.p12") ? CompletableFuture.completedFuture(true) : generateCaAsync();
+        if (activeCaFilename != null && generatedFiles.containsKey(activeCaFilename)) {
+            return CompletableFuture.completedFuture(true);
+        }
+        return generateCaAsync();
     }
 
     private CompletableFuture<Boolean> generateCaAsync() {
         log("--- Generating Certificate Authority (CA) ---");
-        final String dname = buildDname(tfCaCN.getText());
+        final String dname = buildDname(tfCaIdentity.getText());
         final String password = new String(tfPassword.getPassword());
         final String validity = chkNeverExpire.isSelected() ? "99999" : "3650";
+        final String dynamicFilename = sanitizeFilename(tfCaIdentity.getText()) + ".p12";
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         CompletableFuture.runAsync(() -> {
@@ -892,7 +1010,8 @@ public class PKICertGenV2 extends JFrame {
 
                 if (executeCommand(command, password).isSuccess()) {
                     byte[] fileBytes = Files.readAllBytes(tempKeystore);
-                    addGeneratedFile("certificate-authority.p12", fileBytes, "Certificate Authority", calculateSha256(fileBytes));
+                    activeCaFilename = dynamicFilename;
+                    addGeneratedFile(dynamicFilename, fileBytes, "Certificate Authority", calculateSha256(fileBytes));
                     log("--- Successfully generated CA. ---");
                     future.complete(true);
                 } else {
@@ -912,7 +1031,7 @@ public class PKICertGenV2 extends JFrame {
         final String password = new String(tfPassword.getPassword());
         final String validity = chkNeverExpire.isSelected() ? "99999" : tfValidity.getText();
         final String dname = buildDname(cn);
-        final String keystoreName = alias + ".p12";
+        final String dynamicFilename = sanitizeFilename(cn) + ".p12";
 
         final CompletableFuture<Boolean> future = new CompletableFuture<>();
         log(String.format("--- Generating %s Certificate ---", alias));
@@ -920,7 +1039,7 @@ public class PKICertGenV2 extends JFrame {
         CompletableFuture.runAsync(() -> {
             Path tempCaKeystore = null, tempKeystore = null, tempCsr = null, tempCert = null, tempCaCert = null;
             try {
-                byte[] caBytes = generatedFiles.get("certificate-authority.p12");
+                byte[] caBytes = generatedFiles.get(activeCaFilename);
                 tempCaKeystore = Files.createTempFile("ca_temp", ".p12");
                 Files.write(tempCaKeystore, caBytes);
 
@@ -950,7 +1069,10 @@ public class PKICertGenV2 extends JFrame {
 
                 byte[] finalKeystoreBytes = Files.readAllBytes(tempKeystore);
                 String type = alias.substring(0, 1).toUpperCase() + alias.substring(1) + " Keystore";
-                addGeneratedFile(keystoreName, finalKeystoreBytes, type, calculateSha256(finalKeystoreBytes));
+
+                if (alias.equals("client")) activeClientFilename = dynamicFilename;
+
+                addGeneratedFile(dynamicFilename, finalKeystoreBytes, type, calculateSha256(finalKeystoreBytes));
                 log(String.format("--- Successfully created %s keystore. ---", alias));
                 future.complete(true);
             } catch (Exception ex) {
@@ -978,12 +1100,15 @@ public class PKICertGenV2 extends JFrame {
     private void removeGeneratedFile(String filename) {
         if (generatedFiles.remove(filename) == null) return;
         SwingUtilities.invokeLater(() -> {
-            if ("certificate-authority.p12".equals(filename)) caCheckLabel.setVisible(false);
-            if ("server.p12".equals(filename)) serverCheckLabel.setVisible(false);
-            if ("client.p12".equals(filename)) {
+            if (filename.equals(activeCaFilename)) {
+                caCheckLabel.setVisible(false);
+                activeCaFilename = null;
+            }
+            if (filename.equals(activeClientFilename)) {
                 clientCheckLabel.setVisible(false);
                 togglePublicKeyPanel(false);
                 removeGeneratedFile(tfPublicKeyFilename.getText());
+                activeClientFilename = null;
             }
             if (filename.equals(tfPublicKeyFilename.getText())) publicKeyCheckLabel.setVisible(false);
 
@@ -999,9 +1124,9 @@ public class PKICertGenV2 extends JFrame {
     private void addGeneratedFile(String filename, byte[] content, String type, String fingerprint) {
         generatedFiles.put(filename, content);
         SwingUtilities.invokeLater(() -> {
-            if ("certificate-authority.p12".equals(filename)) caCheckLabel.setVisible(true);
-            if ("server.p12".equals(filename)) serverCheckLabel.setVisible(true);
-            if ("client.p12".equals(filename)) {
+            if (filename.equals(activeCaFilename)) caCheckLabel.setVisible(true);
+            if (type.contains("Server")) serverCheckLabel.setVisible(true);
+            if (filename.equals(activeClientFilename)) {
                 clientCheckLabel.setVisible(true);
                 togglePublicKeyPanel(true);
             }
@@ -1116,17 +1241,18 @@ public class PKICertGenV2 extends JFrame {
                             String internalFilename = file.getName();
 
                             if (output.contains("BasicConstraints:[CA:true")) {
-                                type = "Certificate Authority"; internalFilename = "certificate-authority.p12";
+                                type = "Certificate Authority";
+                                activeCaFilename = internalFilename;
                                 generatedFiles.put(internalFilename, fileBytes);
-                                SwingUtilities.invokeLater(() -> { caCheckLabel.setVisible(true); tfCaCN.setText(getCnFromDn(ownerDn)); });
+                                SwingUtilities.invokeLater(() -> { caCheckLabel.setVisible(true); tfCaIdentity.setText(getCnFromDn(ownerDn)); });
                             } else if (output.contains("SubjectAlternativeName")) {
-                                type = "Server Keystore"; internalFilename = "server.p12";
+                                type = "Server Keystore";
                                 generatedFiles.put(internalFilename, fileBytes);
-                                SwingUtilities.invokeLater(() -> { serverCheckLabel.setVisible(true); tfServerCN.setText(getCnFromDn(ownerDn)); });
+                                SwingUtilities.invokeLater(() -> { serverCheckLabel.setVisible(true); tfServerDomain.setText(getCnFromDn(ownerDn)); });
                             } else {
-                                internalFilename = "client.p12";
+                                activeClientFilename = internalFilename;
                                 generatedFiles.put(internalFilename, fileBytes);
-                                SwingUtilities.invokeLater(() -> { clientCheckLabel.setVisible(true); tfClientCN.setText(getCnFromDn(ownerDn)); togglePublicKeyPanel(true); });
+                                SwingUtilities.invokeLater(() -> { clientCheckLabel.setVisible(true); tfClientName.setText(getCnFromDn(ownerDn)); togglePublicKeyPanel(true); });
                             }
                             addGeneratedFile(internalFilename, fileBytes, type, fingerprint);
                         } else {
