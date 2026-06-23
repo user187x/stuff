@@ -1,0 +1,6 @@
+#!/bin/bash
+
+echo "Removing all *.class files from this directory recursively..."
+find . -type f -name "*.class" -delete
+
+echo "Complete!"
