@@ -4,6 +4,7 @@ apt-cache/
 
 .classpath
 .idea/
+.idea/*
 .project
 .prefs
 .settings/
