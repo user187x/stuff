@@ -85,7 +85,7 @@ import javax.swing.table.DefaultTableModel;
  */
 public class PKICertGenV2 extends JFrame {
 
-    private final JTextField tfCn = new JTextField("John Doe", 20);
+    private final JTextField tfCn = new JTextField("Integration-Server", 20);
     private final JTextField tfOrg = new JTextField("USA", 20);
     private final List<JTextField> ouFields = new ArrayList<>();
     private JPanel ouPanelContainer;
@@ -123,8 +123,14 @@ public class PKICertGenV2 extends JFrame {
     private final Map<String, byte[]> generatedFiles = new ConcurrentHashMap<>();
     private DefaultTableModel fileTableModel;
     private JTable fileTable;
-    private JMenuItem exportDerItem;
-    private JMenuItem exportPemItem;
+
+    // Context menu items
+    private JMenuItem viewItem;
+    private JMenuItem saveItem;
+    private JMenuItem createDerItem;
+    private JMenuItem createPemItem;
+    private JMenuItem exportItem;
+
     private static Image appIcon;
 
     private static final Color KINDA_GRAY = new Color(135, 135, 135);
@@ -146,7 +152,7 @@ public class PKICertGenV2 extends JFrame {
             setBorder(new EmptyBorder(0, 0, 2, 0));
 
             typeCombo = new JComboBox<>(new String[]{"dns", "ip"});
-            valueField = new JTextField(isFirst ? "127.0.0.1" : "", 14);
+            valueField = new JTextField(isFirst ? "xxx.my-domain.com" : "", 14);
 
             JButton button = new JButton(isFirst ? "+" : "-");
             button.setMargin(new Insets(2, 5, 2, 5));
@@ -322,7 +328,7 @@ public class PKICertGenV2 extends JFrame {
         };
 
         fileTable = new JTable(fileTableModel);
-        fileTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        fileTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         fileTable.setRowHeight(24);
         fileTable.getColumnModel().getColumn(0).setMaxWidth(30);
         fileTable.getColumnModel().getColumn(1).setPreferredWidth(120);
@@ -333,39 +339,64 @@ public class PKICertGenV2 extends JFrame {
 
         // --- Context Menu for File Table ---
         JPopupMenu fileTableContextMenu = new JPopupMenu();
-        JMenuItem viewItem = new JMenuItem("View");
-        JMenuItem saveItem = new JMenuItem("Save");
-        exportDerItem = new JMenuItem("Export as DER");
-        exportPemItem = new JMenuItem("Export as PEM");
+        viewItem = new JMenuItem("View");
+        saveItem = new JMenuItem("Save");
+        createDerItem = new JMenuItem("Create DER");
+        createPemItem = new JMenuItem("Create PEM");
+        exportItem = new JMenuItem("Export");
 
-        viewItem.addActionListener(e -> executeOnFileSelection(this::viewFileAction));
-        saveItem.addActionListener(e -> executeOnFileSelection(this::saveFileAction));
-        exportDerItem.addActionListener(e -> executeOnFileSelection(f -> exportExtractedFormat(f, ".der", false)));
-        exportPemItem.addActionListener(e -> executeOnFileSelection(f -> exportExtractedFormat(f, ".pem", true)));
+        viewItem.addActionListener(e -> viewFileAction());
+        saveItem.addActionListener(e -> saveSingleFileAction());
+        createDerItem.addActionListener(e -> createExtractedFormatAction(false));
+        createPemItem.addActionListener(e -> createExtractedFormatAction(true));
+        exportItem.addActionListener(e -> exportFilesAction());
 
         fileTableContextMenu.add(viewItem);
         fileTableContextMenu.add(saveItem);
         fileTableContextMenu.addSeparator();
-        fileTableContextMenu.add(exportDerItem);
-        fileTableContextMenu.add(exportPemItem);
+        fileTableContextMenu.add(createDerItem);
+        fileTableContextMenu.add(createPemItem);
+        fileTableContextMenu.addSeparator();
+        fileTableContextMenu.add(exportItem);
 
         fileTable.addMouseListener(new MouseAdapter() {
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
                     int row = fileTable.rowAtPoint(e.getPoint());
-                    if (row >= 0) saveFileAction((String) fileTable.getValueAt(row, 1));
+                    if (row >= 0) {
+                        String filename = (String) fileTable.getValueAt(row, 1);
+                        saveSingleFilePrompt(filename);
+                    }
                 }
             }
             private void showPopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     int row = fileTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
-                        fileTable.setRowSelectionInterval(row, row);
-                        String filename = (String) fileTable.getValueAt(row, 1);
-                        boolean isP12 = filename.toLowerCase().endsWith(".p12");
-                        boolean isPem = filename.toLowerCase().endsWith(".pem");
-                        exportDerItem.setEnabled(isP12 || isPem);
-                        exportPemItem.setEnabled(isP12);
+                        // Keep multi-selection intact if clicking within it, otherwise select new row
+                        if (!fileTable.isRowSelected(row)) {
+                            fileTable.setRowSelectionInterval(row, row);
+                        }
+
+                        int[] selectedRows = fileTable.getSelectedRows();
+                        boolean canDer = false;
+                        boolean canPem = false;
+
+                        for (int r : selectedRows) {
+                            String filename = (String) fileTable.getValueAt(r, 1);
+                            String lower = filename.toLowerCase();
+                            if (lower.endsWith(".p12") || lower.endsWith(".pem")) canDer = true;
+                            if (lower.endsWith(".p12")) canPem = true;
+                        }
+
+                        createDerItem.setEnabled(canDer);
+                        createPemItem.setEnabled(canPem);
+
+                        boolean isSingleSelection = selectedRows.length == 1;
+                        viewItem.setEnabled(isSingleSelection);
+                        saveItem.setEnabled(isSingleSelection);
+                        exportItem.setEnabled(selectedRows.length > 0);
+
                         fileTableContextMenu.show(e.getComponent(), e.getX(), e.getY());
                     }
                 }
@@ -400,7 +431,8 @@ public class PKICertGenV2 extends JFrame {
 
     private void validateEnvironment() {
         CompletableFuture.runAsync(() -> {
-            CommandResult result = executeCommand(List.of("keytool", "-help"));
+            // Pass 'true' to execute silently
+            CommandResult result = executeCommand(List.of("keytool", "-help"), true);
             if (!result.isSuccess()) {
                 SwingUtilities.invokeLater(() -> {
                     JOptionPane.showMessageDialog(this,
@@ -511,14 +543,20 @@ public class PKICertGenV2 extends JFrame {
         return validSans.isEmpty() ? null : "san=" + String.join(",", validSans);
     }
 
-    private void executeOnFileSelection(java.util.function.Consumer<String> action) {
-        int selectedRow = fileTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            action.accept((String) fileTable.getValueAt(selectedRow, 1));
+    private List<String> getSelectedFilenames() {
+        int[] rows = fileTable.getSelectedRows();
+        List<String> names = new ArrayList<>();
+        for (int r : rows) {
+            names.add((String) fileTable.getValueAt(r, 1));
         }
+        return names;
     }
 
-    private void viewFileAction(String filename) {
+    private void viewFileAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.size() != 1) return;
+
+        String filename = filenames.getFirst();
         byte[] content = generatedFiles.get(filename);
         if (content != null) {
             JTextArea textArea = new JTextArea(new String(content));
@@ -534,7 +572,14 @@ public class PKICertGenV2 extends JFrame {
         }
     }
 
-    private void saveFileAction(String filename) {
+    private void saveSingleFileAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.size() == 1) {
+            saveSingleFilePrompt(filenames.getFirst());
+        }
+    }
+
+    private void saveSingleFilePrompt(String filename) {
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setDialogTitle("Save " + filename);
         fileChooser.setSelectedFile(new File(filename));
@@ -553,59 +598,79 @@ public class PKICertGenV2 extends JFrame {
         }
     }
 
-    /**
-     * Unified export logic for DER or PEM formats.
-     */
-    private void exportExtractedFormat(String filename, String extension, boolean asPem) {
-        if (!generatedFiles.containsKey(filename)) {
-            log("ERROR: File " + filename + " not found in memory.");
-            return;
-        }
+    private void exportFilesAction() {
+        List<String> filenames = getSelectedFilenames();
+        if (filenames.isEmpty()) return;
 
-        String exportFilename = filename.substring(0, filename.lastIndexOf('.')) + extension;
-        byte[] extractedBytes = null;
+        JFileChooser directoryChooser = new JFileChooser();
+        directoryChooser.setDialogTitle("Select Export Directory for " + filenames.size() + " files");
+        directoryChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
 
-        try {
-            if (!asPem && filename.toLowerCase().endsWith(".pem")) {
-                log("--- Converting " + filename + " from PEM to DER ---");
-                byte[] pemBytes = generatedFiles.get(filename);
-                CertificateFactory cf = CertificateFactory.getInstance("X.509");
-                X509Certificate cert = (X509Certificate) cf.generateCertificate(new java.io.ByteArrayInputStream(pemBytes));
-                extractedBytes = cert.getEncoded();
-            } else if (filename.toLowerCase().endsWith(".p12")) {
-                log(String.format("--- Exporting certificate from %s to %s format ---", filename, asPem ? "PEM" : "DER"));
-                String alias = switch (filename) {
-                    case "certificate-authority.p12" -> "rootca";
-                    case "server.p12" -> "server";
-                    case "client.p12" -> "client";
-                    default -> null;
-                };
-                if (alias == null) {
-                    JOptionPane.showMessageDialog(this, "Cannot determine alias for '" + filename + "'.", "Export Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                extractedBytes = exportCertificateFromKeystore(filename, alias, asPem);
-            } else {
-                JOptionPane.showMessageDialog(this, "Export is not supported for this file type: " + filename, "Unsupported", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-
-            if (extractedBytes != null) {
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setDialogTitle("Export as " + (asPem ? "PEM" : "DER"));
-                fileChooser.setSelectedFile(new File(exportFilename));
-                if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-                    File fileToSave = fileChooser.getSelectedFile();
-                    try (FileOutputStream fos = new FileOutputStream(fileToSave)) {
-                        fos.write(extractedBytes);
-                        log("Successfully exported to " + exportFilename + ": " + fileToSave.getAbsolutePath());
+        if (directoryChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File dir = directoryChooser.getSelectedFile();
+            for (String fname : filenames) {
+                byte[] content = generatedFiles.get(fname);
+                if (content != null) {
+                    try (FileOutputStream fos = new FileOutputStream(new File(dir, fname))) {
+                        fos.write(content);
+                        log("Successfully exported: " + fname);
+                    } catch (Exception ex) {
+                        log("ERROR: Could not export " + fname + " - " + ex.getMessage());
                     }
                 }
-            } else {
-                log("ERROR: Failed to generate export content for " + filename);
             }
-        } catch (Exception e) {
-            log("ERROR during export for " + filename + ": " + e.getMessage());
+            JOptionPane.showMessageDialog(this, "Exported " + filenames.size() + " files to:\n" + dir.getAbsolutePath(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    /**
+     * Generates DER or PEM formats in memory from the selected files.
+     */
+    private void createExtractedFormatAction(boolean asPem) {
+        List<String> filenames = getSelectedFilenames();
+
+        for (String filename : filenames) {
+            String lower = filename.toLowerCase();
+            // Intelligent filter: only try to extract if the file type supports it
+            if (asPem && !lower.endsWith(".p12")) continue;
+            if (!asPem && !(lower.endsWith(".p12") || lower.endsWith(".pem"))) continue;
+
+            String extension = asPem ? ".pem" : ".der";
+            String newFilename = filename.substring(0, filename.lastIndexOf('.')) + extension;
+            byte[] extractedBytes = null;
+
+            try {
+                if (!asPem && lower.endsWith(".pem")) {
+                    log("--- Converting " + filename + " from PEM to DER ---");
+                    byte[] pemBytes = generatedFiles.get(filename);
+                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                    X509Certificate cert = (X509Certificate) cf.generateCertificate(new java.io.ByteArrayInputStream(pemBytes));
+                    extractedBytes = cert.getEncoded();
+                } else if (lower.endsWith(".p12")) {
+                    log(String.format("--- Creating %s format from %s ---", asPem ? "PEM" : "DER", filename));
+                    String alias = switch (filename) {
+                        case "certificate-authority.p12" -> "rootca";
+                        case "server.p12" -> "server";
+                        case "client.p12" -> "client";
+                        default -> null;
+                    };
+                    if (alias != null) {
+                        extractedBytes = exportCertificateFromKeystore(filename, alias, asPem);
+                    } else {
+                        log("Skipping " + filename + ": Cannot determine keystore alias automatically.");
+                    }
+                }
+
+                if (extractedBytes != null) {
+                    String type = asPem ? "Certificate (PEM)" : "Certificate (DER)";
+                    addGeneratedFile(newFilename, extractedBytes, type, calculateSha256(extractedBytes));
+                    log("Successfully generated " + newFilename + " in memory.");
+                } else {
+                    log("ERROR: Failed to generate content for " + filename);
+                }
+            } catch (Exception e) {
+                log("ERROR during memory creation for " + filename + ": " + e.getMessage());
+            }
         }
     }
 
@@ -953,13 +1018,20 @@ public class PKICertGenV2 extends JFrame {
         });
     }
 
+    // Standard execution (logs everything)
     private CommandResult executeCommand(List<String> command, String... passwordsToMask) {
+        return executeCommand(command, false, passwordsToMask);
+    }
+
+    // Core execution engine with a silent toggle
+    private CommandResult executeCommand(List<String> command, boolean silent, String... passwordsToMask) {
         try {
             String commandString = String.join(" ", command);
             for (String pwd : passwordsToMask) {
                 if (pwd != null && !pwd.isEmpty()) commandString = commandString.replace(pwd, "********");
             }
-            log("Executing: " + commandString);
+
+            if (!silent) log("Executing: " + commandString);
 
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
@@ -973,13 +1045,18 @@ public class PKICertGenV2 extends JFrame {
 
             int exitCode = process.waitFor();
             String finalOutput = output.toString().trim();
-            if (!finalOutput.isEmpty()) log(finalOutput);
-            if (exitCode != 0) log("ERROR: Command failed with exit code " + exitCode);
-            else log("Command executed successfully.");
+
+            if (!silent) {
+                if (!finalOutput.isEmpty()) log(finalOutput);
+                if (exitCode != 0) log("ERROR: Command failed with exit code " + exitCode);
+                else log("Command executed successfully.");
+            }
 
             return new CommandResult(exitCode, finalOutput);
         } catch (Exception e) {
-            log("ERROR: Failed to execute command. Is 'keytool' in your system's PATH?");
+            if (!silent) {
+                log("ERROR: Failed to execute command. Is 'keytool' in your system's PATH?");
+            }
             return new CommandResult(-1, e.getMessage());
         }
     }
