@@ -2,6 +2,12 @@
 package-backup/
 apt-cache/
 
+.classpath
+.idea/
+.project
+.prefs
+.settings/
+
 # operating system
 .DS_store
 .netrwhist
