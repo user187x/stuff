@@ -1,0 +1,19 @@
+#!/bin/bash
+
+function mount-window-drive {
+
+ local mount_point="/mnt/windows"
+ local partition="/dev/sda3"
+
+ sudo mkdir -p "$mount_point"
+
+ if sudo mount -t ntfs-3g "$partition" "$mount_point" -o remove_hiberfile; then
+  echo "Successfully forced mount of $partition to $mount_point"
+ else
+  echo "Mount failed. Check dmesg for deep journal corruption."
+ fi
+}
+
+function unmount-window-drive {
+ sudo umount /mnt/windows
+}

@@ -22,7 +22,6 @@
   <!--  -->
   <properties>
     <!-- Build Configuration -->
-    <maven.compiler.release></maven.compiler.release>
     <maven.compiler.source>26</maven.compiler.source>
     <maven.compiler.target>26</maven.compiler.target>
 
@@ -184,14 +183,6 @@
             <arg>--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
           </compilerArgs>
         </configuration>
-        <executions>
-          <execution>
-            <id>default-compile</id>
-            <configuration>
-              <release combine.self="override"></release>
-            </configuration>
-          </execution>
-        </executions>
       </plugin>
 
       <plugin>

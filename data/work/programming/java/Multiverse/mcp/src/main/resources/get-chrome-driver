@@ -1,0 +1,9 @@
+#!/bin/bash
+
+LATEST_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json" | jq -r '.channels.Stable.downloads.chromedriver[] | select(.platform=="linux64") | .url')
+
+# 2. Download the zip file
+curl -O "$LATEST_URL"
+
+# 3. Unzip the downloaded file
+unzip chromedriver-linux64.zip

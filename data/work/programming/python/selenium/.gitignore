@@ -1,0 +1,15 @@
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local WebDrivers
+chromedriver
+chromedriver.exe
+chromedriver-linux64/

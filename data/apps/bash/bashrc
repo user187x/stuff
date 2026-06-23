@@ -126,6 +126,7 @@ function terminal_soundFx {
  declare -A actions
  actions["open"]="$HOME/.local/share/audio/info.mp3"
  actions["close"]="$HOME/.local/share/audio/megaman_teleport.wav"
+ actions["phobos"]="$HOME/.local/share/audio/phobos.wav"
 
  # 3. Check if the action exists in the map
  if [[ -z "${actions[$action]}" ]]; then
@@ -210,4 +211,10 @@ export PATH="${PATH}:${DEV_CNTR_HOME}/bin"
 
 source /home/xxx/.config/broot/launcher/bash/br
 
-alias phobos='ssh 10.42.0.161'
+function phobos {
+
+ ssh 10.42.0.161 && terminal_soundFx phobos
+}
+
+export -f phobos
+
