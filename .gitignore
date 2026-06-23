@@ -16,6 +16,7 @@ data/work/kv4p-ht/.git
 *.css
 *.git
 *.iso
+*.class
 
 # certificate related
 **/certs/
