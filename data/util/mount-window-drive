@@ -17,3 +17,13 @@ function mount-window-drive {
 function unmount-window-drive {
  sudo umount /mnt/windows
 }
+
+if [[ -d "/mnt/window" ]]; then
+ echo "Unmounting Drivie...."
+ sudo mount-window-drive
+ echo "Complete!"
+else
+ echo "Mounting Drive..."
+ unmount-window-drive
+ open /mnt/window
+fi
