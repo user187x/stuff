@@ -1,0 +1,16 @@
+# my-values.yaml example
+replicaCount: 2
+
+auth:
+  adminUser: "admin"
+  adminPassword: "xxxxxxxx"
+
+postgresql:
+  enabled: false
+externalDatabase:
+  host: "localhost"
+  port: 5432
+  user: "admin"
+  database: "keycloak"
+  password: "xxxxxxxx"
+

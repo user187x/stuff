@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -e
+
+echo "==> Setting up Keycloak repository..."
+helm repo add codecentric https://codecentric.github.io/helm-charts
+helm repo update
+
+echo "==> Ensuring namespace exists..."
+kubectl create namespace keycloak >/dev/null 2>&1 || true
+
+echo "==> Cleaning up any previously stuck deployments..."
+# This ensures a clean slate so the new deployment doesn't get hung up on the old CrashLoopBackOff pod
+helm uninstall keycloak -n keycloak --ignore-not-found >/dev/null 2>&1 || true
+
+echo "==> Deploying Keycloak (Waiting for pods to be Ready)..."
+# The --set args="{start-dev}" fixes the crash loop without needing to edit values.yaml manually
+helm upgrade --install keycloak codecentric/keycloakx \
+ --namespace keycloak \
+ --create-namespace \
+ --set auth.adminUser=admin \
+ --set auth.adminPassword=xxxxxxxx \
+ --set args="{start-dev}" \
+ --values values.yaml \
+ --wait \
+ --timeout 5m
+
+echo "==> Fetching Pod details..."
+LABEL="app.kubernetes.io/name=keycloakx,app.kubernetes.io/instance=keycloak"
+POD_NAME=$(kubectl get pods --namespace keycloak -l "$LABEL" -o jsonpath='{.items[0].metadata.name}')
+
+echo ""
+echo "====================================================="
+echo "  Keycloak is Ready!"
+echo "  Visit http://127.0.0.1:8080 to use your application"
+echo "  Starting port-forward (Press Ctrl+C to stop)..."
+echo "====================================================="
+
+kubectl --namespace keycloak port-forward pod/"$POD_NAME" 8080:8080
