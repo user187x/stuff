@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Script to enable USB Host in Waydroid
+set -euo pipefail
+
+# 1. Ensure the script is run as root
+if [ "$EUID" -ne 0 ]; then
+ echo "❌ Please run this script with sudo."
+ exit 1
+fi
+
+# Variables
+IMG_DIR="/var/lib/waydroid/images"
+MOUNT_DIR="/tmp/waydroid_mount"
+
+# 2. Check if the image files exist in the expected directory
+if [ ! -f "$IMG_DIR/system.img" ] || [ ! -f "$IMG_DIR/vendor.img" ]; then
+ echo "❌ Error: Waydroid images not found in $IMG_DIR."
+ echo "Have you run 'sudo waydroid init' yet?"
+ exit 1
+fi
+
+# 3. Install required filesystem tools
+echo "📦 Installing required tools (e2fsprogs)..."
+apt-get update -yqq
+apt-get install -y e2fsprogs
+
+# 4. Stop Waydroid completely
+echo "🛑 Stopping Waydroid container..."
+systemctl stop waydroid-container || true
+waydroid session stop || true
+
+# 5. Check and Resize the images
+echo "🛠️ Checking and resizing image files..."
+e2fsck -y -f "$IMG_DIR/vendor.img"
+e2fsck -y -f "$IMG_DIR/system.img"
+
+resize2fs "$IMG_DIR/system.img" 4G
+resize2fs "$IMG_DIR/vendor.img" 600M
+
+# 6. Patch vendor.img
+echo "🔓 Mounting and patching vendor.img..."
+mkdir -p "$MOUNT_DIR"
+mount -o loop "$IMG_DIR/vendor.img" "$MOUNT_DIR"
+
+# Inject the USB Host XML permission
+mkdir -p "$MOUNT_DIR/etc/permissions"
+echo '<permissions><feature name="android.hardware.usb.host"/></permissions>' >"$MOUNT_DIR/etc/permissions/android.hardware.usb.host.xml"
+chmod 644 "$MOUNT_DIR/etc/permissions/android.hardware.usb.host.xml"
+
+umount "$MOUNT_DIR"
+echo "✅ vendor.img patched successfully."
+
+# 7. Patch system.img
+echo "🔓 Mounting and patching system.img..."
+mount -o loop "$IMG_DIR/system.img" "$MOUNT_DIR"
+
+# Locate ueventd.rc (path varies slightly depending on Android version)
+UEVENT_FILE="$MOUNT_DIR/system/etc/ueventd.rc"
+if [ ! -f "$UEVENT_FILE" ]; then
+ UEVENT_FILE="$MOUNT_DIR/etc/ueventd.rc"
+fi
+
+if [ -f "$UEVENT_FILE" ]; then
+ echo "📝 Commenting out 'subsystem input' blocks in $UEVENT_FILE..."
+ # Use sed to comment out the specific block without opening nano
+ sed -i 's/subsystem input/#subsystem input/g' "$UEVENT_FILE"
+ sed -i 's/devname uevent_devpath/#devname uevent_devpath/g' "$UEVENT_FILE"
+ sed -i 's/dirname \/dev\/input/#dirname \/dev\/input/g' "$UEVENT_FILE"
+ echo "✅ ueventd.rc patched successfully."
+else
+ echo "⚠️ Warning: ueventd.rc not found! USB pass-through might not behave exactly as expected."
+fi
+
+umount "$MOUNT_DIR"
+rm -rf "$MOUNT_DIR"
+
+# 8. Restart Waydroid
+echo "🚀 Restarting Waydroid container service..."
+systemctl start waydroid-container
+
+echo ""
+echo "🎉 ALL DONE! You can now start your Waydroid session."
+echo "Note: USB devices should now work, but as the original guide mentioned, Bluetooth dongles may still be incompatible."
