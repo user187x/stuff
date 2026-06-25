@@ -1,3 +1,7 @@
+
+### apt update 
+
+```bash
 Err:5 https://ppa.launchpadcontent.net/bigmdm/imsprog/ubuntu resolute InRelease
   Temporary failure resolving 'ppa.launchpadcontent.net'
 1 package can be upgraded. Run 'apt list --upgradable' to see it.
@@ -17,4 +21,4 @@ Warning: Failed to fetch https://repo.waydro.id/dists/resolute/InRelease  Tempor
 Warning: Failed to fetch https://apt.fury.io/wez/dists/*/InRelease  Temporary failure resolving 'apt.fury.io'
 Warning: Some index files failed to download. They have been ignored, or old ones used instead.
  ➤  
-
+```
