@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+OFFLINE_DIR="$HOME/.minikube_offline_images"
+HELM_CHARTS_DIR="$HOME/.minikube_offline_charts"
+K8S_VERSION="v1.35.1"
+
+echo "🚀 Booting Minikube completely offline..."
+# Notice the strict flags preventing network calls
+minikube start \
+ --kubernetes-version="${K8S_VERSION}" \
+ --driver=docker \
+ --cache-images=true \
+ --preload=true
+
+echo "📥 Sideloading all dependency images back into the cluster..."
+for tar_file in "${OFFLINE_DIR}"/*.tar; do
+ if [ -f "$tar_file" ]; then
+  echo "    Loading $(basename "$tar_file")..."
+  minikube image load "$tar_file"
+ fi
+done
+
+echo "========================================="
+echo "🎉 Cluster is isolated, populated, and alive!"
+echo "========================================="
+echo "To deploy your apps, point helm to your local folder, e.g.:"
+echo "  helm install my-argo ${HELM_CHARTS_DIR}/argocd"

@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# 1. Configurations
+OFFLINE_DIR="$HOME/.minikube_offline_images"
+HELM_CHARTS_DIR="$HOME/.minikube_offline_charts"
+K8S_VERSION="v1.28.3" # Pin a specific version so minikube doesn't try to look up "latest" online
+
+mkdir -p "$OFFLINE_DIR" "$HELM_CHARTS_DIR"
+
+echo "========================================="
+echo "🛫 PREPARING FOR FLIGHT MODE 🛫"
+echo "========================================="
+
+# 2. Add Helm Repositories
+echo "--> Adding Helm Repositories..."
+helm repo add codecentric https://codecentric.github.io/helm-charts # Keycloak
+helm repo add traefik https://traefik.github.io/charts
+helm repo add harbor https://goharbor.github.io/harbor-helm
+helm repo add gitlab https://charts.gitlab.io/
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo add elastic https://helm.elastic.co # Kibana
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+# 3. Download Helm Charts Locally
+declare -A CHARTS=(
+    ["keycloak"]="codecentric/keycloakx"
+    ["traefik"]="traefik/traefik"
+    ["traefik-crds"]="traefik/traefik-crds"
+    ["harbor"]="harbor/harbor"
+    ["gitlab"]="gitlab/gitlab"
+    ["argocd"]="argo/argo-cd"
+    ["kibana"]="elastic/kibana"
+    ["grafana"]="grafana/grafana"
+)
+
+echo "--> Pulling and Template-parsing Helm Charts for container images..."
+IMAGE_LIST_FILE=$(mktemp)
+
+for name in "${!CHARTS[@]}"; do
+    echo "    Processing Chart: ${CHARTS[$name]}"
+    # Download the chart archive locally for offline install later
+    helm pull "${CHARTS[$name]}" --destination "$HELM_CHARTS_DIR" --untar --force
+    
+    # Render templates to extract exactly what images are required
+    helm template "$HELM_CHARTS_DIR/$name" 2>/dev/null | grep -E 'image: ' | awk '{print $2}' | tr -d '"' | tr -d "'" >> "$IMAGE_LIST_FILE" || true
+done
+
+# Clean up image names and add foundational base dependencies manually if missing
+{
+    echo "gcr.io/k8s-minikube/kicbase:v0.0.44" # Minikube's Docker driver base image
+    cat "$IMAGE_LIST_FILE"
+} | sort -u | sed '/^$/d' > "${OFFLINE_DIR}/required_images.txt"
+
+echo "--> Found $(wc -l < "${OFFLINE_DIR}/required_images.txt") unique docker images to cache."
+
+# 4. Pull and Save Images onto your Local Host Machine
+echo "--> Pulling images onto host..."
+while IFS= read -r img; do
+    # Remove leading/trailing slashes or components if badly parsed
+    img=$(echo "$img" | xargs)
+    if [[ ! "$img" =~ ^[a-zA-Z0-9] ]]; then continue; fi
+    
+    # Create a safe filename for the tarball
+    safe_name=$(echo "$img" | tr '/' '_' | tr ':' '_')
+    tar_path="${OFFLINE_DIR}/${safe_name}.tar"
+    
+    if [ -f "$tar_path" ]; then
+        echo "    ✅ Already cached: $img"
+    else
+        echo "    📥 Downloading: $img"
+        if docker pull "$img"; then
+            docker save "$img" -o "$tar_path"
+            echo "    💾 Saved archive for $img"
+        else
+            echo "    ❌ Failed to pull $img (Skipping... Check chart versions)"
+        fi
+    fi
+done < "${OFFLINE_DIR}/required_images.txt"
+
+# 5. Pre-warm Minikube's built-in internal binary downloader
+echo "--> Running download-only for Minikube components..."
+minikube start --kubernetes-version="${K8S_VERSION}" --download-only
+
+echo "========================================="
+echo "✅ PREPARATION COMPLETE!"
+echo "All materials are secured on your host machine."
+echo "Use the 'start_flight.sh' script during your flight."
+echo "========================================="

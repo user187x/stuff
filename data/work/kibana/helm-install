@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -e
+
+echo "==> Setting up Elastic repository..."
+# Using the official Elastic Helm repository
+helm repo add elastic https://helm.elastic.co
+helm repo update
+
+echo "==> Ensuring namespace exists..."
+kubectl create namespace kibana >/dev/null 2>&1 || true
+
+echo "==> Cleaning up any previously stuck deployments..."
+# Wipes out hung releases so the new deployment starts fresh
+helm uninstall kibana -n kibana --ignore-not-found >/dev/null 2>&1 || true
+
+echo "==> Deploying Kibana (Waiting for pods to be Ready)..."
+# Kibana values are highly dependent on your Elasticsearch setup.
+# Ensure your values.yaml contains the correct elasticsearchHosts configuration.
+helm upgrade --install kibana elastic/kibana \
+ --namespace kibana \
+ --create-namespace \
+ --values values.yaml \
+ --wait \
+ --timeout 5m
+
+echo "==> Fetching Pod details..."
+# The official Elastic chart uses 'app' and 'release' labels by default
+LABEL="app=kibana,release=kibana"
+POD_NAME=$(kubectl get pods --namespace kibana -l "$LABEL" -o jsonpath='{.items[0].metadata.name}')
+
+echo ""
+echo "====================================================="
+echo "  Kibana is Ready!"
+echo "  Visit http://127.0.0.1:5601 to use your application"
+echo "  Starting port-forward (Press Ctrl+C to stop)..."
+echo "====================================================="
+
+# Kibana's default web interface port is 5601
+kubectl --namespace kibana port-forward pod/"$POD_NAME" 5601:5601

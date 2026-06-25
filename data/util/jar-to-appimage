@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e 
+
+# --- [ 1. Input Validation ] ---
+if [ "$#" -ne 2 ]; then
+    echo "❌ Usage: $0 <path_to_jar> <app_name>"
+    echo "💡 Example: $0 my-utility-1.0-SNAPSHOT.jar MyUtility"
+    exit 1
+fi
+
+JAR_FILE="$1"
+APP_NAME="$2"
+LOWER_APP_NAME=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+APP_DIR="${APP_NAME}.AppDir"
+
+if [ ! -f "$JAR_FILE" ]; then
+    echo "❌ Error: JAR file '$JAR_FILE' not found!"
+    exit 1
+fi
+
+echo "🚀 Starting zero-to-hero AppImage build for $APP_NAME..."
+
+# --- [ 2. Create the AppDir Structure ] ---
+echo "📁 Building AppDir structure..."
+mkdir -p "$APP_DIR/usr/bin"
+mkdir -p "$APP_DIR/usr/share/applications"
+mkdir -p "$APP_DIR/usr/share/icons/hicolor/256x256/apps"
+
+# Copy the JAR file into the virtual /usr/bin
+cp "$JAR_FILE" "$APP_DIR/usr/bin/${LOWER_APP_NAME}.jar"
+
+# --- [ 3. Create the AppRun Script ] ---
+# This is the entry point when the AppImage is executed.
+echo "📜 Creating AppRun wrapper..."
+cat << 'EOF' > "$APP_DIR/AppRun"
+#!/usr/bin/env bash
+
+# Find where the AppImage is currently mounted
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# Check if Java is installed on the host system
+if ! command -v java &> /dev/null; then
+    echo "❌ Error: Java is not installed on this system."
+    echo "Please install a JRE (e.g., sudo apt install default-jre) to run this AppImage."
+    exit 1
+fi
+
+# Execute the JAR, passing along any arguments provided by the user
+exec java -jar "$HERE/usr/bin/APP_JAR_PLACEHOLDER" "$@"
+EOF
+
+# Replace the placeholder with the actual JAR name
+sed -i "s/APP_JAR_PLACEHOLDER/${LOWER_APP_NAME}.jar/g" "$APP_DIR/AppRun"
+chmod +x "$APP_DIR/AppRun"
+
+# --- [ 4. Create the .desktop File ] ---
+echo "🖥️ Creating Desktop Entry..."
+cat << EOF > "$APP_DIR/${LOWER_APP_NAME}.desktop"
+[Desktop Entry]
+Type=Application
+Name=$APP_NAME
+Exec=$LOWER_APP_NAME
+Icon=$LOWER_APP_NAME
+Categories=Utility;TerminalEmulator;
+Terminal=true
+EOF
+
+# Make a symlink to the root of the AppDir (AppImage specification requirement)
+ln -sf "${LOWER_APP_NAME}.desktop" "$APP_DIR/"
+
+# --- [ 5. Create a Default Icon ] ---
+# AppImages require an icon. We generate a simple SVG to satisfy this requirement.
+echo "🎨 Generating default icon..."
+cat << EOF > "$APP_DIR/${LOWER_APP_NAME}.svg"
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <rect width="256" height="256" rx="32" fill="#2c3e50"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#ecf0f1" font-size="48" font-family="sans-serif">JAR</text>
+</svg>
+EOF
+
+# Symlink the icon to the root
+ln -sf "${LOWER_APP_NAME}.svg" "$APP_DIR/.DirIcon"
+ln -sf "${LOWER_APP_NAME}.svg" "$APP_DIR/${LOWER_APP_NAME}.png" # Fallback
+
+# --- [ 6. Download AppImageTool ] ---
+APPIMAGETOOL="appimagetool-x86_64.AppImage"
+if [ ! -f "$APPIMAGETOOL" ]; then
+    echo "⬇️ Downloading appimagetool..."
+    wget -qO "$APPIMAGETOOL" "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+    chmod +x "$APPIMAGETOOL"
+fi
+
+# --- [ 7. Build the AppImage ] ---
+echo "📦 Packaging the AppImage..."
+# We export ARCH to prevent appimagetool from complaining if it can't guess the architecture
+ARCH=x86_64 ./$APPIMAGETOOL "$APP_DIR"
+
+# --- [ 8. Cleanup ] ---
+echo "🧹 Cleaning up temporary AppDir..."
+rm -rf "$APP_DIR"
+
+echo "✅ Success! Your AppImage is ready: ${APP_NAME}-x86_64.AppImage"
