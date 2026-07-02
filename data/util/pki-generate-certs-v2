@@ -47,7 +47,7 @@ ask_yesno() {
 }
 
 collect_inputs() {
- DOMAIN=$(ask_input "Enter the desired base Domain:" "test.local")
+ DOMAIN=$(ask_input "Enter the desired base Domain:" "xxx.local")
  TARGET_IP=$(ask_input "Enter the target IP address:" "127.0.0.1")
  EXTRA_SANS=$(ask_input "Enter additional SANs (comma-separated, optional):" "")
 
@@ -201,20 +201,17 @@ main() {
  [ "$WANT_WILDCARD" -eq 1 ] && certs_to_verify+=(server-wildcard.crt)
  [ "$NUM_CLIENTS" -gt 0 ] && certs_to_verify+=(client-1.crt)
 
- openssl verify -CAfile ca-cert.pem "${certs_to_verify[@]}"
+ openssl verify -CAfile ca.crt "${certs_to_verify[@]}"
 
  # Step 6: System Configuration
  update_hosts
 
  echo
- echo "Test: \
-  curl -v https://xxx.local \
-  --cacert certs/ca.crt \
-  --cert certs/client-1.crt \
-  --key certs/client-1.key"
+ echo "Test Command:"
+ echo "$ curl -v https://${DOMAIN} --cacert certs/ca.crt --cert certs/client-1.crt --key certs/client-1.key"
+ echo -e "\n✅ Provisioning Complete! Required files are located in \e[96m${OUT_DIR}\e[0m."
  echo
 
- echo -e "\n✅ Provisioning Complete! Required files are located in \e[96m${OUT_DIR}\e[0m."
 }
 # Execute
 main "$@"
