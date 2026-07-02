@@ -1,0 +1,18 @@
+#!/bin/bash
+
+latest=$(curl -s "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases/latest" | jq -r .tag_name)
+echo -e "Latest Gateway-API CRDS: \e[92m$latest\e[0m"
+
+fileName="standard-install_gateway-api-crds-${latest}.yaml"
+
+echo "Downloading..."
+wget -q "https://github.com/kubernetes-sigs/gateway-api/releases/download/${latest}/standard-install.yaml" -O "${fileName}"
+
+if [[ "$?" == 0 ]]; then
+ echo -e "\e[90m Download Complete!\e[0m"
+ echo -e " File: \e[95m${fileName}\e[0m"
+ exit 0
+else
+ echo "Download failed"
+ exit 1
+fi

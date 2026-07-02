@@ -1,0 +1,18 @@
+#!/bin/bash
+
+#kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
+
+# air-gapped cluster
+kubectl apply -f standard-install_gateway-api-crds.yaml
+
+helm repo add traefik https://traefik.github.io/charts
+helm repo update
+
+helm upgrade --install traefik traefik/traefik \
+ --namespace traefik \
+ --create-namespace \
+ --set providers.kubernetesIngress.enabled=false \
+ --set providers.kubernetesGateway.enabled=true \
+ --set providers.kubernetesGateway.experimentalChannel=false \
+ --set gateway.enabled=true \
+ --set gateway.listeners.web.namespacePolicy.from=All
