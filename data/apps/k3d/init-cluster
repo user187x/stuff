@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+# Exit immediately if any command fails
+set -e
+
+CLUSTER_NAME="platform"
+
+echo "=========================================================="
+echo "🚀 Bootstrapping k3d Cluster: ${CLUSTER_NAME}"
+echo "=========================================================="
+
+# -----------------------------------------------------------------------------
+# Step 1: Create the k3d Cluster
+# -----------------------------------------------------------------------------
+# By default, k3s (which k3d runs under the hood) bundles the Flannel CNI.
+# Because we want to teach the installation of Calico, we must disable Flannel
+# and the default network policy controller during cluster creation.
+#
+# --agents 2: Provisions two dedicated worker nodes.
+# --k3s-arg: Passes startup flags directly to the underlying k3s server.
+# -----------------------------------------------------------------------------
+echo "[1/4] Creating cluster with 1 Control Plane and 2 Workers..."
+
+k3d cluster create "${CLUSTER_NAME}" \
+ --agents 2 \
+ --k3s-arg "--flannel-backend=none@server:*" \
+ --k3s-arg "--disable-network-policy@server:*"
+
+echo "✅ Cluster created successfully. Kubeconfig is automatically merged."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 2: Setup the Helm Repository
+# -----------------------------------------------------------------------------
+# We use Helm to deploy Calico. First, we need to register the official
+# Tigera Calico chart repository locally so we can pull the required packages.
+# -----------------------------------------------------------------------------
+echo "[2/4] Registering the Tigera Calico Helm repository..."
+
+helm repo add projectcalico https://docs.tigera.io/calico/charts
+helm repo update
+
+echo "✅ Helm repository updated."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 3: Install the Tigera Calico Operator
+# -----------------------------------------------------------------------------
+# The Operator pattern is the modern standard for installing Calico.
+# The operator will run as a deployment and manage the lifecycle of the actual
+# Calico CNI components (like the calico-node daemonsets on every worker).
+#
+# --create-namespace: Ensures the tigera-operator namespace exists before installing.
+# -----------------------------------------------------------------------------
+echo "[3/4] Installing Calico via Helm..."
+
+helm install calico projectcalico/tigera-operator \
+ --version v3.28.0 \
+ --namespace tigera-operator \
+ --create-namespace \
+ --wait
+
+echo "✅ Tigera Operator installed."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 4: Verification
+# -----------------------------------------------------------------------------
+# It takes a moment for the operator to spin up the required custom resources
+# and for the Calico node pods to initialize. We pause and wait for the core
+# DNS pods to report as 'Ready', confirming the network fabric is operational.
+# -----------------------------------------------------------------------------
+echo "[4/4] Waiting for the network fabric and core DNS to become ready..."
+echo "      (This may take a minute depending on image pull speeds)"
+
+kubectl wait --for=condition=Ready pods -l k8s-app=kube-dns -n kube-system --timeout=180s
+
+echo
+echo "You can now verify the node status and network pods by running:"
+echo "  kubectl get nodes -o wide"
+echo "  kubectl get pods -A"
