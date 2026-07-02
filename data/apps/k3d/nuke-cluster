@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# fail & bail
+set -e
+
+CLUSTER_NAME="platform"
+CONTEXT_NAME="k3d-${CLUSTER_NAME}"
+
+echo "=========================================================="
+echo "🧹 Tearing Down k3d Cluster: ${CLUSTER_NAME}"
+echo "=========================================================="
+
+echo "Destroying the cluster and associated Docker containers..."
+k3d cluster delete "${CLUSTER_NAME}"
+
+echo "✅ Cluster destroyed."
+echo
+
+echo "Scrubbing residual entries from kubeconfig..."
+
+CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+if [ "$CURRENT_CONTEXT" = "${CONTEXT_NAME}" ]; then
+ kubectl config unset current-context >/dev/null 2>&1 || true
+fi
+
+# Explicitly delete the cluster, user, and context entries
+kubectl config delete-cluster "${CONTEXT_NAME}" >/dev/null 2>&1 || true
+kubectl config delete-user "admin@${CONTEXT_NAME}" >/dev/null 2>&1 || true
+kubectl config delete-context "${CONTEXT_NAME}" >/dev/null 2>&1 || true
+
+echo
+echo "=========================================================="
+echo "✨ Teardown Complete! Your workspace is clean."
+echo "=========================================================="
+echo
