@@ -1,0 +1,36 @@
+#!/bin/bash
+
+echo -e "\n🕵️  Checking Minikube tunnel health..."
+
+# 1. Warm up sudo just in case we need to kill a ghost process or update /etc/hosts later
+sudo -v
+
+# 2. Check if Traefik already has an IP
+TRAEFIK_IP=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
+if [ -z "$TRAEFIK_IP" ]; then
+ # 3. If no IP, check if a tunnel process is running in the background
+ if pgrep -f "minikube tunnel" >/dev/null; then
+  echo -e "🧟 Ghost tunnel detected! Process is running but no IP was assigned (likely stuck on a hidden sudo prompt)."
+  echo -e "🔫 Terminating stuck tunnel..."
+  sudo pkill -f "minikube tunnel"
+  sleep 2 # Give the OS a second to clear the process
+ fi
+
+ echo -e "\n⚠️  Traefik is waiting for an External-IP."
+ echo -e "👉 \e[93mPlease open a NEW terminal window and run:\e[0m \e[96mminikube tunnel\e[0m"
+ echo -e "⏳ Script will automatically resume once the tunnel is running..."
+
+ # 4. Wait for the user to start the tunnel, checking every 2 seconds
+ while [ -z "$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)" ]; do
+  sleep 2
+  echo -n "."
+ done
+ echo ""
+else
+ echo -e "✅ Tunnel is already running and healthy!"
+fi
+
+# 5. Extract the dynamically assigned IP now that we know it's there
+TRAEFIK_IP=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo -e "✅ Traefik External-IP acquired: \e[92m${TRAEFIK_IP}\e[0m"

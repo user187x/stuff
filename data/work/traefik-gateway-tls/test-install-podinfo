@@ -24,7 +24,7 @@ metadata:
   namespace: podinfo
 spec:
   parentRefs:
-  - name: traefik-gateway  # <-- Pointing to the correct Gateway resource!
+  - name: traefik-gateway
     namespace: traefik
     sectionName: websecure
   hostnames:
@@ -36,7 +36,7 @@ spec:
         value: /
     backendRefs:
     - name: podinfo
-      port: 9898  # Podinfo defaults to port 9898
+      port: 9898
 EOF
 
 echo -e "\n⏳ Fetching Traefik LoadBalancer External-IP..."

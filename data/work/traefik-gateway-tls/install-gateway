@@ -55,25 +55,6 @@ kubectl create configmap traefik-ca-bundle \
 helm repo add traefik https://traefik.github.io/charts || true
 helm repo update
 
-#helm upgrade --install traefik traefik/traefik \
-# --namespace traefik \
-# --create-namespace \
-# --set providers.kubernetesIngress.enabled=false \
-# --set providers.kubernetesGateway.enabled=true \
-# --set providers.kubernetesGateway.experimentalChannel=false \
-# --set gateway.enabled=true \
-# --set gateway.listeners.web.namespacePolicy.from=All \
-# --set gateway.listeners.websecure.enabled=true \
-# --set gateway.listeners.websecure.tls.certificateResolvers=default \
-# --set gateway.listeners.websecure.tls.mode=Terminate \
-# --set gateway.listeners.websecure.tls.options=default \
-# --set gateway.listeners.websecure.port=443 \
-# --set gateway.listeners.websecure.protocol=HTTPS \
-# --set gateway.listeners.websecure.tls.mode=Terminate \
-# --set gateway.listeners.websecure.tls.certificateRefs[0].name="${WILDCARD_CERT_SECRET}" \
-# --set gateway.listeners.websecure.tls.options.name=mtls-options \
-# --set gateway.listeners.websecure.tls.options.namespace=traefik
-
 helm upgrade --install traefik traefik/traefik \
  --namespace traefik \
  --create-namespace \

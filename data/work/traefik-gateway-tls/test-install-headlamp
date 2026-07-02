@@ -38,6 +38,7 @@ spec:
 EOF
 
 echo -e "\n🔐 Warming up sudo credentials for Minikube tunnel..."
+
 # This prompts you cleanly in the foreground and caches the auth
 sudo -v
 

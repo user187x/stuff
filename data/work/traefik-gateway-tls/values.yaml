@@ -1,3 +1,8 @@
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: traefik-wildcard-cert
+
 providers:
   kubernetesIngress:
     enabled: false
@@ -27,8 +32,7 @@ gateway:
       port: 443
       protocol: HTTPS
       mode: Terminate
+      namespacePolicy:
+        from: All
       certificateRefs:
       - name: traefik-wildcard-cert
-      options:
-        name: mtls-options
-        namespace: traefik
