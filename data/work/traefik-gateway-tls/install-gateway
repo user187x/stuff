@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# fail & bail
+set -eou pipefail
+
+# Convenience method to download CRDS
+function fetch-api-crds {
+ latest=$(curl -s "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases/latest" | jq -r .tag_name)
+
+ # Redirecting logs to stderr (>&2) so they don't break the return variable
+ echo -e "Latest Gateway-API CRDS: \e[92m$latest\e[0m" >&2
+
+ fileName="standard-install_gateway-api-crds-${latest}.yaml"
+ URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/${latest}/standard-install.yaml"
+
+ echo "Downloading..." >&2
+
+ if wget -q "${URL}" -O "${fileName}"; then
+  echo -e "\e[90m Download Complete!\e[0m" >&2
+  echo -e " File: \e[92m${fileName}\e[0m" >&2
+ else
+  echo -e "\e[91mDownload Failed!\e[0m" >&2
+  exit 1
+ fi
+
+ # This is the only line sent to stdout, which becomes the value of CRD_MANIFEST_YAML
+ echo "${fileName}"
+}
+
+# fetch the CRDs
+CRD_MANIFEST_YAML=$(fetch-api-crds)
+
+# Apply CRDs to the cluster
+if kubectl apply -f "${CRD_MANIFEST_YAML}" >/dev/null 2>&1; then
+ echo "Cleaning up manifest file..."
+ mv "${CRD_MANIFEST_YAML}" support/
+fi
+
+# Name of the secret holding the wildcard certs
+WILDCARD_CERT_SECRET="traefik-wildcard-cert"
+
+# Add the the tls wildcard secret to the cluster
+kubectl create secret tls "${WILDCARD_CERT_SECRET}" \
+ --cert=support/certs/server-wildcard.crt \
+ --key=support/certs/server-wildcard.key \
+ --namespace traefik
+
+kubectl create configmap traefik-ca-bundle \
+ --from-file=support/certs/ca.crt=ca.crt \
+ --namespace traefik
+
+# Install the helm repo
+helm repo add traefik https://traefik.github.io/charts || true
+helm repo update
+
+helm upgrade --install traefik traefik/traefik \
+ --namespace traefik \
+ --create-namespace \
+ --set providers.kubernetesIngress.enabled=false \
+ --set providers.kubernetesGateway.enabled=true \
+ --set providers.kubernetesGateway.experimentalChannel=false \
+ --set gateway.enabled=true \
+ --set gateway.listeners.web.namespacePolicy.from=All \
+ --set gateway.listeners.websecure.enabled=true \
+ --set gateway.listeners.websecure.tls.certificateResolvers=default \
+ --set gateway.listeners.websecure.tls.mode=Terminate \
+ --set gateway.listeners.websecure.tls.options=default \
+ --set gateway.listeners.websecure.port=443 \
+ --set gateway.listeners.websecure.protocol=HTTPS \
+ --set gateway.listeners.websecure.tls.mode=Terminate \
+ --set gateway.listeners.websecure.tls.certificateRefs[0].name="${WILDCARD_CERT_SECRET}" \
+ --set gateway.listeners.websecure.tls.options.name=mtls-options \
+ --set gateway.listeners.websecure.tls.options.namespace=traefik

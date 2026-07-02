@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Fail on error, unassigned variables, and pipe failures
+set -eou pipefail
+
+echo -e "\n📦 Adding Podinfo Helm repository..."
+helm repo add podinfo https://stefanprodan.github.io/podinfo || true
+helm repo update
+
+echo -e "\n🚀 Installing Podinfo..."
+# We are customizing the UI message via Helm to prove it's our deployment
+helm upgrade --install podinfo podinfo/podinfo \
+ --namespace podinfo \
+ --create-namespace \
+ --set service.type=ClusterIP \
+ --set ui.message="Traefik Gateway API Rocks!"
+
+echo -e "\n🛣️  Creating HTTPRoute for Traefik..."
+cat <<EOF | kubectl apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: podinfo-route
+  namespace: podinfo
+spec:
+  parentRefs:
+  - name: traefik-gateway  # <-- Pointing to the correct Gateway resource!
+    namespace: traefik
+    sectionName: websecure
+  hostnames:
+  - "podinfo.local"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: podinfo
+      port: 9898  # Podinfo defaults to port 9898
+EOF
+
+echo -e "\n⏳ Fetching Traefik LoadBalancer External-IP..."
+# Loop until the JSON path returns a value for the IP
+while [ -z "$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)" ]; do
+ sleep 2
+ echo -n "."
+done
+echo ""
+
+# Extract the dynamically assigned IP
+TRAEFIK_IP=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo -e "✅ Traefik External-IP acquired: \e[92m${TRAEFIK_IP}\e[0m"
+
+echo -e "\n🔐 Warming up sudo to update /etc/hosts..."
+sudo -v
+
+echo -e "\n📝 Updating /etc/hosts..."
+# Remove any existing podinfo.local entries to prevent bloat on re-runs
+sudo sed -i '/podinfo.local/d' /etc/hosts
+# Append the new IP mapping
+echo "${TRAEFIK_IP} podinfo.local" | sudo tee -a /etc/hosts >/dev/null
+
+echo -e "\n🎉 Success! You can now access Podinfo at http://podinfo.local"
