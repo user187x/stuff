@@ -28,7 +28,7 @@ spec:
     namespace: traefik
     sectionName: websecure
   hostnames:
-  - "podinfo.local"
+  - "podinfo.xxx.local"
   rules:
   - matches:
     - path:
@@ -56,8 +56,8 @@ sudo -v
 
 echo -e "\n📝 Updating /etc/hosts..."
 # Remove any existing podinfo.local entries to prevent bloat on re-runs
-sudo sed -i '/podinfo.local/d' /etc/hosts
+sudo sed -i '/podinfo.xxx.local/d' /etc/hosts
 # Append the new IP mapping
-echo "${TRAEFIK_IP} podinfo.local" | sudo tee -a /etc/hosts >/dev/null
+echo "${TRAEFIK_IP} podinfo.xxx.local" | sudo tee -a /etc/hosts >/dev/null
 
-echo -e "\n🎉 Success! You can now access Podinfo at http://podinfo.local"
+echo -e "\n🎉 Success! You can now access Podinfo at http://podinfo.xxx.local"

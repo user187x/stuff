@@ -26,7 +26,7 @@ spec:
     namespace: traefik
     sectionName: websecure
   hostnames:
-  - "headlamp.local"
+  - "headlamp.xxx.local"
   rules:
   - matches:
     - path:
@@ -61,9 +61,9 @@ echo -e "✅ Traefik External-IP acquired: \e[92m${TRAEFIK_IP}\e[0m"
 
 echo -e "\n📝 Updating /etc/hosts..."
 # Remove any existing headlamp.local entries to prevent bloat on re-runs
-sudo sed -i '/headlamp.local/d' /etc/hosts
+sudo sed -i '/headlamp.xxx.local/d' /etc/hosts
 # Append the new IP mapping
-echo "${TRAEFIK_IP} headlamp.local" | sudo tee -a /etc/hosts >/dev/null
+echo "${TRAEFIK_IP} headlamp.xxx.local" | sudo tee -a /etc/hosts >/dev/null
 
-echo -e "\n🎉 Success! You can now access Headlamp at http://headlamp.local"
+echo -e "\n🎉 Success! You can now access Headlamp at http://headlamp.xxx.local"
 echo -e "🛑 To stop the background tunnel later, run: \e[91mkill $TUNNEL_PID\e[0m"
