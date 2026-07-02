@@ -5,14 +5,15 @@ set -eou pipefail
 
 # Convenience method to download CRDS
 function fetch-api-crds {
-
  latest=$(curl -s "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases/latest" | jq -r .tag_name)
- echo -e "Latest Gateway-API CRDS: \e[92m$latest\e[0m"
+
+ # Redirecting logs to stderr (>&2) so they don't break the return variable
+ echo -e "Latest Gateway-API CRDS: \e[92m$latest\e[0m" >&2
 
  fileName="standard-install_gateway-api-crds-${latest}.yaml"
  URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/${latest}/standard-install.yaml"
 
- echo "Downloading..."
+ echo "Downloading..." >&2
 
  if wget -q "${URL}" -O "${fileName}"; then
   echo -e "\e[90m Download Complete!\e[0m" >&2
@@ -22,6 +23,7 @@ function fetch-api-crds {
   exit 1
  fi
 
+ # This is the only line sent to stdout, which becomes the value of CRD_FILE
  echo "${fileName}"
 }
 
