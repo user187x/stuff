@@ -23,18 +23,21 @@ function fetch-api-crds {
   exit 1
  fi
 
- # This is the only line sent to stdout, which becomes the value of CRD_FILE
+ # This is the only line sent to stdout, which becomes the value of CRD_MANIFEST_YAML
  echo "${fileName}"
 }
 
 # fetch the CRDs
-CRD_FILE=$(fetch-api-crds)
+CRD_MANIFEST_YAML=$(fetch-api-crds)
 
 # Apply CRDs to the cluster
-kubectl apply -f "${CRD_FILE}"
+if kubectl apply -f "${CRD_MANIFEST_YAML}" > /dev/null 2>&1; then
+ echo "Cleaning up manifest file..."
+ mv "${CRD_MANIFEST_YAML}" support/
+fi
 
 # Install the helm repo
-helm repo add traefik https://traefik.github.io/charts
+helm repo add traefik https://traefik.github.io/charts || true
 helm repo update
 
 # Install the chart
