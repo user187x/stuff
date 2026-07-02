@@ -1,13 +1,41 @@
 #!/bin/bash
 
-#kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
+# fail & bail
+set -eou pipefail
 
-# air-gapped cluster
-kubectl apply -f standard-install_gateway-api-crds.yaml
+# Convenience method to download CRDS
+function fetch-api-crds {
 
+ latest=$(curl -s "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases/latest" | jq -r .tag_name)
+ echo -e "Latest Gateway-API CRDS: \e[92m$latest\e[0m"
+
+ fileName="standard-install_gateway-api-crds-${latest}.yaml"
+ URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/${latest}/standard-install.yaml"
+
+ echo "Downloading..."
+
+ if wget -q "${URL}" -O "${fileName}"; then
+  echo -e "\e[90m Download Complete!\e[0m" >&2
+  echo -e " File: \e[92m${fileName}\e[0m" >&2
+ else
+  echo -e "\e[91mDownload Failed!\e[0m" >&2
+  exit 1
+ fi
+
+ echo "${fileName}"
+}
+
+# fetch the CRDs
+CRD_FILE=$(fetch-api-crds)
+
+# Apply CRDs to the cluster
+kubectl apply -f "${CRD_FILE}"
+
+# Install the helm repo
 helm repo add traefik https://traefik.github.io/charts
 helm repo update
 
+# Install the chart
 helm upgrade --install traefik traefik/traefik \
  --namespace traefik \
  --create-namespace \
