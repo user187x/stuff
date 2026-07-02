@@ -36,6 +36,8 @@ if kubectl apply -f "${CRD_MANIFEST_YAML}" >/dev/null 2>&1; then
  mv "${CRD_MANIFEST_YAML}" support/
 fi
 
+kubectl create namespace traefik --dry-run=client -o yaml | kubectl apply -f -
+
 # Name of the secret holding the wildcard certs
 WILDCARD_CERT_SECRET="traefik-wildcard-cert"
 
@@ -43,31 +45,36 @@ WILDCARD_CERT_SECRET="traefik-wildcard-cert"
 kubectl create secret tls "${WILDCARD_CERT_SECRET}" \
  --cert=support/certs/server-wildcard.crt \
  --key=support/certs/server-wildcard.key \
- --namespace traefik
+ --namespace traefik || true
 
 kubectl create configmap traefik-ca-bundle \
- --from-file=support/certs/ca.crt=ca.crt \
- --namespace traefik
+ --from-file=ca.crt=support/certs/ca.crt \
+ --namespace traefik || true
 
 # Install the helm repo
 helm repo add traefik https://traefik.github.io/charts || true
 helm repo update
 
+#helm upgrade --install traefik traefik/traefik \
+# --namespace traefik \
+# --create-namespace \
+# --set providers.kubernetesIngress.enabled=false \
+# --set providers.kubernetesGateway.enabled=true \
+# --set providers.kubernetesGateway.experimentalChannel=false \
+# --set gateway.enabled=true \
+# --set gateway.listeners.web.namespacePolicy.from=All \
+# --set gateway.listeners.websecure.enabled=true \
+# --set gateway.listeners.websecure.tls.certificateResolvers=default \
+# --set gateway.listeners.websecure.tls.mode=Terminate \
+# --set gateway.listeners.websecure.tls.options=default \
+# --set gateway.listeners.websecure.port=443 \
+# --set gateway.listeners.websecure.protocol=HTTPS \
+# --set gateway.listeners.websecure.tls.mode=Terminate \
+# --set gateway.listeners.websecure.tls.certificateRefs[0].name="${WILDCARD_CERT_SECRET}" \
+# --set gateway.listeners.websecure.tls.options.name=mtls-options \
+# --set gateway.listeners.websecure.tls.options.namespace=traefik
+
 helm upgrade --install traefik traefik/traefik \
  --namespace traefik \
  --create-namespace \
- --set providers.kubernetesIngress.enabled=false \
- --set providers.kubernetesGateway.enabled=true \
- --set providers.kubernetesGateway.experimentalChannel=false \
- --set gateway.enabled=true \
- --set gateway.listeners.web.namespacePolicy.from=All \
- --set gateway.listeners.websecure.enabled=true \
- --set gateway.listeners.websecure.tls.certificateResolvers=default \
- --set gateway.listeners.websecure.tls.mode=Terminate \
- --set gateway.listeners.websecure.tls.options=default \
- --set gateway.listeners.websecure.port=443 \
- --set gateway.listeners.websecure.protocol=HTTPS \
- --set gateway.listeners.websecure.tls.mode=Terminate \
- --set gateway.listeners.websecure.tls.certificateRefs[0].name="${WILDCARD_CERT_SECRET}" \
- --set gateway.listeners.websecure.tls.options.name=mtls-options \
- --set gateway.listeners.websecure.tls.options.namespace=traefik
+ --values values.yaml
