@@ -17,9 +17,10 @@ TLS_CA="pki/ca.crt"
 
 CRD_FILE="lib/manifest.yaml"
 
-# Gateway API release supported by current Traefik v3 (the version Traefik's
-# own quickstart installs). Do not bump blindly — Traefik validates it.
-GATEWAY_API_VERSION="1.5.1"
+# Gateway API Standard channel. v1 resources (Gateway/HTTPRoute) are GA and
+# stable across releases; note the safe-upgrades VAP makes downgrading below
+# v1.5 a one-way door once this is applied.
+GATEWAY_API_VERSION="1.6.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -61,10 +62,12 @@ echo ""
 DOWNLOAD_URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
 echo "Installing Kubernetes Gateway API CRDs (v${GATEWAY_API_VERSION})..."
 
+# v1.5+ CRDs are large and ship a safe-upgrades ValidatingAdmissionPolicy;
+# server-side apply is the upstream-recommended install method.
 if [[ -n "${CRD_FILE}" && -f "${CRD_FILE}" ]]; then
- kubectl apply -f "${CRD_FILE}"
+ kubectl apply --server-side -f "${CRD_FILE}"
 else
- kubectl apply -f "${DOWNLOAD_URL}"
+ kubectl apply --server-side -f "${DOWNLOAD_URL}"
 fi
 
 echo
@@ -116,9 +119,13 @@ additionalArguments:
   - "--api.insecure=true"
 EOF
 
+# --force-conflicts (Helm 4 / server-side apply): this script is the source
+# of truth for these releases; reclaim fields drifted by ad-hoc kubectl/k9s
+# edits instead of failing the bootstrap.
 helm upgrade --install traefik traefik/traefik \
  --namespace "${TRAEFIK_NS}" \
  --values traefik-values.yaml \
+ --force-conflicts \
  --wait
 
 echo
@@ -171,6 +178,7 @@ helm repo update >/dev/null
 helm upgrade --install podinfo podinfo/podinfo \
  --namespace "${PODINFO_NS}" \
  --set ui.color="#81a1c1" \
+ --force-conflicts \
  --wait
 
 echo

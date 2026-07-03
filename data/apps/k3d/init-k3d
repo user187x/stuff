@@ -30,8 +30,8 @@ echo "Creating cluster with 1 Control Plane and 2 Workers..."
 
 k3d cluster create "${CLUSTER_NAME}" \
  --agents 2 \
- --publish "80:80@loadbalancer" \
- --publish "443:443@loadbalancer" \
+ -p "80:80@loadbalancer" \
+ -p "443:443@loadbalancer" \
  --k3s-arg "--flannel-backend=none@server:*" \
  --k3s-arg "--disable-network-policy@server:*" \
  --k3s-arg "--disable=traefik@server:*" \

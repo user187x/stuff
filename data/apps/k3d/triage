@@ -98,8 +98,8 @@ echo
 echo "── 7. Traefik Service ports ──────────────────────────────"
 kubectl get svc traefik -n "${TRAEFIK_NS}" \
   -o jsonpath='{range .spec.ports[*]}  {.name}: {.port} → {.targetPort}{"\n"}{end}'
-if ! kubectl get svc traefik -n "${TRAEFIK_NS}" -o jsonpath='{.spec.ports[*].port}' | grep -qw 9000; then
-  bad "Service has no port 9000 — the dashboard HTTPRoute has no backend."
+if ! kubectl get svc traefik -n "${TRAEFIK_NS}" -o jsonpath='{.spec.ports[*].port}' | grep -qw 8080; then
+  bad "Service has no port 8080 — the dashboard HTTPRoute has no backend."
   info "Ensure traefik-values.yaml has: ports.traefik.expose.default: true"
 fi
 
