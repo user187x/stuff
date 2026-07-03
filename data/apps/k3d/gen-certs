@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# gen-certs — Issue a *wildcard* TLS certificate for *.${DOMAIN_SUFFIX}
+# =============================================================================
+# WHY THIS EXISTS:
+#   The original pki/tls.crt only contains SAN "DNS:xxx.local". Browsers do
+#   NOT accept that certificate for traefik.xxx.local or podinfo.xxx.local,
+#   even when the CA is trusted. The Gateway must terminate TLS with a cert
+#   whose SANs cover *.xxx.local.
+#
+#   This script signs a wildcard leaf certificate with your EXISTING CA
+#   (pki/ca.crt + pki/ca.key) so the CA you already imported into the browser
+#   keeps working. If ca.key is missing, it creates a brand-new CA and warns
+#   you to (re-)import pki/ca.crt into the browser trust store.
+# =============================================================================
+
+set -euo pipefail
+
+DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-xxx.local}"
+PKI_DIR="${PKI_DIR:-pki}"
+
+CA_CRT="${PKI_DIR}/ca.crt"
+CA_KEY="${PKI_DIR}/ca.key"
+WILDCARD_KEY="${PKI_DIR}/tls-wildcard.key"
+WILDCARD_CSR="${PKI_DIR}/tls-wildcard.csr"
+WILDCARD_CRT="${PKI_DIR}/tls-wildcard.crt"
+
+# Browsers cap leaf-cert validity at 398 days; stay under it.
+LEAF_DAYS=397
+CA_DAYS=1825
+
+mkdir -p "${PKI_DIR}"
+
+echo "=========================================================="
+echo "🔐 Generating wildcard certificate for *.${DOMAIN_SUFFIX}"
+echo "=========================================================="
+
+# -----------------------------------------------------------------------------
+# Step 1: Ensure we have a CA we can sign with
+# -----------------------------------------------------------------------------
+if [[ -f "${CA_CRT}" && -f "${CA_KEY}" ]]; then
+  echo "[1/4] Reusing existing CA: ${CA_CRT} (browser trust is preserved)"
+elif [[ -f "${CA_CRT}" && ! -f "${CA_KEY}" ]]; then
+  echo "❌ Found ${CA_CRT} but not ${CA_KEY}."
+  echo "   Without the CA private key I cannot issue a wildcard cert that your"
+  echo "   browser already trusts. Either:"
+  echo "     • copy the CA private key to ${CA_KEY} and re-run, or"
+  echo "     • delete ${CA_CRT} and re-run to create a NEW CA"
+  echo "       (you will then need to import the new ${CA_CRT} into the browser)."
+  exit 1
+else
+  echo "[1/4] No CA found — creating a new local Root CA..."
+  openssl genrsa -out "${CA_KEY}" 4096
+  openssl req -x509 -new -nodes -sha256 \
+    -key "${CA_KEY}" \
+    -days "${CA_DAYS}" \
+    -subj "/O=Local Dev Root CA/CN=${DOMAIN_SUFFIX} Root CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -out "${CA_CRT}"
+  echo "⚠️  NEW CA created. Import ${CA_CRT} into your browser's trust store!"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 2: Ensure the wildcard private key exists (reuse if already present)
+# -----------------------------------------------------------------------------
+if [[ -f "${WILDCARD_KEY}" ]]; then
+  echo "[2/4] Reusing existing key: ${WILDCARD_KEY}"
+else
+  echo "[2/4] Generating new private key: ${WILDCARD_KEY}"
+  openssl genrsa -out "${WILDCARD_KEY}" 2048
+fi
+
+# -----------------------------------------------------------------------------
+# Step 3: CSR with the SANs the browser actually checks
+# -----------------------------------------------------------------------------
+echo "[3/4] Creating CSR (SANs: *.${DOMAIN_SUFFIX}, ${DOMAIN_SUFFIX})..."
+openssl req -new \
+  -key "${WILDCARD_KEY}" \
+  -subj "/O=Local Dev server/CN=*.${DOMAIN_SUFFIX}" \
+  -out "${WILDCARD_CSR}"
+
+# -----------------------------------------------------------------------------
+# Step 4: Sign the leaf with the CA
+# -----------------------------------------------------------------------------
+echo "[4/4] Signing wildcard certificate with the CA..."
+openssl x509 -req -sha256 \
+  -in "${WILDCARD_CSR}" \
+  -CA "${CA_CRT}" -CAkey "${CA_KEY}" -CAcreateserial \
+  -days "${LEAF_DAYS}" \
+  -extfile <(printf '%s\n' \
+      "basicConstraints=CA:FALSE" \
+      "keyUsage=digitalSignature,keyEncipherment" \
+      "extendedKeyUsage=serverAuth" \
+      "subjectAltName=DNS:*.${DOMAIN_SUFFIX},DNS:${DOMAIN_SUFFIX}") \
+  -out "${WILDCARD_CRT}"
+
+rm -f "${WILDCARD_CSR}"
+
+echo
+openssl verify -CAfile "${CA_CRT}" "${WILDCARD_CRT}"
+openssl x509 -in "${WILDCARD_CRT}" -noout -subject -ext subjectAltName -dates
+echo
+echo "✅ Wildcard cert ready: ${WILDCARD_CRT} + ${WILDCARD_KEY}"

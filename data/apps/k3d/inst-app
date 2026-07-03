@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Exit immediately if any command fails
-set -e
+set -euo pipefail
 
 DOMAIN_SUFFIX="xxx.local"
 GATEWAY_NAME="traefik-gateway"
@@ -11,46 +11,89 @@ PODINFO_NS="podinfo"
 
 TLS_WILDCARD_SECRET="wildcard-tls-cert"
 
-TLS_CRT="pki/tls.crt"
-TLS_KEY="pki/tls.key"
+# FIX: the Gateway must terminate TLS with a certificate whose SANs cover
+# *.xxx.local. The old pki/tls.crt only covered "xxx.local", which browsers
+# reject for traefik.xxx.local / podinfo.xxx.local. We now use the wildcard
+# pair produced by ./gen-certs.
+TLS_CRT="pki/tls-wildcard.crt"
+TLS_KEY="pki/tls-wildcard.key"
 TLS_CA="pki/ca.crt"
 
+# Optional vendored copy of the Gateway API CRDs. Leave empty (or delete the
+# file) to download the pinned release instead.
 CRD_FILE="lib/manifest.yaml"
 
+# Gateway API release supported by current Traefik v3 (the version Traefik's
+# own quickstart installs). Do not bump blindly — Traefik validates it.
+GATEWAY_API_VERSION="1.5.1"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=========================================================="
-echo "🚀 Bootstrapping Gateway API (v1.6.0) with Traefik"
+echo "🚀 Bootstrapping Gateway API (v${GATEWAY_API_VERSION}) with Traefik"
 echo "=========================================================="
 
-# Ensure the required TLS assets are present before we start modifying the cluster.
+# -----------------------------------------------------------------------------
+# Validate (and if possible, generate) the TLS assets
+# -----------------------------------------------------------------------------
 echo "Validating local TLS certificates..."
+
+if [[ ! -f "${TLS_CRT}" || ! -f "${TLS_KEY}" ]]; then
+ if [[ -x "${SCRIPT_DIR}/gen-certs" ]]; then
+  echo "ℹ️  Wildcard cert not found — running ./gen-certs to create it..."
+  DOMAIN_SUFFIX="${DOMAIN_SUFFIX}" "${SCRIPT_DIR}/gen-certs"
+ else
+  echo "❌ Error: '${TLS_CRT}' / '${TLS_KEY}' not found and ./gen-certs is missing."
+  echo "Please generate the wildcard certs and try again."
+  exit 1
+ fi
+fi
 
 for file in "${TLS_CRT}" "${TLS_KEY}" "${TLS_CA}"; do
  if [[ ! -f "$file" ]]; then
   echo "❌ Error: Required file '$file' not found in current directory."
-  echo "Please generate or place the wildcard certs here and try again."
   exit 1
  fi
 done
-echo "✅ Certificates found."
+
+# FIX: fail fast if the cert does not actually cover *.${DOMAIN_SUFFIX} —
+# this is exactly the mistake that made the browser reject the old setup.
+if ! openssl x509 -in "${TLS_CRT}" -noout -ext subjectAltName 2>/dev/null \
+   | grep -q "DNS:\*\.${DOMAIN_SUFFIX}"; then
+ echo "❌ Error: '${TLS_CRT}' does not contain SAN 'DNS:*.${DOMAIN_SUFFIX}'."
+ echo "Browsers will reject it for traefik.${DOMAIN_SUFFIX} / podinfo.${DOMAIN_SUFFIX}."
+ echo "Run ./gen-certs to issue a proper wildcard certificate."
+ exit 1
+fi
+echo "✅ Certificates found and SANs cover *.${DOMAIN_SUFFIX}."
 echo ""
 
+# -----------------------------------------------------------------------------
 # Install Gateway API CRDs
-API_VERSION="1.6.0"
-DOWNLOAD_URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/v${API_VERSION}/standard-install.yaml"
+# -----------------------------------------------------------------------------
+# FIX: the original condition was inverted — CRD_FILE was always non-empty, so
+# the script always tried the local file and crashed when it didn't exist.
+# New behavior: use the vendored file only if it actually exists, otherwise
+# download the pinned release.
+# -----------------------------------------------------------------------------
+DOWNLOAD_URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/v${GATEWAY_API_VERSION}/standard-install.yaml"
 
-echo "Installing Kubernetes Gateway API CRDs (v1.6.0)..."
+echo "Installing Kubernetes Gateway API CRDs (v${GATEWAY_API_VERSION})..."
 
-if [[ -z "${CRD_FILE}" ]]; then
- kubectl apply -f "${DOWNLOAD_URL}"
-else
+if [[ -n "${CRD_FILE}" && -f "${CRD_FILE}" ]]; then
  kubectl apply -f "${CRD_FILE}"
+else
+ kubectl apply -f "${DOWNLOAD_URL}"
 fi
 
 echo
 echo "✅ Gateway API CRDs installed."
 echo ""
 
-# The TLS secret must live in the exact same namespace as the Gateway resource
+# -----------------------------------------------------------------------------
+# Namespaces + TLS Secret
+# The TLS secret must live in the exact same namespace as the Gateway resource.
+# -----------------------------------------------------------------------------
 echo "Setting up namespaces and TLS Secret..."
 
 kubectl create namespace "${TRAEFIK_NS}" --dry-run=client -o yaml | kubectl apply -f -
@@ -66,16 +109,36 @@ echo
 echo "✅ Secrets and Namespaces provisioned."
 echo
 
-# Install Traefik & expose the 'traefik' svc port (9000)
+# -----------------------------------------------------------------------------
+# Install Traefik
+# -----------------------------------------------------------------------------
+# FIXES vs the original values:
+#   • Removed "ports.websecure.port: 443". Traefik runs as non-root and cannot
+#     bind ports <1024 — the pod crash-looped. The container keeps listening
+#     on 8443; the Service still exposes it as 443 (chart default), and k3s
+#     ServiceLB + the k3d "-p 443:443@loadbalancer" mapping carry it to the
+#     host.
+#   • Removed "ports.traefik.port: 9000" (that's already the default); kept
+#     expose.default=true so the dashboard HTTPRoute can target Service:9000.
+#   • gateway.enabled=false: the chart otherwise creates its OWN Gateway named
+#     "traefik-gateway", which collides with the one we create below. The
+#     chart still creates the GatewayClass "traefik" for us.
+#   • Official chart repo URL.
+# -----------------------------------------------------------------------------
 echo "Installing Traefik Ingress Controller..."
 
-helm repo add traefik https://helm.traefik.io/traefik >/dev/null 2>&1
-helm repo update >/dev/null 2>&1
+helm repo add traefik https://traefik.github.io/charts --force-update >/dev/null
+helm repo update >/dev/null
 
 cat <<EOF >traefik-values.yaml
 providers:
   kubernetesGateway:
     enabled: true
+gateway:
+  # We manage our own Gateway below (with TLS); disable the chart's default one.
+  enabled: false
+gatewayClass:
+  enabled: true
 ports:
   web:
     http:
@@ -84,11 +147,8 @@ ports:
           to: websecure
           scheme: https
           permanent: true
-  websecure:
-    port: 443
   traefik:
-    port: 9000
-    expose: 
+    expose:
       default: true
 additionalArguments:
   - "--api.dashboard=true"
@@ -104,32 +164,23 @@ echo
 echo "✅ Traefik installed and configured."
 echo
 
+# -----------------------------------------------------------------------------
 # Create the Gateway
-# The Gateway represents the physical/logical load balancer. We bind it to
-# the 'traefik' GatewayClass and configure it to listen on 443, terminating
-# TLS using our secret. Crucially, we allow routes from 'All' namespaces so
-# developers can define HTTPRoutes in their own application namespaces.
-
+# -----------------------------------------------------------------------------
+# The Gateway represents the logical load balancer. We bind it to the chart-
+# created 'traefik' GatewayClass and terminate TLS with our wildcard secret.
+# We allow routes from 'All' namespaces so developers can define HTTPRoutes in
+# their own application namespaces.
+#
+# FIX: listener port is 8443, NOT 443. Traefik requires the Gateway listener
+# port to match one of its ENTRYPOINT ports (websecure listens on 8443 inside
+# the container). The Kubernetes Service maps 443 → 8443, so the browser still
+# uses standard https://... on 443.
+# -----------------------------------------------------------------------------
 GATEWAY_CLASS_NAME="traefik"
-GATEWAY_CONTROLLER_NAME="traefik.io/gateway-controller"
 
 echo "Provisioning the Gateway resource..."
 
-# Add the GatewayClass
-cat <<EOF | kubectl apply -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: ${GATEWAY_CLASS_NAME}
-spec:
-  controllerName: ${GATEWAY_CONTROLLER_NAME}
-EOF
-
-echo
-echo "✅ GatewayClass created."
-echo
-
-# Add the Gateway
 cat <<EOF | kubectl apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -140,8 +191,9 @@ spec:
   gatewayClassName: ${GATEWAY_CLASS_NAME}
   listeners:
   - name: https
-    port: 443
+    port: 8443
     protocol: HTTPS
+    hostname: "*.${DOMAIN_SUFFIX}"
     allowedRoutes:
       namespaces:
         from: All
@@ -152,14 +204,20 @@ spec:
         kind: Secret
 EOF
 
+kubectl wait --for=condition=Programmed "gateway/${GATEWAY_NAME}" \
+ --namespace "${TRAEFIK_NS}" --timeout=120s
+
 echo
-echo "✅ Gateway resource provisioned."
+echo "✅ Gateway resource provisioned and programmed."
 echo
 
+# -----------------------------------------------------------------------------
+# Deploy Podinfo
+# -----------------------------------------------------------------------------
 echo "Deploying Podinfo application..."
 
-helm repo add podinfo https://stefanprodan.github.io/podinfo >/dev/null 2>&1 || true
-helm repo update >/dev/null 2>&1
+helm repo add podinfo https://stefanprodan.github.io/podinfo --force-update >/dev/null
+helm repo update >/dev/null
 
 helm upgrade --install podinfo podinfo/podinfo \
  --namespace "${PODINFO_NS}" \
@@ -170,20 +228,22 @@ echo
 echo "✅ Podinfo deployed."
 echo
 
+# -----------------------------------------------------------------------------
 # Wire up the HTTPRoutes
-# HTTPRoutes attach to a 'parentRef' (our Gateway). Traffic coming into the
-# Gateway on port 443 is evaluated against the 'hostnames' in these routes,
-# and then forwarded to the respective backend services.
+# -----------------------------------------------------------------------------
+# HTTPRoutes attach to a 'parentRef' (our Gateway). Traffic hitting the
+# Gateway's https listener is matched against 'hostnames' and forwarded to the
+# respective backend Services.
 # -----------------------------------------------------------------------------
 echo "Configuring HTTPRoutes for Dashboard and App..."
 
 echo
-echo "Createing HTTPRoute for Traefik Dashboard...."
+echo "Creating HTTPRoute for Traefik Dashboard..."
 echo
 
 TRAEFIK_HTTPROUTE_NAME="traefik-route"
-TRAEFIK_DASHBOARD_POD_PORT="9000"
-TRAEFIK_DASHBOARD_POD_NAME="traefik"
+TRAEFIK_DASHBOARD_SVC_PORT="9000"
+TRAEFIK_DASHBOARD_SVC_NAME="traefik"
 
 cat <<EOF | kubectl apply -f -
 apiVersion: gateway.networking.k8s.io/v1
@@ -199,17 +259,17 @@ spec:
   - traefik.${DOMAIN_SUFFIX}
   rules:
   - backendRefs:
-    - name: ${TRAEFIK_DASHBOARD_POD_NAME}
-      port: ${TRAEFIK_DASHBOARD_POD_PORT}
+    - name: ${TRAEFIK_DASHBOARD_SVC_NAME}
+      port: ${TRAEFIK_DASHBOARD_SVC_PORT}
 EOF
 
 echo
-echo "Createing HTTPRoute for PodInfo Dashboard...."
+echo "Creating HTTPRoute for Podinfo..."
 echo
 
 PODINFO_HTTPROUTE_NAME="podinfo-route"
-PODINFO_DASHBOARD_POD_PORT="9898"
-PODINFO_DASHBOARD_POD_NAME="podinfo"
+PODINFO_SVC_PORT="9898"
+PODINFO_SVC_NAME="podinfo"
 
 cat <<EOF | kubectl apply -f -
 apiVersion: gateway.networking.k8s.io/v1
@@ -225,8 +285,8 @@ spec:
   - podinfo.${DOMAIN_SUFFIX}
   rules:
   - backendRefs:
-    - name: ${PODINFO_DASHBOARD_POD_NAME}
-      port: ${PODINFO_DASHBOARD_POD_PORT}
+    - name: ${PODINFO_SVC_NAME}
+      port: ${PODINFO_SVC_PORT}
 EOF
 
 echo "✅ HTTPRoutes mapped."
@@ -237,8 +297,6 @@ echo "🎉 Setup Complete!"
 echo "=========================================================="
 echo "Your Gateway is terminating TLS for *.${DOMAIN_SUFFIX}."
 echo
-echo "Assuming your DNS/Hosts file resolves to the cluster IP, you can access:"
-echo "  👉 Traefik Dashboard : https://traefik.${DOMAIN_SUFFIX}/"
+echo "Run ./cnct-web once to add the hostnames to /etc/hosts, then browse:"
+echo "  👉 Traefik Dashboard : https://traefik.${DOMAIN_SUFFIX}/dashboard/"
 echo "  👉 Podinfo UI        : https://podinfo.${DOMAIN_SUFFIX}/"
-echo
-echo "(Note: Traefik requires the trailing slash '/dashboard/' to resolve the UI)"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Exit immediately if any command fails
-set -e
+set -euo pipefail
 
 CLUSTER_NAME="platform"
 
@@ -16,16 +16,26 @@ echo "=========================================================="
 # Because we want to teach the installation of Calico, we must disable Flannel
 # and the default network policy controller during cluster creation.
 #
-# --agents 2: Provisions two dedicated worker nodes.
-# --k3s-arg: Passes startup flags directly to the underlying k3s server.
+# FIXES vs the original:
+#   • -p "80:80@loadbalancer" / -p "443:443@loadbalancer":
+#       Maps host ports 80/443 → the k3d load balancer → k3s ServiceLB →
+#       Traefik's LoadBalancer Service. This is what lets the browser on the
+#       host reach https://traefik.xxx.local WITHOUT a sudo port-forward.
+#   • --cluster-cidr=192.168.0.0/16:
+#       The Tigera operator's default IPPool is 192.168.0.0/16, but k3s
+#       defaults to 10.42.0.0/16. The mismatch leaves pod networking broken.
+#       Aligning the k3s pod CIDR with Calico's default fixes it.
 # -----------------------------------------------------------------------------
-echo "[1/4] Creating cluster with 1 Control Plane and 2 Workers..."
+echo "Creating cluster with 1 Control Plane and 2 Workers..."
 
 k3d cluster create "${CLUSTER_NAME}" \
  --agents 2 \
+ --publish "80:80@loadbalancer" \
+ --publish "443:443@loadbalancer" \
  --k3s-arg "--flannel-backend=none@server:*" \
  --k3s-arg "--disable-network-policy@server:*" \
- --k3s-arg "--disable=traefik@server:*"
+ --k3s-arg "--disable=traefik@server:*" \
+ --k3s-arg "--cluster-cidr=192.168.0.0/16@server:*"
 
 echo "✅ Cluster created successfully. Kubeconfig is automatically merged."
 echo ""
@@ -33,12 +43,9 @@ echo ""
 # -----------------------------------------------------------------------------
 # Step 2: Setup the Helm Repository
 # -----------------------------------------------------------------------------
-# We use Helm to deploy Calico. First, we need to register the official
-# Tigera Calico chart repository locally so we can pull the required packages.
-# -----------------------------------------------------------------------------
 echo "[2/4] Registering the Tigera Calico Helm repository..."
 
-helm repo add projectcalico https://docs.tigera.io/calico/charts
+helm repo add projectcalico https://docs.tigera.io/calico/charts --force-update
 helm repo update
 
 echo "✅ Helm repository updated."
@@ -50,8 +57,6 @@ echo ""
 # The Operator pattern is the modern standard for installing Calico.
 # The operator will run as a deployment and manage the lifecycle of the actual
 # Calico CNI components (like the calico-node daemonsets on every worker).
-#
-# --create-namespace: Ensures the tigera-operator namespace exists before installing.
 # -----------------------------------------------------------------------------
 echo "[3/4] Installing Calico via Helm..."
 
@@ -67,15 +72,24 @@ echo ""
 # -----------------------------------------------------------------------------
 # Step 4: Verification
 # -----------------------------------------------------------------------------
-# It takes a moment for the operator to spin up the required custom resources
-# and for the Calico node pods to initialize. We pause and wait for the core
-# DNS pods to report as 'Ready', confirming the network fabric is operational.
+# helm --wait above only waits for the OPERATOR deployment. The operator then
+# has to roll out calico-node on every node before any pod (including CoreDNS)
+# can get an IP. So we first wait for the calico-node DaemonSet, then for
+# CoreDNS to become Ready.
 # -----------------------------------------------------------------------------
 echo "[4/4] Waiting for the network fabric and core DNS to become ready..."
-echo "      (This may take a minute depending on image pull speeds)"
+echo "      (This may take a few minutes depending on image pull speeds)"
 
-kubectl wait --for=condition=Ready pods -l k8s-app=kube-dns -n kube-system --timeout=180s
+echo "  → waiting for calico-node pods to be created..."
+until kubectl get daemonset calico-node -n calico-system >/dev/null 2>&1; do
+  sleep 5
+done
 
+kubectl rollout status daemonset/calico-node -n calico-system --timeout=300s
+kubectl wait --for=condition=Ready pods -l k8s-app=kube-dns -n kube-system --timeout=300s
+
+echo
+echo "✅ Network fabric is up."
 echo
 echo "You can now verify the node status and network pods by running:"
 echo "  kubectl get nodes -o wide"

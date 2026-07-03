@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# diag — hop-by-hop diagnosis for https://traefik.xxx.local & podinfo.xxx.local
+# =============================================================================
+# Checks, in order, every layer a browser request crosses:
+#   1. /etc/hosts resolution
+#   2. host port 443 reachability (k3d loadbalancer mapping / tunnel)
+#   3. TLS: which cert is actually served, and do its SANs cover the host?
+#   4. Gateway status (Accepted / Programmed / listener ResolvedRefs)
+#   5. HTTPRoute status (Accepted / ResolvedRefs)
+#   6. Traefik pod health + recent errors in logs
+#   7. Traefik Service ports (443 and 9000 must exist)
+#   8. Full request with CA validation, per hostname
+# =============================================================================
+
+set -uo pipefail   # deliberately NOT -e: keep going and report everything
+
+DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-xxx.local}"
+TRAEFIK_NS="${TRAEFIK_NS:-traefik}"
+PODINFO_NS="${PODINFO_NS:-podinfo}"
+GATEWAY_NAME="${GATEWAY_NAME:-traefik-gateway}"
+TLS_CA="${TLS_CA:-pki/ca.crt}"
+HOSTS=("traefik.${DOMAIN_SUFFIX}" "podinfo.${DOMAIN_SUFFIX}")
+
+ok()   { printf '  \e[32m✔\e[0m %s\n' "$1"; }
+bad()  { printf '  \e[31m✖\e[0m %s\n' "$1"; }
+info() { printf '    %s\n' "$1"; }
+
+echo "── 1. /etc/hosts ─────────────────────────────────────────"
+for h in "${HOSTS[@]}"; do
+  if grep -qE "^[^#]*[[:space:]]${h//./\\.}([[:space:]]|\$)" /etc/hosts; then
+    ok "$h → $(grep -E "[[:space:]]${h//./\\.}([[:space:]]|\$)" /etc/hosts | head -1 | awk '{print $1}')"
+  else
+    bad "$h has NO /etc/hosts entry — add: 127.0.0.1 $h"
+  fi
+done
+
+echo
+echo "── 2. Host port 443 ──────────────────────────────────────"
+if curl -ksm 3 -o /dev/null "https://127.0.0.1/"; then
+  ok "Something answers TLS on 127.0.0.1:443"
+else
+  bad "Nothing listens on 127.0.0.1:443"
+  info "Cluster likely created without '-p 443:443@loadbalancer'."
+  info "Fix: recreate with new ./init-k3d, or run ./cnct-web for a tunnel."
+fi
+
+echo
+echo "── 3. Served certificate ─────────────────────────────────"
+for h in "${HOSTS[@]}"; do
+  SAN=$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$h" 2>/dev/null \
+        | openssl x509 -noout -ext subjectAltName 2>/dev/null | tr -d '\n' | sed 's/.*Name://')
+  if [[ -z "${SAN}" ]]; then
+    bad "$h: could not read a certificate from 127.0.0.1:443"
+  elif echo "$SAN" | grep -q "DNS:\*\.${DOMAIN_SUFFIX}"; then
+    ok "$h is served the wildcard cert (SANs:${SAN})"
+  else
+    bad "$h is served the WRONG cert (SANs:${SAN})"
+    info "Traefik falls back to its self-signed default cert when the Gateway"
+    info "listener/secret is broken — check sections 4 and 6 below."
+  fi
+done
+
+echo
+echo "── 4. Gateway status ─────────────────────────────────────"
+if kubectl get gateway "${GATEWAY_NAME}" -n "${TRAEFIK_NS}" >/dev/null 2>&1; then
+  kubectl get gateway "${GATEWAY_NAME}" -n "${TRAEFIK_NS}" \
+    -o jsonpath='{range .status.conditions[*]}  {.type}={.status} ({.reason}) {.message}{"\n"}{end}'
+  kubectl get gateway "${GATEWAY_NAME}" -n "${TRAEFIK_NS}" \
+    -o jsonpath='{range .status.listeners[*]}  listener {.name}: attachedRoutes={.attachedRoutes}{range .conditions[*]} | {.type}={.status}{end}{"\n"}{end}'
+else
+  bad "Gateway ${GATEWAY_NAME} not found in ns ${TRAEFIK_NS}"
+fi
+
+echo
+echo "── 5. HTTPRoute status ───────────────────────────────────"
+for pair in "${TRAEFIK_NS}/traefik-route" "${PODINFO_NS}/podinfo-route"; do
+  ns="${pair%%/*}"; name="${pair##*/}"
+  if kubectl get httproute "$name" -n "$ns" >/dev/null 2>&1; then
+    echo "  ${ns}/${name}:"
+    kubectl get httproute "$name" -n "$ns" \
+      -o jsonpath='{range .status.parents[*].conditions[*]}    {.type}={.status} ({.reason}) {.message}{"\n"}{end}'
+  else
+    bad "HTTPRoute ${name} not found in ns ${ns}"
+  fi
+done
+
+echo
+echo "── 6. Traefik pod & logs ─────────────────────────────────"
+kubectl get pods -n "${TRAEFIK_NS}" -l app.kubernetes.io/name=traefik -o wide | sed 's/^/  /'
+echo "  Recent warnings/errors:"
+kubectl logs -n "${TRAEFIK_NS}" -l app.kubernetes.io/name=traefik --tail=200 2>/dev/null \
+  | grep -iE '"level":"(error|warn)"|level=error|level=warn' | tail -10 | sed 's/^/    /' \
+  || info "(none found)"
+
+echo
+echo "── 7. Traefik Service ports ──────────────────────────────"
+kubectl get svc traefik -n "${TRAEFIK_NS}" \
+  -o jsonpath='{range .spec.ports[*]}  {.name}: {.port} → {.targetPort}{"\n"}{end}'
+if ! kubectl get svc traefik -n "${TRAEFIK_NS}" -o jsonpath='{.spec.ports[*].port}' | grep -qw 9000; then
+  bad "Service has no port 9000 — the dashboard HTTPRoute has no backend."
+  info "Ensure traefik-values.yaml has: ports.traefik.expose.default: true"
+fi
+
+echo
+echo "── 8. Full request (CA-validated, DNS-independent) ───────"
+declare -A PATHS=( ["traefik.${DOMAIN_SUFFIX}"]="/dashboard/" ["podinfo.${DOMAIN_SUFFIX}"]="/" )
+for h in "${HOSTS[@]}"; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' \
+    ${TLS_CA:+--cacert "${TLS_CA}"} \
+    --resolve "${h}:443:127.0.0.1" \
+    "https://${h}${PATHS[$h]}" 2>/dev/null)
+  case "$code" in
+    200) ok "https://${h}${PATHS[$h]} → 200" ;;
+    000) bad "https://${h}${PATHS[$h]} → no response / TLS failure"
+         info "$(curl -s --cacert "${TLS_CA}" --resolve "${h}:443:127.0.0.1" "https://${h}${PATHS[$h]}" 2>&1 | head -2)" ;;
+    404) bad "https://${h}${PATHS[$h]} → 404: TLS+entry OK, but no router matched."
+         info "Check section 5 (route Accepted?) and section 4 (attachedRoutes>0?)." ;;
+    502|503) bad "https://${h}${PATHS[$h]} → ${code}: routed, but the backend is unreachable."
+         info "Check the backend Service name/port in the HTTPRoute and section 7." ;;
+    *)   bad "https://${h}${PATHS[$h]} → HTTP ${code}" ;;
+  esac
+done
+
+echo
+echo "Interpretation cheat-sheet:"
+echo "  DNS error in browser      → section 1"
+echo "  connection refused        → section 2"
+echo "  cert warning              → section 3 (wrong/default cert = Gateway TLS broken)"
+echo "  404 page from Traefik     → sections 4–5 (route not attached/accepted)"
+echo "  502/503                   → section 7 (backend service/port)"

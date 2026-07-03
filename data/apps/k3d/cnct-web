@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
-#fail & bail
-set -e
+# fail & bail
+set -euo pipefail
 
 function spinner {
   local message="$1"
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local delay=0.1
-  
-  tput civis 
-  
+
+  tput civis
+
   while true; do
     for frame in "${frames[@]}"; do
       printf "\r\e[36m%s\e[0m %s..." "$frame" "$message"
@@ -19,35 +19,40 @@ function spinner {
 }
 
 function spinner-message {
+  local message="$1"
+  shift
 
- local message="$1"
- shift
- spinner "$message" & 
- local spinner_pid=$!
- trap 'tput cnorm; kill -9 '$spinner_pid' 2>/dev/null; exit 0' INT TERM
- "$@" >/dev/null 2>&1
+  spinner "$message" &
+  local spinner_pid=$!
+  trap 'tput cnorm; kill '"$spinner_pid"' 2>/dev/null; exit 0' INT TERM
 
- local exit_code=$?
- kill "$spinner_pid" 2>/dev/null
- wait "$spinner_pid" 2>/dev/null
- tput cnorm
- if [ $exit_code -eq 0 ]; then
-  printf "\r\e[32m✔\e[0m %s completed successfully.\n" "$message"
- else
-  printf "\r\e[31m✖\e[0m %s failed (Exit code: %d).\n" "$message" "$exit_code"
- fi
- return $exit_code
+  # FIX: under `set -e` a failing command aborted the script BEFORE we could
+  # capture $?. The `|| exit_code=$?` pattern keeps the script alive and
+  # records the real exit code.
+  local exit_code=0
+  "$@" >/dev/null 2>&1 || exit_code=$?
+
+  kill "$spinner_pid" 2>/dev/null || true
+  wait "$spinner_pid" 2>/dev/null || true
+  tput cnorm
+
+  if [ "$exit_code" -eq 0 ]; then
+    printf "\r\e[32m✔\e[0m %s completed successfully.\n" "$message"
+  else
+    printf "\r\e[31m✖\e[0m %s failed (Exit code: %d).\n" "$message" "$exit_code"
+  fi
+  return "$exit_code"
 }
 
 sudo -v
 
 echo
-echo -e "Seraching cluster for active \e[94mHTTPRoutes\e[0m..."
-DOMAINS=$(kubectl get httproute -A -o jsonpath='{.items[*].spec.hostnames[*]}' | xargs)
+echo -e "Searching cluster for active \e[94mHTTPRoutes\e[0m..."
+DOMAINS=$(kubectl get httproute -A -o jsonpath='{.items[*].spec.hostnames[*]}' | xargs || true)
 
 if [[ -z "$DOMAINS" ]]; then
- echo "No HTTPRoutes found. Aborting..."
- exit 1
+  echo "No HTTPRoutes found. Aborting..."
+  exit 1
 fi
 
 echo
@@ -55,23 +60,45 @@ echo -e "Discovered domains:"
 
 read -ra domains <<<"$DOMAINS"
 for domain in "${domains[@]}"; do
- echo -e "✅ \e[92m$domain\e[0m"
+  echo -e "✅ \e[92m$domain\e[0m"
 done
 
 echo
 echo -e "Patching local DNS \e[93m/etc/hosts\e[0m"
 echo
 
-for DOMAIN in $DOMAINS; do
- sudo sed -i "/[[:space:]]$DOMAIN\$/d" /etc/hosts
+for DOMAIN in "${domains[@]}"; do
+  # FIX: escape the dots so "podinfo.xxx.local" can't accidentally match
+  # other lines, and anchor on whitespace.
+  ESCAPED=$(printf '%s' "$DOMAIN" | sed 's/\./\\./g')
+  sudo sed -i "/[[:space:]]${ESCAPED}\$/d" /etc/hosts
 done
 
 echo "127.0.0.1 $DOMAINS" | sudo tee -a /etc/hosts >/dev/null
 
-echo "Local DNS successfully updated ✅" 
+echo "Local DNS successfully updated ✅"
 echo
 
-echo "Establishing secure tunnel to Traefik Gateway..."
+# -----------------------------------------------------------------------------
+# FIX: with the fixed init-k3d, host port 443 is already mapped into the
+# cluster (k3d loadbalancer → ServiceLB → Traefik). If that path is live, no
+# tunnel is needed at all — just open the browser. We only fall back to a
+# sudo kubectl port-forward when 443 isn't answering (e.g. a cluster created
+# with the old init-k3d).
+# -----------------------------------------------------------------------------
+FIRST_DOMAIN="${domains[0]}"
+
+if curl -ks --max-time 5 -o /dev/null "https://${FIRST_DOMAIN}/"; then
+  echo -e "\e[32m✔\e[0m Port 443 is already served by the cluster — no tunnel needed."
+  echo
+  echo "You can now browse:"
+  for domain in "${domains[@]}"; do
+    echo -e "  👉 \e[92mhttps://$domain/\e[0m"
+  done
+  exit 0
+fi
+
+echo "Port 443 not reachable directly — establishing secure tunnel to Traefik Gateway..."
 echo -e " \e[93mType Ctrl-C to Quit\e[0m"
 echo
 
@@ -81,13 +108,11 @@ TRAEFIK_NAMESPACE="traefik"
 HOST_PORT=443
 CNTR_PORT=443
 
-# Run in the foreground and let it output directly to your terminal
+# Run in the foreground and let the spinner indicate the tunnel is alive.
 spinner-message "Tunnel Active..." \
- sudo KUBECONFIG="${CURRENT_KUBECONFIG}" \
- kubectl port-forward \
- --namespace "${TRAEFIK_NAMESPACE}" \
- svc/traefik "${HOST_PORT}":"${CNTR_PORT}"
+  sudo KUBECONFIG="${CURRENT_KUBECONFIG}" \
+  kubectl port-forward \
+  --namespace "${TRAEFIK_NAMESPACE}" \
+  svc/traefik "${HOST_PORT}":"${CNTR_PORT}"
 
 echo
-
-
