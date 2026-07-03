@@ -1,0 +1,5 @@
+#!/bin/bash
+
+./nuke-k3d
+./init-k3d
+./inst-app

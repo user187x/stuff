@@ -10,10 +10,20 @@ echo "=========================================================="
 echo "🧹 Tearing Down k3d Cluster: ${CLUSTER_NAME}"
 echo "=========================================================="
 
-echo "Destroying the cluster and associated Docker containers..."
-k3d cluster delete "${CLUSTER_NAME}"
+echo "Attempting graceful destruction of the cluster..."
+k3d cluster delete "${CLUSTER_NAME}" || true
 
-echo "✅ Cluster destroyed."
+echo "✅ Graceful destruction pass complete."
+echo
+
+echo "Engaging foolproof cleanup (Nuclear Wipe)..."
+# Force remove all containers with 'k3d' in the name, suppressing errors if none exist
+docker rm -f $(docker ps -aq --filter name=k3d) 2>/dev/null || true
+
+# Prune unused docker networks to prevent bridge collisions on the next run
+docker network prune -f
+
+echo "✅ Residual Docker assets and orphaned networks purged."
 echo
 
 echo "Scrubbing residual entries from kubeconfig..."

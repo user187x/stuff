@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# Kubernetes Zero-to-Hero: Dynamic Routing & Tunneling
+# -------------------------------------------------------------------
+
+set -e
+
+echo "=========================================================="
+echo "🌐 Initializing Dynamic Cluster Routing"
+echo "=========================================================="
+
+# -----------------------------------------------------------------------------
+# Step 0: Prime Sudo Credentials
+# -----------------------------------------------------------------------------
+# We must authenticate sudo in the foreground FIRST. If a backgrounded process 
+# requires a password, it will silently crash the script.
+# -----------------------------------------------------------------------------
+echo "🔑 Requesting sudo access to patch /etc/hosts and bind port 443..."
+sudo -v
+echo "✅ Authenticated."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 1: Discover Active Routes
+# -----------------------------------------------------------------------------
+echo "[1/3] Querying cluster for active HTTPRoutes..."
+
+# We pipe to xargs to strip any stray whitespace. If no routes exist, it becomes truly empty.
+DOMAINS=$(kubectl get httproute -A -o jsonpath='{.items[*].spec.hostnames[*]}' | xargs)
+
+if [[ -z "$DOMAINS" ]]; then
+    echo "❌ No HTTPRoutes found. The script cannot continue."
+    echo "👉 Please ensure your application routes (Traefik/Podinfo) have been applied!"
+    exit 1
+fi
+
+echo "✅ Discovered domains: $DOMAINS"
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 2: Patch Local DNS
+# -----------------------------------------------------------------------------
+echo "[2/3] Patching /etc/hosts for local resolution..."
+
+for DOMAIN in $DOMAINS; do
+    sudo sed -i "/[[:space:]]$DOMAIN\$/d" /etc/hosts
+done
+
+echo "127.0.0.1 $DOMAINS" | sudo tee -a /etc/hosts >/dev/null
+
+echo "✅ Local DNS successfully updated."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 3: Establish the Network Tunnel
+# -----------------------------------------------------------------------------
+echo "[3/3] Establishing secure tunnel to Traefik Gateway..."
+echo "----------------------------------------------------------"
+echo "🚦 Tunnel opening... (Press Ctrl+C to stop)"
+echo "----------------------------------------------------------"
+
+export CURRENT_KUBECONFIG=${KUBECONFIG:-$HOME/.kube/config}
+
+# Run in the foreground and let it output directly to your terminal
+sudo KUBECONFIG="${CURRENT_KUBECONFIG}" kubectl port-forward -n traefik-system svc/traefik 443:443
