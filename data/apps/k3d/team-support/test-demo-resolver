@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Route accepted and backend resolved? Want Accepted=True, ResolvedRefs=True
+kubectl -n whoami get httproute whoami-route \
+ -o jsonpath='{range .status.parents[*].conditions[*]}{.type}={.status} ({.reason}) {.message}{"\n"}{end}'
+
+# Gateway should now show attachedRoutes=3 (traefik, podinfo, whoami)
+kubectl -n traefik get gateway traefik-gateway \
+ -o jsonpath='{range .status.listeners[*]}{.name}: attachedRoutes={.attachedRoutes}{"\n"}{end}'
+
+# Pods actually up?
+kubectl -n whoami get pods
