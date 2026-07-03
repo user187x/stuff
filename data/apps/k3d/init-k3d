@@ -25,6 +25,7 @@ k3d cluster create "${CLUSTER_NAME}" \
  --agents 2 \
  --k3s-arg "--flannel-backend=none@server:*" \
  --k3s-arg "--disable-network-policy@server:*"
+ --k3s-arg "--disable=traefik@server:*"
 
 echo "✅ Cluster created successfully. Kubeconfig is automatically merged."
 echo ""
