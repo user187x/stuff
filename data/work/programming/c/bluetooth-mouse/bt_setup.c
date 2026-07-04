@@ -161,20 +161,25 @@ int bt_setup_power_adapter(BtSetup *s)
     return 0;
 }
 
+/* Read a text file into buf (NUL-terminated). Returns 0 on success. */
+static int read_text_file(const char *path, char *buf, size_t buflen)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    size_t n = fread(buf, 1, buflen - 1, f);
+    buf[n] = '\0';
+    fclose(f);
+    return 0;
+}
+
 int bt_setup_ensure_compat(BtSetup *s)
 {
-    (void)s;
-
-    if (sdp_socket_present()) {
-        if (s->verbose)
-            printf("[setup] bluetoothd compat mode already active.\n");
-        return 0;
-    }
-
     if (!have_cmd("systemctl")) {
+        /* No systemd: if the socket happens to be present, accept it. */
+        if (sdp_socket_present()) return 0;
         fprintf(stderr,
-            "[setup] systemctl not found; cannot auto-enable compat mode.\n"
-            "[setup] Start bluetoothd manually with --compat.\n");
+            "[setup] systemctl not found; cannot auto-configure bluetoothd.\n"
+            "[setup] Start bluetoothd manually with: --compat --noplugin=input\n");
         return -1;
     }
 
@@ -194,23 +199,49 @@ int bt_setup_ensure_compat(BtSetup *s)
         return -1;
     }
 
-    printf("[setup] Enabling bluetoothd --compat via systemd drop-in...\n");
-    run("mkdir -p /etc/systemd/system/bluetooth.service.d");
+    /* Desired drop-in:
+     *   --compat          -> legacy SDP socket (/run/sdp) for HID registration
+     *   --noplugin=input  -> stop bluetoothd's input plugin from grabbing the
+     *                        HID L2CAP channels, so OUR sockets receive them.
+     * Without --noplugin=input the host pairs and shows a connected mouse,
+     * but the device program never gets the connection. */
+    char desired[600];
+    snprintf(desired, sizeof(desired),
+        "# Added automatically by btmouse bt_setup helper.\n"
+        "# --compat: enables the legacy SDP socket (/run/sdp).\n"
+        "# --noplugin=input: frees the HID PSMs so btmouse can accept the\n"
+        "#   incoming connection (without this, hosts connect but the program\n"
+        "#   never sees them). Remove this file to revert.\n"
+        "[Service]\n"
+        "ExecStart=\n"
+        "ExecStart=%s --compat --noplugin=input\n", daemon);
 
-    const char *override =
-        "/etc/systemd/system/bluetooth.service.d/10-compat.conf";
-    FILE *f = fopen(override, "w");
+    const char *dir  = "/etc/systemd/system/bluetooth.service.d";
+    const char *path = "/etc/systemd/system/bluetooth.service.d/10-compat.conf";
+
+    /* Decide whether we must (re)write and restart. */
+    char existing[1024] = "";
+    read_text_file(path, existing, sizeof(existing));
+
+    int content_ok = (strcmp(existing, desired) == 0);
+    int socket_ok  = sdp_socket_present();
+
+    if (content_ok && socket_ok) {
+        if (s->verbose)
+            printf("[setup] bluetoothd already configured "
+                   "(--compat --noplugin=input).\n");
+        return 0;
+    }
+
+    printf("[setup] Configuring bluetoothd (--compat --noplugin=input)...\n");
+    run("mkdir -p %s", dir);
+
+    FILE *f = fopen(path, "w");
     if (!f) {
         perror("[setup] writing systemd override");
         return -1;
     }
-    fprintf(f,
-        "# Added automatically by btmouse bt_setup helper.\n"
-        "# Enables the legacy SDP socket (/run/sdp) needed for HID device\n"
-        "# registration. Remove this file to revert.\n"
-        "[Service]\n"
-        "ExecStart=\n"
-        "ExecStart=%s --compat\n", daemon);
+    fputs(desired, f);
     fclose(f);
 
     run("systemctl daemon-reload");
@@ -222,7 +253,7 @@ int bt_setup_ensure_compat(BtSetup *s)
     /* Wait (up to ~10s) for the compat SDP socket to appear. */
     for (int i = 0; i < 50; i++) {
         if (sdp_socket_present()) {
-            printf("[setup] Compat SDP socket is up.\n");
+            printf("[setup] bluetoothd reconfigured; SDP socket is up.\n");
             return 0;
         }
         usleep(200 * 1000);   /* 0.2s */

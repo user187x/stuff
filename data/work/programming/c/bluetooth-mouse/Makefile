@@ -62,8 +62,14 @@ stop:
 uninstall:
 	./uninstall.sh
 
+# Rebuild from scratch by cleaning first, then running make
+rebuild:
+	$(MAKE) clean
+	$(MAKE)
+
 # Remove local build artifact
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all check_deps install stop uninstall clean
+# Make sure to include all commands here
+.PHONY: all check_deps install stop uninstall clean rebuild
