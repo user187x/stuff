@@ -282,6 +282,26 @@ int bt_setup_make_pairable(BtSetup *s)
     return 0;
 }
 
+int bt_setup_clear_pairings(BtSetup *s)
+{
+    if (!have_cmd("bluetoothctl")) {
+        fprintf(stderr,
+            "[setup] bluetoothctl not found; cannot clear pairings.\n");
+        return -1;
+    }
+    printf("[setup] Clearing all stored pairings on %s "
+           "(fresh-pairing reset)...\n", s->adapter);
+
+    /* Remove every known device so both the bond and any stale link key are
+     * discarded. Extracts the MAC from each "Device XX:.. Name" line. */
+    run("for m in $(bluetoothctl -- devices 2>/dev/null | "
+        "awk '/^Device/{print $2}'); do "
+        "bluetoothctl -- remove \"$m\" >/dev/null 2>&1; done");
+
+    printf("[setup] Done. Forget this device on the host too, then re-pair.\n");
+    return 0;
+}
+
 int bt_setup_run_all(BtSetup *s, int argc, char **argv)
 {
     /* Step 0: guarantee root. May re-exec under sudo and never return. */

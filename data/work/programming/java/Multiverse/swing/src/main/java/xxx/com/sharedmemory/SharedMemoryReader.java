@@ -1,4 +1,4 @@
-package xxx.com.sharedmemory
+package xxx.com.sharedmemory;
 
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;

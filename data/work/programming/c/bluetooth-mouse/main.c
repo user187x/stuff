@@ -553,10 +553,29 @@ static void serve_session(int ctrl_fd, int intr_fd)
 /* ------------------------------------------------------------------ */
 int main(int argc, char **argv)
 {
+    int do_reset = 0;
+    const char *adapter_arg = NULL;
+
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--reset") ||
+            !strcmp(argv[i], "--clear-pairings")) {
+            do_reset = 1;
+        } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            printf("Usage: %s [hciN] [--reset]\n"
+                   "  hciN      adapter to use (default hci0)\n"
+                   "  --reset   remove all stored pairings before starting,\n"
+                   "            for when a host reports a bad key/PIN\n",
+                   argv[0]);
+            return 0;
+        } else {
+            adapter_arg = argv[i];   /* treat as adapter name/index */
+        }
+    }
+
     int dev_id = 0;
-    if (argc > 1) {
-        dev_id = hci_devid(argv[1]);            /* accept "hci0" or "0" */
-        if (dev_id < 0) dev_id = atoi(argv[1]);
+    if (adapter_arg) {
+        dev_id = hci_devid(adapter_arg);        /* accept "hci0" or "0" */
+        if (dev_id < 0) dev_id = atoi(adapter_arg);
         if (dev_id < 0) dev_id = 0;
     }
 
@@ -564,11 +583,14 @@ int main(int argc, char **argv)
      * root (via sudo), bluetoothd --compat, adapter power, pairable +
      * discoverable. Re-execs under sudo if we are not root. */
     BtSetup bt;
-    bt_setup_init(&bt, (argc > 1) ? argv[1] : NULL);
+    bt_setup_init(&bt, adapter_arg);
     if (bt_setup_run_all(&bt, argc, argv) != 0) {
         fprintf(stderr, "Environment setup failed; see messages above.\n");
         return 1;
     }
+
+    if (do_reset)
+        bt_setup_clear_pairings(&bt);
 
     install_signal_handlers();
 

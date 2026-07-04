@@ -36,6 +36,10 @@ int bt_setup_power_adapter(BtSetup *s);
 int bt_setup_ensure_compat(BtSetup *s);
 int bt_setup_make_pairable(BtSetup *s);
 
+/* Remove all stored pairings/bonds on the adapter so pairing starts fresh.
+ * Use when a host reports a bad key/PIN (stale bond). Returns 0 on success. */
+int bt_setup_clear_pairings(BtSetup *s);
+
 /* Run every step needed so the HID program can start.
  * Re-execs under sudo first if required. Returns 0 when the environment
  * is ready, -1 if a required step failed. */
