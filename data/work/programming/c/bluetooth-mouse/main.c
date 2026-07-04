@@ -50,6 +50,8 @@
 #include "bt_agent.h"
 #include "spinner.h"
 
+#include <pthread.h>
+
 /* ------------------------------------------------------------------ *
  *  Protocol constants
  * ------------------------------------------------------------------ */
@@ -136,6 +138,27 @@ static volatile sig_atomic_t g_running = 1;
 static uint8_t g_buttons = 0;
 
 static void on_signal(int sig) { (void)sig; g_running = 0; }
+
+/* Install SIGINT/SIGTERM handlers WITHOUT SA_RESTART, so that blocking
+ * calls (accept/poll) return EINTR when the user presses Ctrl-C instead of
+ * being silently restarted. SIGPIPE is ignored. */
+static void install_signal_handlers(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;                 /* crucially: no SA_RESTART */
+    sigaction(SIGINT,  &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+
+    struct sigaction ign;
+    memset(&ign, 0, sizeof(ign));
+    ign.sa_handler = SIG_IGN;
+    sigemptyset(&ign.sa_mask);
+    ign.sa_flags = 0;
+    sigaction(SIGPIPE, &ign, NULL);
+}
 
 /* ------------------------------------------------------------------ *
  *  Set the local adapter's Class of Device so it looks like a mouse.
@@ -547,18 +570,28 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    signal(SIGINT,  on_signal);
-    signal(SIGTERM, on_signal);
-    signal(SIGPIPE, SIG_IGN);
+    install_signal_handlers();
 
-    /* Start the zero-interaction pairing agent so hosts can pair and
-     * reconnect with no prompts. Non-fatal if it can't start. */
-    bt_agent_start();
+    /* Create the worker threads (pairing agent + spinner) with SIGINT and
+     * SIGTERM BLOCKED, so those threads inherit the block and never receive
+     * these signals. The main thread keeps them unblocked, so Ctrl-C is
+     * always delivered here and reliably interrupts accept()/poll(). */
+    sigset_t block_set, orig_set;
+    sigemptyset(&block_set);
+    sigaddset(&block_set, SIGINT);
+    sigaddset(&block_set, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &block_set, &orig_set);
+
+    bt_agent_start();   /* agent thread inherits the blocked mask   */
+    spinner_init();     /* spinner thread inherits the blocked mask */
+
+    pthread_sigmask(SIG_SETMASK, &orig_set, NULL);  /* main: unblock */
 
     set_class_of_device(dev_id);
 
     if (sdp_register() < 0) {
         fprintf(stderr, "Failed to register HID SDP record. Aborting.\n");
+        spinner_shutdown();
         bt_agent_stop();
         return 1;
     }
@@ -571,6 +604,7 @@ int main(int argc, char **argv)
             "  Run as root or grant CAP_NET_RAW/CAP_NET_BIND_SERVICE, and make\n"
             "  sure nothing else owns PSM 0x11/0x13.\n");
         sdp_unregister();
+        spinner_shutdown();
         bt_agent_stop();
         return 1;
     }
@@ -582,11 +616,11 @@ int main(int argc, char **argv)
     printf("\nPress Ctrl-C to stop the program.\n");
 
     while (g_running) {
-        spinner_start("btmouse running \u2014 waiting for a host to connect");
+        spinner_show("btmouse running \u2014 waiting for a host to connect");
 
         bdaddr_t peer;
         int ctrl_fd = l2cap_accept(ctrl_srv, &peer);
-        spinner_stop();
+        spinner_hide();
         if (ctrl_fd < 0) { if (!g_running) break; continue; }
 
         char addr[18];
@@ -607,7 +641,8 @@ int main(int argc, char **argv)
         printf("Session ended.\n");
     }
 
-    spinner_stop();
+    spinner_hide();
+    spinner_shutdown();
     close(intr_srv);
     close(ctrl_srv);
     sdp_unregister();
