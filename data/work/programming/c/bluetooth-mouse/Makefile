@@ -23,11 +23,11 @@ GUI_SRC    = gui.c
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-# Source files: main program + setup helper + pairing agent + spinner
-SRC = main.c bt_setup.c bt_agent.c spinner.c
+# Source files: main program + setup helper + pairing agent + audio + spinner
+SRC = main.c bt_setup.c bt_agent.c bt_audio.c spinner.c
 
 # Header dependencies
-HDR = bt_setup.h bt_agent.h spinner.h
+HDR = bt_setup.h bt_agent.h bt_audio.h spinner.h
 
 # Default target (daemon only, so headless boxes need no GTK)
 all: check_deps $(TARGET)

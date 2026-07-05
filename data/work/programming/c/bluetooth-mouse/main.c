@@ -49,6 +49,7 @@
 
 #include "bt_setup.h"
 #include "bt_agent.h"
+#include "bt_audio.h"
 #include "spinner.h"
 
 #include <pthread.h>
@@ -91,40 +92,80 @@
 #define ATTR_HID_PROFILE_VERSION         0x020B
 
 /* ------------------------------------------------------------------ *
- * HID report descriptor: a 3-button mouse with X/Y and a wheel.
- * Report layout (4 bytes, no report ID):
- * byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
- * byte1: dX   (-127..127, relative)
- * byte2: dY   (-127..127, relative)
- * byte3: wheel(-127..127, relative)
+ * HID report descriptor: a combined mouse + keyboard.
+ *
+ * Because there are now two input reports, each is tagged with a Report ID
+ * (the first byte of every report on the wire):
+ *
+ *   Report ID 1 (mouse, 4 payload bytes):
+ *     byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
+ *     byte1: dX    (-127..127, relative)
+ *     byte2: dY    (-127..127, relative)
+ *     byte3: wheel (-127..127, relative)
+ *
+ *   Report ID 2 (keyboard, 8 payload bytes - the standard boot layout):
+ *     byte0: modifier bitmap (LCtrl .. RGui)
+ *     byte1: reserved (0)
+ *     byte2..7: up to six pressed key usage codes (HID Keyboard/Keypad page)
  * ------------------------------------------------------------------ */
+#define REPORT_ID_MOUSE  0x01
+#define REPORT_ID_KBD    0x02
+
 static const uint8_t hid_report_descriptor[] = {
+    /* ---- Mouse (Report ID 1) ---- */
     0x05, 0x01,   /* Usage Page (Generic Desktop)        */
     0x09, 0x02,   /* Usage (Mouse)                       */
     0xA1, 0x01,   /* Collection (Application)            */
-    0x09, 0x01,   /* Usage (Pointer)                   */
-    0xA1, 0x00,   /* Collection (Physical)             */
-    0x05, 0x09,   /* Usage Page (Buttons)            */
-    0x19, 0x01,   /* Usage Minimum (1)               */
-    0x29, 0x03,   /* Usage Maximum (3)               */
-    0x15, 0x00,   /* Logical Minimum (0)             */
-    0x25, 0x01,   /* Logical Maximum (1)             */
-    0x95, 0x03,   /* Report Count (3)                */
-    0x75, 0x01,   /* Report Size (1)                 */
-    0x81, 0x02,   /* Input (Data,Var,Abs) - 3 btns   */
-    0x95, 0x01,   /* Report Count (1)                */
-    0x75, 0x05,   /* Report Size (5)                 */
-    0x81, 0x03,   /* Input (Const)       - padding   */
-    0x05, 0x01,   /* Usage Page (Generic Desktop)    */
-    0x09, 0x30,   /* Usage (X)                       */
-    0x09, 0x31,   /* Usage (Y)                       */
-    0x09, 0x38,   /* Usage (Wheel)                   */
-    0x15, 0x81,   /* Logical Minimum (-127)          */
-    0x25, 0x7F,   /* Logical Maximum (127)           */
-    0x75, 0x08,   /* Report Size (8)                 */
-    0x95, 0x03,   /* Report Count (3)                */
-    0x81, 0x06,   /* Input (Data,Var,Rel) X,Y,Wheel  */
+    0x85, REPORT_ID_MOUSE, /* Report ID (1)              */
+    0x09, 0x01,   /*   Usage (Pointer)                 */
+    0xA1, 0x00,   /*   Collection (Physical)           */
+    0x05, 0x09,   /*     Usage Page (Buttons)        */
+    0x19, 0x01,   /*     Usage Minimum (1)           */
+    0x29, 0x03,   /*     Usage Maximum (3)           */
+    0x15, 0x00,   /*     Logical Minimum (0)         */
+    0x25, 0x01,   /*     Logical Maximum (1)         */
+    0x95, 0x03,   /*     Report Count (3)            */
+    0x75, 0x01,   /*     Report Size (1)             */
+    0x81, 0x02,   /*     Input (Data,Var,Abs) 3 btns */
+    0x95, 0x01,   /*     Report Count (1)            */
+    0x75, 0x05,   /*     Report Size (5)             */
+    0x81, 0x03,   /*     Input (Const)     padding   */
+    0x05, 0x01,   /*     Usage Page (Generic Desktop)*/
+    0x09, 0x30,   /*     Usage (X)                   */
+    0x09, 0x31,   /*     Usage (Y)                   */
+    0x09, 0x38,   /*     Usage (Wheel)               */
+    0x15, 0x81,   /*     Logical Minimum (-127)      */
+    0x25, 0x7F,   /*     Logical Maximum (127)       */
+    0x75, 0x08,   /*     Report Size (8)             */
+    0x95, 0x03,   /*     Report Count (3)            */
+    0x81, 0x06,   /*     Input (Data,Var,Rel)        */
+    0xC0,         /*   End Collection                  */
     0xC0,         /* End Collection                    */
+
+    /* ---- Keyboard (Report ID 2) ---- */
+    0x05, 0x01,   /* Usage Page (Generic Desktop)        */
+    0x09, 0x06,   /* Usage (Keyboard)                    */
+    0xA1, 0x01,   /* Collection (Application)            */
+    0x85, REPORT_ID_KBD, /* Report ID (2)                */
+    0x05, 0x07,   /*   Usage Page (Keyboard/Keypad)    */
+    0x19, 0xE0,   /*   Usage Minimum (LeftControl)     */
+    0x29, 0xE7,   /*   Usage Maximum (Right GUI)       */
+    0x15, 0x00,   /*   Logical Minimum (0)             */
+    0x25, 0x01,   /*   Logical Maximum (1)             */
+    0x75, 0x01,   /*   Report Size (1)                 */
+    0x95, 0x08,   /*   Report Count (8)                */
+    0x81, 0x02,   /*   Input (Data,Var,Abs) modifiers  */
+    0x95, 0x01,   /*   Report Count (1)                */
+    0x75, 0x08,   /*   Report Size (8)                 */
+    0x81, 0x03,   /*   Input (Const) reserved byte     */
+    0x95, 0x06,   /*   Report Count (6)                */
+    0x75, 0x08,   /*   Report Size (8)                 */
+    0x15, 0x00,   /*   Logical Minimum (0)             */
+    0x25, 0xFF,   /*   Logical Maximum (255)           */
+    0x05, 0x07,   /*   Usage Page (Keyboard/Keypad)    */
+    0x19, 0x00,   /*   Usage Minimum (0)               */
+    0x29, 0xFF,   /*   Usage Maximum (255)             */
+    0x81, 0x00,   /*   Input (Data,Array) 6-key rollover*/
     0xC0          /* End Collection                      */
 };
 
@@ -135,8 +176,18 @@ static sdp_session_t *g_sdp_session = NULL;
 static uint32_t       g_sdp_handle  = 0;
 static volatile sig_atomic_t g_running = 1;
 
-/* current button state, so partial updates (move while held) work */
+/* current mouse button state, so partial updates (move while held) work */
 static uint8_t g_buttons = 0;
+
+/* current keyboard state: modifier bitmap + up to six held keys (boot layout).
+ * Kept between reports so key-down / key-up and combos behave like real HW. */
+static uint8_t g_kbd_mods    = 0;
+static uint8_t g_kbd_keys[6] = { 0, 0, 0, 0, 0, 0 };
+
+/* audio-to-host state (see bt_audio.*). g_audio_enabled is the user's wish;
+ * g_peer_addr is whichever host is currently connected. */
+static volatile int g_audio_enabled = 0;
+static char         g_peer_addr[18] = "";
 
 /* ------------------------------------------------------------------ *
  * Status file writer for IPC state tracking
@@ -187,10 +238,10 @@ static void set_class_of_device(int dev_id)
                 dev_id, strerror(errno));
         return;
     }
-    uint32_t cod = 0x002580;
+    uint32_t cod = 0x0025C0;   /* Peripheral + keyboard & pointing device */
     if (hci_write_class_of_dev(dd, cod, 2000) < 0)
         fprintf(stderr, "warn: hci_write_class_of_dev failed: %s "
-                "(try: sudo hciconfig hci%d class 0x002580)\n",
+                "(try: sudo hciconfig hci%d class 0x0025C0)\n",
                 strerror(errno), dev_id);
     else
         printf("Class of device set to 0x%06x (pointing device)\n", cod);
@@ -253,8 +304,8 @@ static int sdp_register(void)
     sdp_set_add_access_protos(rec, access_intr);
 
     /* ---- Human-readable strings ---- */
-    sdp_set_info_attr(rec, "BT Virtual Trackpad", "OpenSource",
-                      "Bluetooth HID pointing device");
+    sdp_set_info_attr(rec, "BT Virtual Keyboard+Trackpad", "OpenSource",
+                      "Bluetooth HID keyboard & pointing device");
 
     /* ---- HID-specific attributes ---- */
     uint16_t u16;
@@ -265,7 +316,7 @@ static int sdp_register(void)
     sdp_attr_add_new(rec, ATTR_HID_DEVICE_RELEASE_NUMBER, SDP_UINT16, &u16);
     u16 = 0x0111;   /* HID parser version 1.1.1 */
     sdp_attr_add_new(rec, ATTR_HID_PARSER_VERSION, SDP_UINT16, &u16);
-    u8 = 0x80;      /* device subclass: mouse (peripheral, pointing) */
+    u8 = 0xC0;      /* device subclass: peripheral, keyboard + pointing */
     sdp_attr_add_new(rec, ATTR_HID_DEVICE_SUBCLASS, SDP_UINT8, &u8);
     u8 = 0x00;      /* country code: not localized */
     sdp_attr_add_new(rec, ATTR_HID_COUNTRY_CODE, SDP_UINT8, &u8);
@@ -391,16 +442,130 @@ static int hid_send_report(int intr_fd, uint8_t buttons,
     if (wheel >  127) wheel =  127;
     if (wheel < -127) wheel = -127;
 
-    uint8_t pkt[5];
+    uint8_t pkt[6];
     pkt[0] = HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT;   /* 0xA1 */
-    pkt[1] = buttons & 0x07;
-    pkt[2] = (uint8_t)(int8_t)dx;
-    pkt[3] = (uint8_t)(int8_t)dy;
-    pkt[4] = (uint8_t)(int8_t)wheel;
+    pkt[1] = REPORT_ID_MOUSE;
+    pkt[2] = buttons & 0x07;
+    pkt[3] = (uint8_t)(int8_t)dx;
+    pkt[4] = (uint8_t)(int8_t)dy;
+    pkt[5] = (uint8_t)(int8_t)wheel;
 
     ssize_t n = send(intr_fd, pkt, sizeof(pkt), 0);
     if (n < 0) { perror("send(report)"); return -1; }
     return 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Send the current keyboard state (modifiers + 6-key array) over the
+ * interrupt channel as a Report-ID-2 input report.
+ * ------------------------------------------------------------------ */
+static int hid_send_kbd_report(int intr_fd)
+{
+    uint8_t pkt[10];
+    pkt[0] = HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT;   /* 0xA1 */
+    pkt[1] = REPORT_ID_KBD;
+    pkt[2] = g_kbd_mods;
+    pkt[3] = 0x00;                                      /* reserved */
+    memcpy(&pkt[4], g_kbd_keys, 6);
+
+    ssize_t n = send(intr_fd, pkt, sizeof(pkt), 0);
+    if (n < 0) { perror("send(kbd report)"); return -1; }
+    return 0;
+}
+
+/* Add / remove a usage code in the 6-key rollover array. */
+static void kbd_press_key(uint8_t usage)
+{
+    for (int i = 0; i < 6; i++) if (g_kbd_keys[i] == usage) return; /* held */
+    for (int i = 0; i < 6; i++) if (g_kbd_keys[i] == 0) { g_kbd_keys[i] = usage; return; }
+    /* array full: shift out the oldest to make room */
+    memmove(&g_kbd_keys[0], &g_kbd_keys[1], 5);
+    g_kbd_keys[5] = usage;
+}
+static void kbd_release_key(uint8_t usage)
+{
+    for (int i = 0; i < 6; i++) if (g_kbd_keys[i] == usage) g_kbd_keys[i] = 0;
+}
+
+/* Map one ASCII character to a US-layout HID usage code + shift flag.
+ * Returns 1 if printable/typable, 0 otherwise. */
+static int ascii_to_hid(unsigned char c, uint8_t *usage, int *shift)
+{
+    *shift = 0;
+    if (c >= 'a' && c <= 'z') { *usage = 0x04 + (c - 'a'); return 1; }
+    if (c >= 'A' && c <= 'Z') { *usage = 0x04 + (c - 'A'); *shift = 1; return 1; }
+    if (c >= '1' && c <= '9') { *usage = 0x1E + (c - '1'); return 1; }
+    if (c == '0') { *usage = 0x27; return 1; }
+    switch (c) {
+        case ' ':  *usage = 0x2C; return 1;
+        case '\n': *usage = 0x28; return 1;   /* Enter */
+        case '\t': *usage = 0x2B; return 1;   /* Tab   */
+        case '-':  *usage = 0x2D; return 1;
+        case '=':  *usage = 0x2E; return 1;
+        case '[':  *usage = 0x2F; return 1;
+        case ']':  *usage = 0x30; return 1;
+        case '\\': *usage = 0x31; return 1;
+        case ';':  *usage = 0x33; return 1;
+        case '\'': *usage = 0x34; return 1;
+        case '`':  *usage = 0x35; return 1;
+        case ',':  *usage = 0x36; return 1;
+        case '.':  *usage = 0x37; return 1;
+        case '/':  *usage = 0x38; return 1;
+        /* shifted symbols */
+        case '!':  *usage = 0x1E; *shift = 1; return 1;
+        case '@':  *usage = 0x1F; *shift = 1; return 1;
+        case '#':  *usage = 0x20; *shift = 1; return 1;
+        case '$':  *usage = 0x21; *shift = 1; return 1;
+        case '%':  *usage = 0x22; *shift = 1; return 1;
+        case '^':  *usage = 0x23; *shift = 1; return 1;
+        case '&':  *usage = 0x24; *shift = 1; return 1;
+        case '*':  *usage = 0x25; *shift = 1; return 1;
+        case '(':  *usage = 0x26; *shift = 1; return 1;
+        case ')':  *usage = 0x27; *shift = 1; return 1;
+        case '_':  *usage = 0x2D; *shift = 1; return 1;
+        case '+':  *usage = 0x2E; *shift = 1; return 1;
+        case '{':  *usage = 0x2F; *shift = 1; return 1;
+        case '}':  *usage = 0x30; *shift = 1; return 1;
+        case '|':  *usage = 0x31; *shift = 1; return 1;
+        case ':':  *usage = 0x33; *shift = 1; return 1;
+        case '"':  *usage = 0x34; *shift = 1; return 1;
+        case '~':  *usage = 0x35; *shift = 1; return 1;
+        case '<':  *usage = 0x36; *shift = 1; return 1;
+        case '>':  *usage = 0x37; *shift = 1; return 1;
+        case '?':  *usage = 0x38; *shift = 1; return 1;
+    }
+    return 0;
+}
+
+#define KBD_MOD_LSHIFT 0x02
+
+/* Type a NUL-terminated ASCII string as a sequence of keystrokes. Saves and
+ * restores any persistent modifier/key state so an in-progress hold is not
+ * disturbed. */
+static void kbd_type_string(int intr_fd, const char *s)
+{
+    uint8_t save_mods = g_kbd_mods;
+    uint8_t save_keys[6];
+    memcpy(save_keys, g_kbd_keys, 6);
+
+    for (; *s && *s != '\n' && *s != '\r'; s++) {
+        uint8_t usage; int shift;
+        if (!ascii_to_hid((unsigned char)*s, &usage, &shift)) continue;
+
+        g_kbd_mods = shift ? KBD_MOD_LSHIFT : 0x00;
+        memset(g_kbd_keys, 0, 6);
+        g_kbd_keys[0] = usage;
+        hid_send_kbd_report(intr_fd);
+        usleep(6000);
+
+        g_kbd_keys[0] = 0;
+        hid_send_kbd_report(intr_fd);   /* key up */
+        usleep(4000);
+    }
+
+    g_kbd_mods = save_mods;
+    memcpy(g_kbd_keys, save_keys, 6);
+    hid_send_kbd_report(intr_fd);        /* restore prior state */
 }
 
 /* ------------------------------------------------------------------ *
@@ -425,9 +590,9 @@ static void handle_control(int ctrl_fd, int intr_fd)
         send(ctrl_fd, hshk, 1, 0);
         break;
     case HIDP_TRANS_GET_REPORT: {
-        /* reply on control channel with a zeroed input report */
-        uint8_t rep[5] = { HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT,
-                           g_buttons, 0, 0, 0 };
+        /* reply on control channel with a zeroed mouse (ID 1) input report */
+        uint8_t rep[6] = { HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT,
+                           REPORT_ID_MOUSE, g_buttons, 0, 0, 0 };
         send(ctrl_fd, rep, sizeof(rep), 0);
         (void)intr_fd;
         break;
@@ -499,6 +664,60 @@ static void process_command(int intr_fd, char *line)
         hid_send_report(intr_fd, g_buttons, 0, 0, 0);
         break;
     }
+    case 'k': {                       /* keyboard: k d|u|p <usage> | k m <mods> | k x */
+        char sub = 0;
+        int  val = 0;
+        sscanf(line, " %*s %c %d", &sub, &val);
+        switch (tolower(sub)) {
+        case 'd':                     /* k d <usage>  key down */
+            kbd_press_key((uint8_t)val);
+            hid_send_kbd_report(intr_fd);
+            break;
+        case 'u':                     /* k u <usage>  key up */
+            kbd_release_key((uint8_t)val);
+            hid_send_kbd_report(intr_fd);
+            break;
+        case 'p':                     /* k p <usage>  key press (down+up) */
+            kbd_press_key((uint8_t)val);
+            hid_send_kbd_report(intr_fd);
+            usleep(12000);
+            kbd_release_key((uint8_t)val);
+            hid_send_kbd_report(intr_fd);
+            break;
+        case 'm':                     /* k m <byte>   set modifier bitmap */
+            g_kbd_mods = (uint8_t)val;
+            hid_send_kbd_report(intr_fd);
+            break;
+        case 'x':                     /* k x          release all keys+mods */
+            g_kbd_mods = 0;
+            memset(g_kbd_keys, 0, 6);
+            hid_send_kbd_report(intr_fd);
+            break;
+        default: break;
+        }
+        break;
+    }
+    case 't': {                       /* type <text...>  -> keystrokes */
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;      /* skip leading space   */
+        while (*p && *p != ' ' && *p != '\t') p++;/* skip command token    */
+        if (*p) p++;                              /* skip one separator    */
+        kbd_type_string(intr_fd, p);
+        break;
+    }
+    case 'a': {                       /* audio on | audio off */
+        char sub[8] = "";
+        sscanf(line, " %*s %7s", sub);
+        if (!strcasecmp(sub, "on")) {
+            g_audio_enabled = 1;
+            if (g_peer_addr[0]) bt_audio_start(g_peer_addr);
+            else printf("[audio] enabled; will start when a host connects.\n");
+        } else if (!strcasecmp(sub, "off")) {
+            g_audio_enabled = 0;
+            bt_audio_stop();
+        }
+        break;
+    }
     case 'q':
         g_running = 0;
         break;
@@ -510,12 +729,19 @@ static void process_command(int intr_fd, char *line)
 static void usage_hint(void)
 {
     printf(
-"\nConnected. Command protocol on stdin (one per line):\n"
+"\nConnected. Command protocol on stdin / the GUI FIFO (one per line):\n"
 "  m <dx> <dy>   move pointer by dx,dy   (e.g.  m 10 -5)\n"
 "  s <w>         scroll wheel by w       (e.g.  s 1)\n"
-"  d <l|r|m>     press button            (e.g.  d l)\n"
-"  u <l|r|m>     release button          (e.g.  u l)\n"
+"  d <l|r|m>     press mouse button      (e.g.  d l)\n"
+"  u <l|r|m>     release mouse button    (e.g.  u l)\n"
 "  c <l|r|m>     click (press+release)   (e.g.  c l)\n"
+"  k d <usage>   key down (HID usage)    (e.g.  k d 4   = 'a')\n"
+"  k u <usage>   key up\n"
+"  k p <usage>   key press (down+up)\n"
+"  k m <byte>    set modifier bitmap     (LCtrl1 LShift2 LAlt4 LGui8 ...)\n"
+"  k x           release all keys+mods\n"
+"  type <text>   type an ASCII string    (e.g.  type Hello, world!)\n"
+"  audio on|off  redirect this device's audio to the connected host\n"
 "  q             quit\n\n");
 }
 
@@ -591,11 +817,15 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--reset") ||
             !strcmp(argv[i], "--clear-pairings")) {
             do_reset = 1;
+        } else if (!strcmp(argv[i], "--audio")) {
+            g_audio_enabled = 1;      /* stream audio to the host once paired */
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            printf("Usage: %s [hciN] [--reset]\n"
+            printf("Usage: %s [hciN] [--reset] [--audio]\n"
                    "  hciN      adapter to use (default hci0)\n"
                    "  --reset   remove all stored pairings before starting,\n"
-                   "            for when a host reports a bad key/PIN\n",
+                   "            for when a host reports a bad key/PIN\n"
+                   "  --audio   redirect this device's audio to the host\n"
+                   "            (A2DP source; can also be toggled from the GUI)\n",
                    argv[0]);
             return 0;
         } else {
@@ -692,9 +922,18 @@ int main(int argc, char **argv)
 
         printf("Host %s fully connected.\n", addr);
         g_buttons = 0;
+        g_kbd_mods = 0;
+        memset(g_kbd_keys, 0, 6);
+
+        /* Remember the peer so audio (and a GUI 'audio on' toggle) can target
+         * it, and begin streaming now if audio was requested up front. */
+        snprintf(g_peer_addr, sizeof(g_peer_addr), "%s", addr);
+        if (g_audio_enabled) bt_audio_start(g_peer_addr);
 
         serve_session(ctrl_fd, intr_fd, fifo_fd);
 
+        bt_audio_stop();
+        g_peer_addr[0] = '\0';
         close(intr_fd);
         close(ctrl_fd);
         write_status("WAITING");
@@ -712,6 +951,7 @@ int main(int argc, char **argv)
     unlink("/tmp/btmouse.status");
 
     sdp_unregister();
+    bt_audio_stop();
     bt_agent_stop();
     printf("Shut down cleanly.\n");
     return 0;

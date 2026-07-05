@@ -86,7 +86,36 @@ typedef struct {
     GtkWidget *pad;
     GtkWidget *status_dot;
     GtkWidget *status_label;
+
+    /* keyboard tab */
+    GtkWidget *entry;                     /* text-to-type field            */
+    GtkWidget *mod_ctrl, *mod_shift;      /* sticky modifier toggles       */
+    GtkWidget *mod_alt,  *mod_super;
+    gboolean   audio_on;                  /* audio-redirect toggle state   */
 } AppState;
+
+/* HID keyboard usage codes for the on-screen special keys. */
+#define K_ENTER 0x28
+#define K_ESC   0x29
+#define K_BKSP  0x2A
+#define K_TAB   0x2B
+#define K_DEL   0x4C
+#define K_RIGHT 0x4F
+#define K_LEFT  0x50
+#define K_DOWN  0x51
+#define K_UP    0x52
+#define K_HOME  0x4A
+#define K_END   0x4D
+#define K_PGUP  0x4B
+#define K_PGDN  0x4E
+#define K_C     0x06
+#define K_V     0x19
+
+/* Modifier bitmap bits (left-hand side). */
+#define M_CTRL  0x01
+#define M_SHIFT 0x02
+#define M_ALT   0x04
+#define M_SUPER 0x08
 
 /* ================================================================== *
  *  IPC: write commands to the daemon's FIFO (reconnect on demand).
@@ -156,6 +185,44 @@ static void send_scroll(AppState *st, int w)  { if (w) fifo_sendf(st, "s %d\n", 
 static void send_down (AppState *st, char b)  { fifo_sendf(st, "d %c\n", b); }
 static void send_up   (AppState *st, char b)  { fifo_sendf(st, "u %c\n", b); }
 static void send_click(AppState *st, char b)  { fifo_sendf(st, "c %c\n", b); }
+
+/* keyboard + audio */
+static void send_key(AppState *st, int usage) { fifo_sendf(st, "k p %d\n", usage); }
+
+static void send_combo(AppState *st, int mods, int usage)
+{
+    fifo_sendf(st, "k m %d\n", mods);   /* hold modifiers      */
+    fifo_sendf(st, "k p %d\n", usage);  /* tap the key         */
+    fifo_sendf(st, "k m 0\n");          /* release modifiers   */
+}
+
+static void send_mod_tap(AppState *st, int mods)  /* e.g. tap the Super key */
+{
+    fifo_sendf(st, "k m %d\n", mods);
+    fifo_sendf(st, "k m 0\n");
+}
+
+static void send_audio(AppState *st, int on)
+{
+    fifo_sendf(st, "audio %s\n", on ? "on" : "off");
+}
+
+/* Type a string, chunked so no single FIFO line gets close to the daemon's
+ * 255-byte read buffer. */
+static void send_type(AppState *st, const char *text)
+{
+    if (!text || !*text) return;
+    size_t len = strlen(text);
+    const size_t CHUNK = 100;
+    for (size_t off = 0; off < len; off += CHUNK) {
+        char buf[128];
+        size_t n = len - off;
+        if (n > CHUNK) n = CHUNK;
+        memcpy(buf, text + off, n);
+        buf[n] = '\0';
+        fifo_sendf(st, "type %s\n", buf);
+    }
+}
 
 /* ================================================================== *
  *  Trackpad surface
@@ -434,6 +501,179 @@ static void on_draglock(GtkCheckButton *c, gpointer ud)
 }
 
 /* ================================================================== *
+ *  Keyboard tab
+ * ================================================================== */
+typedef struct { AppState *st; int usage; }           KeyCtx;
+typedef struct { AppState *st; int mods; int usage; } ComboCtx;
+
+/* Read the sticky modifier toggles, then clear them (one-shot). */
+static int read_and_clear_mods(AppState *st)
+{
+    int m = 0;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->mod_ctrl)))  m |= M_CTRL;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->mod_shift))) m |= M_SHIFT;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->mod_alt)))   m |= M_ALT;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->mod_super))) m |= M_SUPER;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->mod_ctrl),  FALSE);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->mod_shift), FALSE);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->mod_alt),   FALSE);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->mod_super), FALSE);
+    return m;
+}
+
+static void on_type(GtkWidget *w, gpointer ud)
+{
+    (void)w;
+    AppState *st = ud;
+    const char *txt = gtk_editable_get_text(GTK_EDITABLE(st->entry));
+    if (txt && *txt) send_type(st, txt);
+    gtk_editable_set_text(GTK_EDITABLE(st->entry), "");
+}
+
+static void on_special_key(GtkButton *b, gpointer ud)
+{
+    (void)b;
+    KeyCtx *c = ud;
+    int m = read_and_clear_mods(c->st);
+    if (m) send_combo(c->st, m, c->usage);
+    else   send_key(c->st, c->usage);
+}
+
+static void on_combo_key(GtkButton *b, gpointer ud)
+{
+    (void)b;
+    ComboCtx *c = ud;
+    if (c->usage == 0) send_mod_tap(c->st, c->mods);   /* modifier-only tap */
+    else               send_combo(c->st, c->mods, c->usage);
+}
+
+static GtkWidget *make_special_key(AppState *st, const char *label, int usage)
+{
+    GtkWidget *b = gtk_button_new_with_label(label);
+    gtk_widget_add_css_class(b, "keybtn");
+    gtk_widget_set_can_focus(b, FALSE);
+    gtk_widget_set_hexpand(b, TRUE);
+    KeyCtx *c = g_new0(KeyCtx, 1);
+    c->st = st; c->usage = usage;
+    g_object_set_data_full(G_OBJECT(b), "keyctx", c, g_free);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_special_key), c);
+    return b;
+}
+
+static GtkWidget *make_combo_key(AppState *st, const char *label,
+                                 int mods, int usage)
+{
+    GtkWidget *b = gtk_button_new_with_label(label);
+    gtk_widget_add_css_class(b, "keybtn");
+    gtk_widget_set_can_focus(b, FALSE);
+    gtk_widget_set_hexpand(b, TRUE);
+    ComboCtx *c = g_new0(ComboCtx, 1);
+    c->st = st; c->mods = mods; c->usage = usage;
+    g_object_set_data_full(G_OBJECT(b), "comboctx", c, g_free);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_combo_key), c);
+    return b;
+}
+
+static GtkWidget *make_mod_toggle(const char *label)
+{
+    GtkWidget *t = gtk_toggle_button_new_with_label(label);
+    gtk_widget_add_css_class(t, "keybtn");
+    gtk_widget_add_css_class(t, "modbtn");
+    gtk_widget_set_can_focus(t, FALSE);
+    gtk_widget_set_hexpand(t, TRUE);
+    return t;
+}
+
+/* Build the whole keyboard page. */
+static GtkWidget *build_keyboard_page(AppState *st)
+{
+    GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(page, 12);
+    gtk_widget_set_margin_bottom(page, 12);
+    gtk_widget_set_margin_start(page, 12);
+    gtk_widget_set_margin_end(page, 12);
+
+    /* type-a-string row */
+    GtkWidget *typerow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    st->entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(st->entry),
+                                   "Type text to send to the host\u2026");
+    gtk_widget_set_hexpand(st->entry, TRUE);
+    g_signal_connect(st->entry, "activate", G_CALLBACK(on_type), st);
+    GtkWidget *typebtn = gtk_button_new_with_label("Type");
+    gtk_widget_add_css_class(typebtn, "keybtn");
+    gtk_widget_add_css_class(typebtn, "primary");
+    g_signal_connect(typebtn, "clicked", G_CALLBACK(on_type), st);
+    gtk_box_append(GTK_BOX(typerow), st->entry);
+    gtk_box_append(GTK_BOX(typerow), typebtn);
+    gtk_box_append(GTK_BOX(page), typerow);
+
+    GtkWidget *hint = gtk_label_new(
+        "Modifiers below are sticky: tap one, then a key, to send a combo.");
+    gtk_widget_add_css_class(hint, "subtle");
+    gtk_widget_set_halign(hint, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(page), hint);
+
+    /* modifier row (sticky, one-shot) */
+    GtkWidget *modrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    st->mod_ctrl  = make_mod_toggle("Ctrl");
+    st->mod_shift = make_mod_toggle("Shift");
+    st->mod_alt   = make_mod_toggle("Alt");
+    st->mod_super = make_mod_toggle("Super");
+    gtk_box_append(GTK_BOX(modrow), st->mod_ctrl);
+    gtk_box_append(GTK_BOX(modrow), st->mod_shift);
+    gtk_box_append(GTK_BOX(modrow), st->mod_alt);
+    gtk_box_append(GTK_BOX(modrow), st->mod_super);
+    gtk_box_append(GTK_BOX(page), modrow);
+
+    /* editing / navigation keys */
+    GtkWidget *editrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(editrow), make_special_key(st, "Esc",  K_ESC));
+    gtk_box_append(GTK_BOX(editrow), make_special_key(st, "Tab",  K_TAB));
+    gtk_box_append(GTK_BOX(editrow), make_special_key(st, "\u232b", K_BKSP)); /* ⌫ */
+    gtk_box_append(GTK_BOX(editrow), make_special_key(st, "Del",  K_DEL));
+    gtk_box_append(GTK_BOX(editrow), make_special_key(st, "\u21b5", K_ENTER));/* ↵ */
+    gtk_box_append(GTK_BOX(page), editrow);
+
+    /* arrow / paging keys */
+    GtkWidget *navrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "\u2190", K_LEFT));
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "\u2193", K_DOWN));
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "\u2191", K_UP));
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "\u2192", K_RIGHT));
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "Home", K_HOME));
+    gtk_box_append(GTK_BOX(navrow), make_special_key(st, "End",  K_END));
+    gtk_box_append(GTK_BOX(page), navrow);
+
+    /* handy fixed shortcuts for remote control */
+    GtkWidget *scut = gtk_label_new("Shortcuts");
+    gtk_widget_add_css_class(scut, "subtle");
+    gtk_widget_set_halign(scut, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(page), scut);
+
+    GtkWidget *scutrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(scutrow), make_combo_key(st, "Ctrl+C", M_CTRL, K_C));
+    gtk_box_append(GTK_BOX(scutrow), make_combo_key(st, "Ctrl+V", M_CTRL, K_V));
+    gtk_box_append(GTK_BOX(scutrow), make_combo_key(st, "Alt+Tab", M_ALT, K_TAB));
+    gtk_box_append(GTK_BOX(scutrow),
+                  make_combo_key(st, "Ctrl+Alt+Del", M_CTRL | M_ALT, K_DEL));
+    gtk_box_append(GTK_BOX(scutrow), make_combo_key(st, "\u2318 Super", M_SUPER, 0));
+    gtk_box_append(GTK_BOX(page), scutrow);
+
+    return page;
+}
+
+static gboolean on_audio(GtkSwitch *sw, gboolean state, gpointer ud)
+{
+    (void)sw;
+    AppState *st = ud;
+    st->audio_on = state;
+    send_audio(st, state);
+    return FALSE;                 /* let the switch update its visual state */
+}
+
+
+/* ================================================================== *
  *  Connection status poller (reads the daemon's status file).
  * ================================================================== */
 static gboolean poll_status(gpointer ud)
@@ -494,6 +734,16 @@ static void load_css(void)
         ".lmb:active { background:#3b82f6; }"
         ".rmb:active { background:#8b5cf6; border-color:#8b5cf6; }"
         ".mmb { min-width:64px; }"
+        ".keybtn { font-size:14px; font-weight:600; color:#e8eef7;"
+        "  padding:12px 6px; border-radius:10px; border:1px solid #2a2f3a;"
+        "  background:linear-gradient(#232833,#1a1e26); }"
+        ".keybtn:hover  { background:linear-gradient(#2b313d,#1f242d); }"
+        ".keybtn:active { background:#3b82f6; color:#fff; border-color:#3b82f6; }"
+        ".modbtn:checked { background:#8b5cf6; color:#fff; border-color:#8b5cf6; }"
+        ".primary { background:#3b82f6; color:#fff; border-color:#3b82f6; }"
+        ".primary:hover { background:#2f6fe0; }"
+        "entry { padding:8px 10px; border-radius:10px; }"
+        "notebook > header { background:transparent; }"
         "scale { margin:0 4px; }";
 
     GtkCssProvider *p = gtk_css_provider_new();
@@ -514,8 +764,8 @@ static void on_activate(GtkApplication *app, gpointer ud)
     load_css();
 
     GtkWidget *win = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(win), "btmouse \u2014 remote trackpad");
-    gtk_window_set_default_size(GTK_WINDOW(win), 460, 620);
+    gtk_window_set_title(GTK_WINDOW(win), "btmouse \u2014 remote input");
+    gtk_window_set_default_size(GTK_WINDOW(win), 480, 680);
 
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
     gtk_widget_set_margin_top(root, 16);
@@ -526,7 +776,7 @@ static void on_activate(GtkApplication *app, gpointer ud)
 
     /* --- header: title + live status --- */
     GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    GtkWidget *title  = gtk_label_new("Remote Trackpad");
+    GtkWidget *title  = gtk_label_new("btmouse");
     gtk_widget_add_css_class(title, "title");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_widget_set_hexpand(title, TRUE);
@@ -538,10 +788,32 @@ static void on_activate(GtkApplication *app, gpointer ud)
     st->status_label = gtk_label_new("\u2026");
     gtk_widget_add_css_class(st->status_label, "status");
 
+    /* audio-to-host toggle */
+    GtkWidget *alabel = gtk_label_new("Audio\u2192host");
+    gtk_widget_add_css_class(alabel, "subtle");
+    GtkWidget *aswitch = gtk_switch_new();
+    gtk_widget_set_valign(aswitch, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(aswitch,
+        "Redirect this machine's audio to the connected host (A2DP).");
+    g_signal_connect(aswitch, "state-set", G_CALLBACK(on_audio), st);
+
     gtk_box_append(GTK_BOX(header), title);
+    gtk_box_append(GTK_BOX(header), alabel);
+    gtk_box_append(GTK_BOX(header), aswitch);
     gtk_box_append(GTK_BOX(header), st->status_dot);
     gtk_box_append(GTK_BOX(header), st->status_label);
     gtk_box_append(GTK_BOX(root), header);
+
+    /* --- tabs: Trackpad + Keyboard --- */
+    GtkWidget *notebook = gtk_notebook_new();
+    gtk_widget_set_vexpand(notebook, TRUE);
+    gtk_box_append(GTK_BOX(root), notebook);
+
+    GtkWidget *tpage = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top(tpage, 12);
+    gtk_widget_set_margin_bottom(tpage, 12);
+    gtk_widget_set_margin_start(tpage, 12);
+    gtk_widget_set_margin_end(tpage, 12);
 
     /* --- pad + scroll strip --- */
     GtkWidget *padrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -577,12 +849,12 @@ static void on_activate(GtkApplication *app, gpointer ud)
 
     gtk_box_append(GTK_BOX(padrow), st->pad);
     gtk_box_append(GTK_BOX(padrow), strip);
-    gtk_box_append(GTK_BOX(root), padrow);
+    gtk_box_append(GTK_BOX(tpage), padrow);
 
     GtkWidget *hint = gtk_label_new(
         "Drag to move \u00b7 tap to click \u00b7 strip or wheel to scroll");
     gtk_widget_add_css_class(hint, "subtle");
-    gtk_box_append(GTK_BOX(root), hint);
+    gtk_box_append(GTK_BOX(tpage), hint);
 
     /* --- mouse buttons --- */
     GtkWidget *btnrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -593,7 +865,7 @@ static void on_activate(GtkApplication *app, gpointer ud)
     gtk_box_append(GTK_BOX(btnrow), lmb);
     gtk_box_append(GTK_BOX(btnrow), mmb);
     gtk_box_append(GTK_BOX(btnrow), rmb);
-    gtk_box_append(GTK_BOX(root), btnrow);
+    gtk_box_append(GTK_BOX(tpage), btnrow);
 
     /* --- options: pointer speed, natural scroll, drag lock --- */
     GtkWidget *opt = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -620,7 +892,12 @@ static void on_activate(GtkApplication *app, gpointer ud)
     gtk_box_append(GTK_BOX(opt), scale);
     gtk_box_append(GTK_BOX(opt), nat);
     gtk_box_append(GTK_BOX(opt), lock);
-    gtk_box_append(GTK_BOX(root), opt);
+    gtk_box_append(GTK_BOX(tpage), opt);
+
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), tpage,
+                             gtk_label_new("Trackpad"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_keyboard_page(st),
+                             gtk_label_new("Keyboard"));
 
     /* status poll: start now and every 400 ms */
     poll_status(st);
