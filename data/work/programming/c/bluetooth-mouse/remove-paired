@@ -1,0 +1,24 @@
+#!/bin/bash
+
+selected=$(bluetoothctl -- devices | fzf --layout=reverse \
+ --layout=default \
+ --border=rounded \
+ --border-label="╢ Bluetooth Devices ╟" \
+ --border-label-pos=15 \
+ --pointer="ᚼᛒ" \
+ --marker="✔" \
+ --multi \
+ --prompt="Select Devices To Remove:" \
+ --preview="echo {} | awk '{print \$3 \" -> \" \$2}'" \
+ --preview-window="right:60%:border-rounded")
+
+name=$(echo "$selected" | awk '{print $3}')
+mac=$(echo "$selected" | awk '{print $2}')
+
+echo -e "Removing device: \e[92m${name}\e[0m -> \e[93m${mac}\e[0m"
+
+if bluetoothctl -- remove "${mac}"; then
+ echo "Removed success!"
+else
+ echo "Remove failed!"
+fi

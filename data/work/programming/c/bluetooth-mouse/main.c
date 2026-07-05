@@ -6,13 +6,13 @@
  * and this program feeds it relative-motion / button / scroll reports.
  *
  * Approach (the standard one used by real HID-device emulators):
- *   1. Register a HID SDP service record (report descriptor + PSMs) so the
- *      host discovers us as a mouse.
- *   2. Listen on the two L2CAP PSMs the HID profile uses:
- *          0x11 (17) = HID Control
- *          0x13 (19) = HID Interrupt   <- input reports go here
- *   3. When a host connects, stream 4-byte mouse reports over the
- *      interrupt channel, and answer basic control-channel requests.
+ * 1. Register a HID SDP service record (report descriptor + PSMs) so the
+ * host discovers us as a mouse.
+ * 2. Listen on the two L2CAP PSMs the HID profile uses:
+ * 0x11 (17) = HID Control
+ * 0x13 (19) = HID Interrupt   <- input reports go here
+ * 3. When a host connects, stream 4-byte mouse reports over the
+ * interrupt channel, and answer basic control-channel requests.
  *
  * Wire up your touchpad hardware by calling hid_send_report() (or feed the
  * simple stdin command protocol described in usage()).
@@ -38,6 +38,7 @@
 
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
@@ -53,7 +54,7 @@
 #include <pthread.h>
 
 /* ------------------------------------------------------------------ *
- *  Protocol constants
+ * Protocol constants
  * ------------------------------------------------------------------ */
 #define PSM_HIDP_CTRL   0x11        /* HID control  L2CAP PSM */
 #define PSM_HIDP_INTR   0x13        /* HID interrupt L2CAP PSM */
@@ -90,45 +91,45 @@
 #define ATTR_HID_PROFILE_VERSION         0x020B
 
 /* ------------------------------------------------------------------ *
- *  HID report descriptor: a 3-button mouse with X/Y and a wheel.
- *  Report layout (4 bytes, no report ID):
- *      byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
- *      byte1: dX   (-127..127, relative)
- *      byte2: dY   (-127..127, relative)
- *      byte3: wheel(-127..127, relative)
+ * HID report descriptor: a 3-button mouse with X/Y and a wheel.
+ * Report layout (4 bytes, no report ID):
+ * byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
+ * byte1: dX   (-127..127, relative)
+ * byte2: dY   (-127..127, relative)
+ * byte3: wheel(-127..127, relative)
  * ------------------------------------------------------------------ */
 static const uint8_t hid_report_descriptor[] = {
     0x05, 0x01,   /* Usage Page (Generic Desktop)        */
     0x09, 0x02,   /* Usage (Mouse)                       */
     0xA1, 0x01,   /* Collection (Application)            */
-    0x09, 0x01,   /*   Usage (Pointer)                   */
-    0xA1, 0x00,   /*   Collection (Physical)             */
-    0x05, 0x09,   /*     Usage Page (Buttons)            */
-    0x19, 0x01,   /*     Usage Minimum (1)               */
-    0x29, 0x03,   /*     Usage Maximum (3)               */
-    0x15, 0x00,   /*     Logical Minimum (0)             */
-    0x25, 0x01,   /*     Logical Maximum (1)             */
-    0x95, 0x03,   /*     Report Count (3)                */
-    0x75, 0x01,   /*     Report Size (1)                 */
-    0x81, 0x02,   /*     Input (Data,Var,Abs) - 3 btns   */
-    0x95, 0x01,   /*     Report Count (1)                */
-    0x75, 0x05,   /*     Report Size (5)                 */
-    0x81, 0x03,   /*     Input (Const)       - padding   */
-    0x05, 0x01,   /*     Usage Page (Generic Desktop)    */
-    0x09, 0x30,   /*     Usage (X)                       */
-    0x09, 0x31,   /*     Usage (Y)                       */
-    0x09, 0x38,   /*     Usage (Wheel)                   */
-    0x15, 0x81,   /*     Logical Minimum (-127)          */
-    0x25, 0x7F,   /*     Logical Maximum (127)           */
-    0x75, 0x08,   /*     Report Size (8)                 */
-    0x95, 0x03,   /*     Report Count (3)                */
-    0x81, 0x06,   /*     Input (Data,Var,Rel) X,Y,Wheel  */
-    0xC0,         /*   End Collection                    */
+    0x09, 0x01,   /* Usage (Pointer)                   */
+    0xA1, 0x00,   /* Collection (Physical)             */
+    0x05, 0x09,   /* Usage Page (Buttons)            */
+    0x19, 0x01,   /* Usage Minimum (1)               */
+    0x29, 0x03,   /* Usage Maximum (3)               */
+    0x15, 0x00,   /* Logical Minimum (0)             */
+    0x25, 0x01,   /* Logical Maximum (1)             */
+    0x95, 0x03,   /* Report Count (3)                */
+    0x75, 0x01,   /* Report Size (1)                 */
+    0x81, 0x02,   /* Input (Data,Var,Abs) - 3 btns   */
+    0x95, 0x01,   /* Report Count (1)                */
+    0x75, 0x05,   /* Report Size (5)                 */
+    0x81, 0x03,   /* Input (Const)       - padding   */
+    0x05, 0x01,   /* Usage Page (Generic Desktop)    */
+    0x09, 0x30,   /* Usage (X)                       */
+    0x09, 0x31,   /* Usage (Y)                       */
+    0x09, 0x38,   /* Usage (Wheel)                   */
+    0x15, 0x81,   /* Logical Minimum (-127)          */
+    0x25, 0x7F,   /* Logical Maximum (127)           */
+    0x75, 0x08,   /* Report Size (8)                 */
+    0x95, 0x03,   /* Report Count (3)                */
+    0x81, 0x06,   /* Input (Data,Var,Rel) X,Y,Wheel  */
+    0xC0,         /* End Collection                    */
     0xC0          /* End Collection                      */
 };
 
 /* ------------------------------------------------------------------ *
- *  Globals
+ * Globals
  * ------------------------------------------------------------------ */
 static sdp_session_t *g_sdp_session = NULL;
 static uint32_t       g_sdp_handle  = 0;
@@ -136,6 +137,18 @@ static volatile sig_atomic_t g_running = 1;
 
 /* current button state, so partial updates (move while held) work */
 static uint8_t g_buttons = 0;
+
+/* ------------------------------------------------------------------ *
+ * Status file writer for IPC state tracking
+ * ------------------------------------------------------------------ */
+static void write_status(const char *status) {
+    FILE *f = fopen("/tmp/btmouse.status", "w");
+    if (f) {
+        fprintf(f, "%s\n", status);
+        fclose(f);
+        chmod("/tmp/btmouse.status", 0666); // Override umask
+    }
+}
 
 static void on_signal(int sig) { (void)sig; g_running = 0; }
 
@@ -161,10 +174,10 @@ static void install_signal_handlers(void)
 }
 
 /* ------------------------------------------------------------------ *
- *  Set the local adapter's Class of Device so it looks like a mouse.
- *  0x002580 = Peripheral (major) + Pointing device (minor).
- *  Best-effort: failure is non-fatal (you can also set it with
- *  `sudo hciconfig hci0 class 0x002580`).
+ * Set the local adapter's Class of Device so it looks like a mouse.
+ * 0x002580 = Peripheral (major) + Pointing device (minor).
+ * Best-effort: failure is non-fatal (you can also set it with
+ * `sudo hciconfig hci0 class 0x002580`).
  * ------------------------------------------------------------------ */
 static void set_class_of_device(int dev_id)
 {
@@ -185,9 +198,9 @@ static void set_class_of_device(int dev_id)
 }
 
 /* ------------------------------------------------------------------ *
- *  Register the HID SDP record with the local SDP server.
- *  Requires bluetoothd to be running in compat mode (--compat) so the
- *  legacy SDP socket /var/run/sdp is available.
+ * Register the HID SDP record with the local SDP server.
+ * Requires bluetoothd to be running in compat mode (--compat) so the
+ * legacy SDP socket /var/run/sdp is available.
  * ------------------------------------------------------------------ */
 static int sdp_register(void)
 {
@@ -324,7 +337,7 @@ static void sdp_unregister(void)
 }
 
 /* ------------------------------------------------------------------ *
- *  Open an L2CAP server socket bound to BDADDR_ANY on the given PSM.
+ * Open an L2CAP server socket bound to BDADDR_ANY on the given PSM.
  * ------------------------------------------------------------------ */
 static int l2cap_listen(uint16_t psm)
 {
@@ -365,8 +378,8 @@ static int l2cap_accept(int server, bdaddr_t *peer)
 }
 
 /* ------------------------------------------------------------------ *
- *  Send a mouse input report over the interrupt channel.
- *  buttons: bit0 L, bit1 R, bit2 M.  dx/dy/wheel: -127..127 relative.
+ * Send a mouse input report over the interrupt channel.
+ * buttons: bit0 L, bit1 R, bit2 M.  dx/dy/wheel: -127..127 relative.
  * ------------------------------------------------------------------ */
 static int hid_send_report(int intr_fd, uint8_t buttons,
                            int dx, int dy, int wheel)
@@ -391,9 +404,9 @@ static int hid_send_report(int intr_fd, uint8_t buttons,
 }
 
 /* ------------------------------------------------------------------ *
- *  Minimal HID control-channel handler. Real hosts occasionally send
- *  SET_PROTOCOL / GET_REPORT / HID_CONTROL. We keep the link healthy by
- *  answering with a HANDSHAKE (or an input report for GET_REPORT).
+ * Minimal HID control-channel handler. Real hosts occasionally send
+ * SET_PROTOCOL / GET_REPORT / HID_CONTROL. We keep the link healthy by
+ * answering with a HANDSHAKE (or an input report for GET_REPORT).
  * ------------------------------------------------------------------ */
 static void handle_control(int ctrl_fd, int intr_fd)
 {
@@ -432,8 +445,8 @@ static void handle_control(int ctrl_fd, int intr_fd)
 }
 
 /* ------------------------------------------------------------------ *
- *  Parse one line of the demo command protocol and act on it.
- *  Replace / bypass this with your real touchpad input source.
+ * Parse one line of the demo command protocol and act on it.
+ * Replace / bypass this with your real touchpad input source.
  * ------------------------------------------------------------------ */
 static int button_bit(char c)
 {
@@ -507,21 +520,25 @@ static void usage_hint(void)
 }
 
 /* ------------------------------------------------------------------ *
- *  Serve one connected host until it disconnects or we're told to stop.
+ * Serve one connected host until it disconnects or we're told to stop.
+ * Listens on the HID sockets, stdin, and the IPC FIFO.
  * ------------------------------------------------------------------ */
-static void serve_session(int ctrl_fd, int intr_fd)
+static void serve_session(int ctrl_fd, int intr_fd, int fifo_fd)
 {
     usage_hint();
 
-    struct pollfd fds[3];
-    fds[0].fd = intr_fd;  fds[0].events = POLLIN;   /* host -> us (rare)  */
-    fds[1].fd = ctrl_fd;  fds[1].events = POLLIN;   /* control requests   */
-    fds[2].fd = STDIN_FILENO; fds[2].events = POLLIN;
+    struct pollfd fds[4];
+    fds[0].fd = intr_fd;      fds[0].events = POLLIN;   /* host -> us (rare)  */
+    fds[1].fd = ctrl_fd;      fds[1].events = POLLIN;   /* control requests   */
+    fds[2].fd = STDIN_FILENO; fds[2].events = POLLIN;   /* original stdin */
+    fds[3].fd = fifo_fd;      fds[3].events = POLLIN;   /* external GUI FIFO */
 
     char linebuf[256];
 
+    write_status("CONNECTED");
+
     while (g_running) {
-        int r = poll(fds, 3, 1000);
+        int r = poll(fds, (fifo_fd >= 0) ? 4 : 3, 1000);
         if (r < 0) { if (errno == EINTR) continue; perror("poll"); break; }
         if (r == 0) continue;
 
@@ -546,6 +563,20 @@ static void serve_session(int ctrl_fd, int intr_fd)
         if (fds[2].revents & POLLIN) {
             if (!fgets(linebuf, sizeof(linebuf), stdin)) { g_running = 0; break; }
             process_command(intr_fd, linebuf);
+        }
+
+        if (fifo_fd >= 0 && (fds[3].revents & POLLIN)) {
+            char buf[256];
+            ssize_t n = read(fifo_fd, buf, sizeof(buf) - 1);
+            if (n > 0) {
+                buf[n] = '\0';
+                char *saveptr;
+                char *line = strtok_r(buf, "\n", &saveptr);
+                while (line) {
+                    process_command(intr_fd, line);
+                    line = strtok_r(NULL, "\n", &saveptr);
+                }
+            }
         }
     }
 }
@@ -637,7 +668,13 @@ int main(int argc, char **argv)
     printf("(your infotainment unit) and it will reconnect automatically after.\n");
     printf("\nPress Ctrl-C to stop the program.\n");
 
+    /* Create the IPC Named Pipe */
+    mkfifo("/tmp/btmouse.fifo", 0666);
+    chmod("/tmp/btmouse.fifo", 0666);   // Override umask to allow any user to write to it
+    int fifo_fd = open("/tmp/btmouse.fifo", O_RDWR | O_NONBLOCK);
+
     while (g_running) {
+        write_status("WAITING");
         spinner_show("btmouse running \u2014 waiting for a host to connect");
 
         bdaddr_t peer;
@@ -656,10 +693,11 @@ int main(int argc, char **argv)
         printf("Host %s fully connected.\n", addr);
         g_buttons = 0;
 
-        serve_session(ctrl_fd, intr_fd);
+        serve_session(ctrl_fd, intr_fd, fifo_fd);
 
         close(intr_fd);
         close(ctrl_fd);
+        write_status("WAITING");
         printf("Session ended.\n");
     }
 
@@ -667,6 +705,12 @@ int main(int argc, char **argv)
     spinner_shutdown();
     close(intr_srv);
     close(ctrl_srv);
+    
+    /* Clean up IPC files */
+    if (fifo_fd >= 0) close(fifo_fd);
+    unlink("/tmp/btmouse.fifo");
+    unlink("/tmp/btmouse.status");
+
     sdp_unregister();
     bt_agent_stop();
     printf("Shut down cleanly.\n");
