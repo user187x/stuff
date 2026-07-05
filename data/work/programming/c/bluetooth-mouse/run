@@ -1,0 +1,11 @@
+#!/bin/bash
+
+make clean
+make
+make gui
+
+echo "Starting daemon..."
+sudo ./btmouse
+
+echo "Starting gui..."
+./btmouse-gui

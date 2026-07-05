@@ -28,6 +28,10 @@ fi
 # force-kill anything that didn't exit
 pkill -KILL -x btmouse 2>/dev/null || true
 
+echo "[uninstall] Stopping any running btmouse-gui process..."
+pkill -TERM -x btmouse-gui 2>/dev/null || true
+pkill -KILL -x btmouse-gui 2>/dev/null || true
+
 # --- remove the bluetoothd compat drop-in ----------------------------------
 DROPIN_DIR="/etc/systemd/system/bluetooth.service.d"
 DROPIN="$DROPIN_DIR/10-compat.conf"
@@ -48,22 +52,25 @@ else
 fi
 
 # --- remove binaries -------------------------------------------------------
-for p in /usr/local/bin/btmouse /usr/bin/btmouse; do
+for p in /usr/local/bin/btmouse /usr/bin/btmouse \
+         /usr/local/bin/btmouse-gui /usr/bin/btmouse-gui; do
     if [ -f "$p" ]; then
         echo "[uninstall] Removing $p"
         rm -f "$p"
     fi
 done
 
-# local build artifact (in the directory the script is run from)
+# local build artifacts (in the directory the script is run from)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/btmouse" ]; then
-    echo "[uninstall] Removing $SCRIPT_DIR/btmouse"
-    rm -f "$SCRIPT_DIR/btmouse"
-fi
+for p in "$SCRIPT_DIR/btmouse" "$SCRIPT_DIR/btmouse-gui"; do
+    if [ -f "$p" ]; then
+        echo "[uninstall] Removing $p"
+        rm -f "$p"
+    fi
+done
 
 echo
 echo "[uninstall] Done. Bluetooth has been restored to normal (non-compat) mode."
 echo "[uninstall] Paired devices were left untouched. To forget one:"
 echo "             bluetoothctl -- devices          # list paired devices"
-echo "             bluetoothctl -- remove <MAC>     # forget a device"
+echo "             bluetoothctl -- remove <MAC>     # forget a device"
