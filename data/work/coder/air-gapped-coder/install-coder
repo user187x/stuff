@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Coder Air-Gapped Installation & Deployment Script
+# ==============================================================================
+set -euo pipefail
+
+# --- Color Palette (Dracula Inspired) ---
+CYAN='\033[38;5;117m'
+PURPLE='\033[38;5;141m'
+GREEN='\033[38;5;84m'
+RED='\033[38;5;203m'
+YELLOW='\033[38;5;228m'
+NC='\033[0m' # No Color
+
+# --- Core Configuration Variables (DRY) ---
+CODER_VERSION="2.13.0"
+CNPG_VERSION="0.21.4"
+PG_IMAGE_VERSION="16.3"
+
+BUNDLE_DIR="./coder-airgap-bundle"
+CODER_DOMAIN="coder.yourdomain.internal"
+TRAEFIK_GATEWAY_NAME="traefik-gateway"
+TRAEFIK_GATEWAY_NAMESPACE="traefik-system"
+
+# Upstream Images
+CODER_IMAGE="ghcr.io/coder/coder:${CODER_VERSION}"
+CNPG_OPERATOR_IMAGE="ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_VERSION}"
+PG_DB_IMAGE="ghcr.io/cloudnative-pg/postgresql:${PG_IMAGE_VERSION}"
+
+# --- Helper Functions ---
+print_header() { echo -e "\n${PURPLE}=== $1 ===${NC}"; }
+print_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+print_error() {
+ echo -e "${RED}[ERROR]${NC} $1"
+ exit 1
+}
+
+prompt_proceed() {
+ echo -e "\n${YELLOW}>>> $1${NC}"
+ read -r -p "Press [Enter] to continue or [Ctrl+C] to abort..."
+}
+
+run_step() {
+ local step_name=$1
+ shift
+ print_info "Executing: ${step_name}..."
+ if "$@"; then
+  print_success "${step_name} completed."
+ else
+  print_error "${step_name} failed. Check the output above."
+ fi
+}
+
+# ==============================================================================
+# PHASE 1: Asset Bundling
+# ==============================================================================
+print_header "Phase 1: Downloading Offline Assets"
+
+run_step "Creating bundle directories" \
+ mkdir -p "${BUNDLE_DIR}/images" "${BUNDLE_DIR}/charts" "${BUNDLE_DIR}/manifests"
+
+run_step "Adding Helm Repositories" \
+ bash -c 'helm repo add coder-v2 https://helm.coder.com/v2 >/dev/null 2>&1 && helm repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null 2>&1 && helm repo update >/dev/null 2>&1'
+
+run_step "Pulling CNPG Chart v${CNPG_VERSION}" \
+ helm pull cnpg/cloudnative-pg --version "${CNPG_VERSION}" -d "${BUNDLE_DIR}/charts"
+
+run_step "Pulling Coder Chart v${CODER_VERSION}" \
+ helm pull coder-v2/coder --version "${CODER_VERSION}" -d "${BUNDLE_DIR}/charts"
+
+run_step "Pulling & Saving Coder Image" \
+ bash -c "docker pull ${CODER_IMAGE} >/dev/null && docker save ${CODER_IMAGE} -o ${BUNDLE_DIR}/images/coder-${CODER_VERSION}.tar"
+
+run_step "Pulling & Saving CNPG Operator Image" \
+ bash -c "docker pull ${CNPG_OPERATOR_IMAGE} >/dev/null && docker save ${CNPG_OPERATOR_IMAGE} -o ${BUNDLE_DIR}/images/cnpg-operator-${CNPG_VERSION}.tar"
+
+run_step "Pulling & Saving PostgreSQL Image" \
+ bash -c "docker pull ${PG_DB_IMAGE} >/dev/null && docker save ${PG_DB_IMAGE} -o ${BUNDLE_DIR}/images/postgres-${PG_IMAGE_VERSION}.tar"
+
+print_success "All offline files downloaded to ${BUNDLE_DIR}."
+
+# ==============================================================================
+# PHASE 2: Air-Gap Bridge & Configuration
+# ==============================================================================
+print_header "Phase 2: Registry Configuration"
+echo -e "${YELLOW}Important: Ensure you have pushed the generated .tar images to your private container registry before proceeding.${NC}"
+read -r -p "Enter your private registry base URL (e.g., registry.internal.lan/project): " PRIVATE_REGISTRY
+
+if [[ -z "$PRIVATE_REGISTRY" ]]; then
+ print_error "Private registry URL cannot be empty."
+fi
+
+# Generate the DB manifest with the injected registry
+cat <<EOF >"${BUNDLE_DIR}/manifests/coder-db-cluster.yaml"
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: coder-db
+  namespace: coder
+spec:
+  instances: 3
+  imageName: ${PRIVATE_REGISTRY}/cloudnative-pg/postgresql:${PG_IMAGE_VERSION}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 20Gi
+EOF
+
+# Generate Coder values with the injected registry
+cat <<EOF >"${BUNDLE_DIR}/manifests/values-airgap.yaml"
+coder:
+  image:
+    repo: "${PRIVATE_REGISTRY}/coder/coder"
+    tag: "${CODER_VERSION}"
+  env:
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-app
+          key: uri
+    - name: CODER_UPDATE_CHECK
+      value: "false"
+    - name: CODER_TELEMETRY_ENABLE
+      value: "false"
+    - name: CODER_ACCESS_URL
+      value: "https://${CODER_DOMAIN}"
+  ingress:
+    enable: false
+EOF
+
+# Generate the HTTPRoute manifest
+cat <<EOF >"${BUNDLE_DIR}/manifests/coder-httproute.yaml"
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: coder-route
+  namespace: coder
+spec:
+  parentRefs:
+    - name: ${TRAEFIK_GATEWAY_NAME}
+      namespace: ${TRAEFIK_GATEWAY_NAMESPACE}
+  hostnames:
+    - "${CODER_DOMAIN}"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: coder
+          port: 80
+EOF
+
+prompt_proceed "Cluster manifests generated. Proceed to deploy CloudNativePG Controller?"
+
+# ==============================================================================
+# PHASE 3: Deployment
+# ==============================================================================
+print_header "Phase 3: Cluster Deployment"
+
+# 1. CNPG Operator
+run_step "Installing CloudNativePG Helm Chart" \
+ helm upgrade --install cnpg "${BUNDLE_DIR}"/charts/cloudnative-pg-*.tgz \
+ --namespace cnpg-system \
+ --create-namespace \
+ --set image.repository="${PRIVATE_REGISTRY}/cloudnative-pg/cloudnative-pg" \
+ --set image.tag="${CNPG_VERSION}" \
+ --wait
+
+prompt_proceed "CloudNativePG Controller is installed. Proceed to deploy PostgreSQL Database Cluster?"
+
+# 2. Database Cluster
+run_step "Creating Coder namespace" \
+ kubectl create namespace coder --dry-run=client -o yaml | kubectl apply -f -
+
+run_step "Applying PostgreSQL Cluster Manifest" \
+ kubectl apply -f "${BUNDLE_DIR}/manifests/coder-db-cluster.yaml"
+
+print_info "Waiting for database cluster to become ready (this may take a few minutes)..."
+kubectl wait --for=condition=Ready cluster/coder-db -n coder --timeout=300s || print_error "Database cluster failed to become ready."
+print_success "Database cluster is healthy."
+
+prompt_proceed "Database is provisioned. Proceed to deploy Coder Core?"
+
+# 3. Coder Helm Chart
+run_step "Installing Coder Helm Chart" \
+ helm upgrade --install coder "${BUNDLE_DIR}"/charts/coder-*.tgz \
+ --namespace coder \
+ -f "${BUNDLE_DIR}/manifests/values-airgap.yaml" \
+ --wait
+
+prompt_proceed "Coder is installed. Proceed to configure Traefik Gateway HTTPRoute?"
+
+# 4. HTTPRoute
+run_step "Applying Gateway API HTTPRoute" \
+ kubectl apply -f "${BUNDLE_DIR}/manifests/coder-httproute.yaml"
+
+print_header "Installation Complete"
+echo -e "${GREEN}Coder has been successfully deployed to the air-gapped cluster.${NC}"
+echo -e "${CYAN}You can now access your deployment via https://${CODER_DOMAIN}${NC}\n"

@@ -1,5 +1,25 @@
 #!/bin/bash
 
+echo "Addingng universe repository..."
 sudo add-apt-repository universe
 
+echo "Updating repository..."
 sudo apt update -y
+
+# Add firefox PPA
+echo "Removing default firefox..."
+sudo apt purge firefox
+sudo snap remove firefox --purge
+
+echo "Addinging official Mozilla PPA..."
+sudo add-apt-repository ppa:mozillateam/ppa
+sudo apt update
+
+echo "Pinning Mozilla Version priority..."
+echo "Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001" | sudo tee /etc/apt/preferences.d/mozilla-firefox
+
+echo "Reinstalling firefox from offical PPA..."
+sudo apt update
+sudo apt install firefox
