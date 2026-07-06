@@ -1,0 +1,9 @@
+#!/bin/bash
+
+read -r -p "Split or Join? (s|p) : " input
+
+if [[ "${input}" == "s" ]]; then
+ split -n 100 -d -a 2 coder-airgap-bundle.tar coder-parts/coder-bundle_
+else
+ cat coder-parts/* > coder-airgap-bundle.tar
+fi

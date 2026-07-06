@@ -12,21 +12,6 @@ RED='\033[38;5;203m'
 YELLOW='\033[38;5;228m'
 NC='\033[0m' # No Color
 
-# --- Core Configuration Variables (DRY) ---
-CODER_VERSION="2.13.0"
-CNPG_VERSION="0.21.4"
-PG_IMAGE_VERSION="16.3"
-
-BUNDLE_DIR="./coder-airgap-bundle"
-CODER_DOMAIN="coder.yourdomain.internal"
-TRAEFIK_GATEWAY_NAME="traefik-gateway"
-TRAEFIK_GATEWAY_NAMESPACE="traefik-system"
-
-# Upstream Images
-CODER_IMAGE="ghcr.io/coder/coder:${CODER_VERSION}"
-CNPG_OPERATOR_IMAGE="ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_VERSION}"
-PG_DB_IMAGE="ghcr.io/cloudnative-pg/postgresql:${PG_IMAGE_VERSION}"
-
 # --- Helper Functions ---
 print_header() { echo -e "\n${PURPLE}=== $1 ===${NC}"; }
 print_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
@@ -53,6 +38,42 @@ run_step() {
 }
 
 # ==============================================================================
+# PHASE 0: Pre-flight & Auto-Discovery
+# ==============================================================================
+print_header "Phase 0: Pre-flight & Discovery"
+print_info "Auto-discovering latest component versions..."
+
+# Add and update Helm repositories locally to fetch the latest index
+helm repo add coder-v2 https://helm.coder.com/v2 >/dev/null 2>&1
+helm repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null 2>&1
+helm repo update >/dev/null 2>&1
+
+# 1. Discover latest Helm Chart AND App versions
+CODER_CHART_VERSION=$(helm search repo coder-v2/coder | awk 'NR==2 {print $2}')
+CODER_APP_VERSION=$(helm search repo coder-v2/coder | awk 'NR==2 {print $3}')
+
+CNPG_CHART_VERSION=$(helm search repo cnpg/cloudnative-pg | awk 'NR==2 {print $2}')
+CNPG_APP_VERSION=$(helm search repo cnpg/cloudnative-pg | awk 'NR==2 {print $3}')
+
+# 2. Discover latest PostgreSQL image tag directly from the GHCR registry
+GHCR_TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:cloudnative-pg/postgresql:pull" | grep -o '"token":"[^"]*' | awk -F'"' '{print $4}')
+PG_IMAGE_VERSION=$(curl -s -H "Authorization: Bearer ${GHCR_TOKEN}" "https://ghcr.io/v2/cloudnative-pg/postgresql/tags/list" | grep -oE '"[0-9]{2}\.[0-9]+"' | tr -d '"' | sort -V | tail -n 1)
+
+print_success "Versions Discovered -> Coder: v${CODER_APP_VERSION} | CNPG: v${CNPG_APP_VERSION} | PG: ${PG_IMAGE_VERSION}"
+
+# --- Static Target Configurations ---
+BUNDLE_DIR="./coder-airgap-bundle"
+CODER_DOMAIN="coder.yourdomain.internal"
+TRAEFIK_GATEWAY_NAME="traefik-gateway"
+TRAEFIK_GATEWAY_NAMESPACE="traefik-system"
+
+# Upstream Images 
+# Coder image tags mandate a 'v' prefix. CNPG uses the app version (1.x.x), not chart version (0.x.x).
+CODER_IMAGE="ghcr.io/coder/coder:v${CODER_APP_VERSION}"
+CNPG_OPERATOR_IMAGE="ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_APP_VERSION}"
+PG_DB_IMAGE="ghcr.io/cloudnative-pg/postgresql:${PG_IMAGE_VERSION}"
+
+# ==============================================================================
 # PHASE 1: Asset Bundling
 # ==============================================================================
 print_header "Phase 1: Downloading Offline Assets"
@@ -63,17 +84,17 @@ run_step "Creating bundle directories" \
 run_step "Adding Helm Repositories" \
  bash -c 'helm repo add coder-v2 https://helm.coder.com/v2 >/dev/null 2>&1 && helm repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null 2>&1 && helm repo update >/dev/null 2>&1'
 
-run_step "Pulling CNPG Chart v${CNPG_VERSION}" \
- helm pull cnpg/cloudnative-pg --version "${CNPG_VERSION}" -d "${BUNDLE_DIR}/charts"
+run_step "Pulling CNPG Chart v${CNPG_CHART_VERSION}" \
+ helm pull cnpg/cloudnative-pg --version "${CNPG_CHART_VERSION}" -d "${BUNDLE_DIR}/charts"
 
-run_step "Pulling Coder Chart v${CODER_VERSION}" \
- helm pull coder-v2/coder --version "${CODER_VERSION}" -d "${BUNDLE_DIR}/charts"
+run_step "Pulling Coder Chart v${CODER_CHART_VERSION}" \
+ helm pull coder-v2/coder --version "${CODER_CHART_VERSION}" -d "${BUNDLE_DIR}/charts"
 
 run_step "Pulling & Saving Coder Image" \
- bash -c "docker pull ${CODER_IMAGE} >/dev/null && docker save ${CODER_IMAGE} -o ${BUNDLE_DIR}/images/coder-${CODER_VERSION}.tar"
+ bash -c "docker pull ${CODER_IMAGE} >/dev/null && docker save ${CODER_IMAGE} -o ${BUNDLE_DIR}/images/coder-v${CODER_APP_VERSION}.tar"
 
 run_step "Pulling & Saving CNPG Operator Image" \
- bash -c "docker pull ${CNPG_OPERATOR_IMAGE} >/dev/null && docker save ${CNPG_OPERATOR_IMAGE} -o ${BUNDLE_DIR}/images/cnpg-operator-${CNPG_VERSION}.tar"
+ bash -c "docker pull ${CNPG_OPERATOR_IMAGE} >/dev/null && docker save ${CNPG_OPERATOR_IMAGE} -o ${BUNDLE_DIR}/images/cnpg-operator-${CNPG_APP_VERSION}.tar"
 
 run_step "Pulling & Saving PostgreSQL Image" \
  bash -c "docker pull ${PG_DB_IMAGE} >/dev/null && docker save ${PG_DB_IMAGE} -o ${BUNDLE_DIR}/images/postgres-${PG_IMAGE_VERSION}.tar"
@@ -111,7 +132,7 @@ cat <<EOF >"${BUNDLE_DIR}/manifests/values-airgap.yaml"
 coder:
   image:
     repo: "${PRIVATE_REGISTRY}/coder/coder"
-    tag: "${CODER_VERSION}"
+    tag: "v${CODER_APP_VERSION}"
   env:
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
@@ -164,7 +185,7 @@ run_step "Installing CloudNativePG Helm Chart" \
  --namespace cnpg-system \
  --create-namespace \
  --set image.repository="${PRIVATE_REGISTRY}/cloudnative-pg/cloudnative-pg" \
- --set image.tag="${CNPG_VERSION}" \
+ --set image.tag="${CNPG_APP_VERSION}" \
  --wait
 
 prompt_proceed "CloudNativePG Controller is installed. Proceed to deploy PostgreSQL Database Cluster?"
