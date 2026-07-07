@@ -1,0 +1,13 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: pre-auth
+  namespace: traefik
+spec:
+  forwardAuth:
+    # The URL of your pre-auth shim service
+    address: http://platform-auth-shim.traefik.svc.cluster.local:8080/verify
+    # Headers to copy from the auth response and pass to the backend apps
+    authResponseHeaders:
+      - X-Forwarded-User
+      - X-Forwarded-Groups

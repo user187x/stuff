@@ -3,10 +3,13 @@
 # fail & bail
 set -eou pipefail
 
-kubectl create namespace traefik --dry-run=client -o yaml | kubectl apply -f -
-
 # Name of the secret holding the wildcard certs
 WILDCARD_CERT_SECRET="traefik-wildcard-cert"
+
+kubectl create namespace traefik --dry-run=client -o yaml | kubectl apply -f -
+
+# Create the Pre-Auth Middleware
+kubectl apply -f middleware-preauth.yaml
 
 # Add the the tls wildcard secret to the cluster
 kubectl create secret tls "${WILDCARD_CERT_SECRET}" \

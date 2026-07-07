@@ -6,7 +6,7 @@ metadata:
 spec:
   parentRefs:
   - name: traefik
-    namespace: traefik-system 
+    namespace: traefik
   hostnames:
   - "coder.feed.com"
   rules:

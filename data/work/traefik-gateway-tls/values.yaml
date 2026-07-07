@@ -16,10 +16,16 @@ ports:
     port: 80
     expose:
       default: true
+    redirectTo:
+      port: websecure
+      priority: 10
   websecure:
     port: 443
     expose:
       default: true
+    # format: <namespace>-<name>@kubernetescrd
+    middlewares:
+      - traefik-pre-auth@kubernetescrd
 
 gateway:
   enabled: true
