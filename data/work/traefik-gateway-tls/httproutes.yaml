@@ -1,0 +1,60 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: coder-route
+  namespace: coder
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+  hostnames:
+  - "coder.feed.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: coder
+      port: 80 # Update this if your Coder service uses a different port (e.g., 8080)
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana-route
+  namespace: monitoring # Or 'grafana', depending on your deployment
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+  hostnames:
+  - "grafana.feed.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: grafana # If using kube-prometheus-stack, this might be named something like 'prometheus-grafana'
+      port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: headlamp-route
+  namespace: headlamp
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+  hostnames:
+  - "headlamp.feed.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: headlamp
+      port: 80
