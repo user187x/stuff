@@ -8,7 +8,7 @@ PACKAGE_DIR="src/main/java/xxx/com/cloudprovider"
 MAIN_CLASS="xxx.com.cloudprovider.MockCloudProvider"
 K8S_CLIENT_VERSION="27.0.0" # Adjust if you need a specific version
 
-echo "🚀 Creating project structure..."
+echo "🚀 Creating temporary project structure..."
 mkdir -p "$PROJECT_NAME/$PACKAGE_DIR"
 
 # 1. Generate the Java source file
@@ -16,7 +16,6 @@ cat <<'EOF' >"$PROJECT_NAME/$PACKAGE_DIR/MockCloudProvider.java"
 package xxx.com.cloudprovider;
 
 import io.kubernetes.client.openapi.ApiClient;
-import io.kubernetes.client.openapi.ApiException;
 import io.kubernetes.client.openapi.Configuration;
 import io.kubernetes.client.openapi.apis.CoreV1Api;
 import io.kubernetes.client.openapi.models.V1Service;
@@ -74,8 +73,6 @@ public class MockCloudProvider {
       }
      }
     }
-   } catch (ApiException e) {
-    System.err.println("API Exception: " + e.getResponseBody());
    } catch (Exception e) {
     System.err.println("Watch connection dropped. Reconnecting in 5s... (" + e.getMessage() + ")");
     try { Thread.sleep(5000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
@@ -93,12 +90,11 @@ public class MockCloudProvider {
 
   io.kubernetes.client.custom.V1Patch patch = new io.kubernetes.client.custom.V1Patch(patchJson);
 
-  // Updated to 3 arguments for newer client versions
   try {
       api.patchNamespacedServiceStatus(name, namespace, patch);
       System.out.println("✅ Successfully patched " + namespace + "/" + name + " with external IP: " + ip);
-  } catch (ApiException e) {
-      System.err.println("❌ Failed to patch: " + e.getResponseBody());
+  } catch (Exception e) {
+      System.err.println("❌ Failed to patch: " + e.getMessage());
   }
  }
 }
@@ -127,6 +123,11 @@ cat <<EOF >"$PROJECT_NAME/pom.xml"
             <artifactId>client-java</artifactId>
             <version>${K8S_CLIENT_VERSION}</version>
         </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.7</version>
+       </dependency>
     </dependencies>
 
     <build>
@@ -165,13 +166,18 @@ EOF
 echo "📦 Building the executable Fat-JAR with Maven..."
 cd "$PROJECT_NAME"
 mvn clean package -DskipTests
+cd ..
 
-# 4. Print instructions
-JAR_FILE="target/mock-cloud-provider-1.0-SNAPSHOT-jar-with-dependencies.jar"
+# 4. Clean up remnants
+echo "🧹 Cleaning up temporary build files..."
+JAR_NAME="mock-cloud-provider-1.0.0-jar-with-dependencies.jar"
+mv "$PROJECT_NAME/target/$JAR_NAME" "./$JAR_NAME"
+rm -rf "$PROJECT_NAME"
 
+# 5. Print instructions
 echo ""
-echo "✅ Build successful!"
-echo "The executable Fat-JAR is located at: $PROJECT_NAME/$JAR_FILE"
+echo "✅ Build successful and environment cleaned!"
+echo "The executable Fat-JAR is located at: ./$JAR_NAME"
 echo ""
 echo "Run it using the following command:"
-echo "  java -jar $PROJECT_NAME/$JAR_FILE"
+echo "  java -jar $JAR_NAME"
