@@ -1,9 +1,17 @@
 #!/bin/bash
 
-read -r -p "Split or Join? (s|p) : " input
+read -r -p "Split or Join? (s|j) : " input
 
 if [[ "${input}" == "s" ]]; then
- split -n 100 -d -a 2 coder-airgap-bundle.tar coder-parts/coder-bundle_
+  read -erp "Enter File Path: " filePath
+
+  mkdir -p coder-parts
+  split -b 50M -d -a 2 "${filePath}" coder-parts/coder-bundle_
+
+  echo "Split complete! Parts saved to ./coder-parts/"
 else
- cat coder-parts/* > coder-airgap-bundle.tar
+  read -erp "Enter Parts Directory: " dirPath
+  cat "${dirPath}"/* > coder-bundle.tar
+
+  echo "Join complete! Reassembled into coder-bundle.tar"
 fi
