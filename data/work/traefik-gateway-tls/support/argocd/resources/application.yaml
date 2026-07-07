@@ -1,0 +1,70 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-gateway
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true # Replaces 'kubectl create namespace traefik'
+  sources:
+    # Source 1: The official Traefik Helm Chart (Replaces your 'helm upgrade' script)
+    - repoURL: 'https://traefik.github.io/charts'
+      chart: traefik
+      targetRevision: 26.1.0 # Recommendation: Pin to a specific version
+      helm:
+        values: |
+          tlsStore:
+            default:
+              defaultCertificate:
+                secretName: traefik-wildcard-cert
+          providers:
+            kubernetesIngress:
+              enabled: false
+            kubernetesGateway:
+              enabled: true
+              experimentalChannel: false
+              gatewayClassName: traefik
+          ports:
+            web:
+              port: 80
+              expose:
+                default: true
+              redirectTo:
+                port: websecure
+                priority: 10
+            websecure:
+              port: 443
+              expose:
+                default: true
+              middlewares:
+                - traefik-pre-auth@kubernetescrd
+          gateway:
+            enabled: true
+            gatewayClassName: traefik
+            listeners:
+              web:
+                port: 80
+                namespacePolicy:
+                  from: All
+              websecure:
+                enabled: true
+                port: 443
+                protocol: HTTPS
+                mode: Terminate
+                namespacePolicy:
+                  from: All
+                certificateRefs:
+                - name: traefik-wildcard-cert
+
+    # Source 2: Your Git Repository for Custom Resources
+    - repoURL: 'https://github.com/your-org/your-repo.git'
+      path: path/to/traefik-manifests
+      targetRevision: HEAD

@@ -1,0 +1,21 @@
+#!/bin/bash
+
+git clone https://traefik-gitops.github.com
+cd traefik-gitops
+
+# Create the Kustomize file
+cp resources/kustomization.yaml .
+cp resources/middleware-preauth.yaml .
+cp resources/httproutes.yaml .
+cp resources/secrets-config.yaml .
+
+git add -A
+git commit -m "Initial commit of declarative Traefik gateway manifests"
+
+git push -u origin main
+
+# Create the ArgoCD Traefik-Gateway Application
+kubectl apply -f traefik-application.yaml -n argocd
+
+# Optional
+argocd app sync traefik-gateway
