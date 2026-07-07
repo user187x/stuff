@@ -9,6 +9,7 @@ providers:
   kubernetesGateway:
     enabled: true
     experimentalChannel: false
+    gatewayClassName: traefik
 
 ports:
   web:
@@ -22,6 +23,7 @@ ports:
 
 gateway:
   enabled: true
+  gatewayClassName: traefik
   listeners:
     web:
       port: 80
