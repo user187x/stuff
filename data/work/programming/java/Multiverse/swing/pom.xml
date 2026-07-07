@@ -722,6 +722,12 @@
       <version>${kafka.version}</version>
     </dependency>
 
+    <dependency>
+      <groupId>io.kubernetes</groupId>
+      <artifactId>client-java</artifactId>
+      <version>27.0.0</version>
+    </dependency>
+
     <!--  UI/Swing Libraries  -->
     <dependency>
       <groupId>com.formdev</groupId>
