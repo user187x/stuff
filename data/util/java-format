@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# fail & bail
+set -euo pipefail
+
+formatter_home="$HOME/.local/share"
+# Use the explicit 1.35.0 version in the filename to avoid caching the old jar
+formatter_file="google-java-format-1.35.0.jar"
+formatter_path="${formatter_home}/${formatter_file}"
+
+mkdir -p "${formatter_home}"
+
+if [[ ! -f "${formatter_path}" ]]; then
+ wget https://github.com/google/google-java-format/releases/download/v1.35.0/google-java-format-1.35.0-all-deps.jar -O "${formatter_path}"
+fi
+
+# Check if a file argument was provided
+if [ -z "$1" ]; then
+ echo "Usage: javafmt <file>"
+ exit 1
+fi
+
+FILE="$1"
+
+# Check if the provided file exists
+if [ ! -f "$FILE" ]; then
+ echo "Error: File '$FILE' not found."
+ exit 1
+fi
+
+# Run the formatter with the --replace flag to format the file in-place
+if java \
+  --add-exports jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED \
+  --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED \
+  --add-exports jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED \
+  --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED \
+  --add-exports jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED \
+  -jar "${formatter_path}" --replace "$FILE"; then
+ echo "Successfully formatted: $FILE"
+else
+ echo "Failure formatting file: $FILE"
+fi

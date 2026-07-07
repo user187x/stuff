@@ -1,0 +1,82 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-shim-source
+  namespace: traefik
+data:
+  MockAuthShim.java: |
+    import com.sun.net.httpserver.HttpServer;
+    import com.sun.net.httpserver.HttpHandler;
+    import com.sun.net.httpserver.HttpExchange;
+    import java.io.IOException;
+    import java.io.OutputStream;
+    import java.net.InetSocketAddress;
+
+    public class MockAuthShim {
+        public static void main(String[] args) throws IOException {
+            int port = 8080;
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+
+            server.createContext("/verify", new HttpHandler() {
+                @Override
+                public void handle(HttpExchange exchange) throws IOException {
+                    exchange.getResponseHeaders().add("X-Forwarded-User", "mock-admin-user");
+                    exchange.getResponseHeaders().add("X-Forwarded-Groups", "platform-admins,developers");
+
+                    String response = "Authentication successful (Mock)";
+                    exchange.sendResponseHeaders(200, response.getBytes().length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(response.getBytes());
+                    os.close();
+                    System.out.println("Processed auth validation for: " + exchange.getRemoteAddress());
+                }
+            });
+            server.setExecutor(null);
+            server.start();
+            System.out.println("Mock Pre-Auth Shim listening on port " + port);
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-auth-shim
+  namespace: traefik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: platform-auth-shim
+  template:
+    metadata:
+      labels:
+        app: platform-auth-shim
+    spec:
+      containers:
+      - name: shim
+        image: openjdk:17-slim
+        # Java 11+ allows running uncompiled single-file source code directly
+        command: ["java", "/app/MockAuthShim.java"]
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: source-volume
+          mountPath: /app
+      volumes:
+      - name: source-volume
+        configMap:
+          name: auth-shim-source
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-auth-shim
+  namespace: traefik
+spec:
+  selector:
+    app: platform-auth-shim
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
