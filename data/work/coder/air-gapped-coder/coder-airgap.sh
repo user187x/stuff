@@ -59,7 +59,7 @@ ENVBOX_VERSION="${ENVBOX_VERSION:-0.6.5}"
 CNPG_CHART_VERSION="${CNPG_CHART_VERSION:-0.26.1}"
 CNPG_OPERATOR_VERSION="${CNPG_OPERATOR_VERSION:-1.27.1}"
 CNPG_PG_IMAGE_TAG="${CNPG_PG_IMAGE_TAG:-16.6}"
-TERRAFORM_VERSION="${TERRAFORM_VERSION:-1.11.4}" # keep within Coder-supported range
+TERRAFORM_VERSION="${TERRAFORM_VERSION:-1.11.4}"   # keep within Coder-supported range
 HELM_VERSION="${HELM_VERSION:-3.16.4}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-1.31.4}"
 TF_CODER_PROVIDER="${TF_CODER_PROVIDER:-2.5.3}"
@@ -68,38 +68,38 @@ UBUNTU_BASE_TAG="${UBUNTU_BASE_TAG:-24.04}"
 
 # --------------------------- install-phase knobs ----------------------------
 # Registry (bundled by default; TLS always on)
-REGISTRY="${REGISTRY:-}" # leave empty => bundled registry
+REGISTRY="${REGISTRY:-}"                          # leave empty => bundled registry
 BUNDLED_REGISTRY_PORT="${BUNDLED_REGISTRY_PORT:-5000}"
-BASTION_IP="${BASTION_IP:-}"                       # auto-detected if empty
-REGISTRY_TLS_CRT_FILE="${REGISTRY_TLS_CRT_FILE:-}" # org-signed cert (recommended)
+BASTION_IP="${BASTION_IP:-}"                      # auto-detected if empty
+REGISTRY_TLS_CRT_FILE="${REGISTRY_TLS_CRT_FILE:-}"  # org-signed cert (recommended)
 REGISTRY_TLS_KEY_FILE="${REGISTRY_TLS_KEY_FILE:-}"
-REGISTRY_TLS_CA_FILE="${REGISTRY_TLS_CA_FILE:-}" # CA chain for bastion docker trust
+REGISTRY_TLS_CA_FILE="${REGISTRY_TLS_CA_FILE:-}"    # CA chain for bastion docker trust
 SKIP_PULL_TEST="${SKIP_PULL_TEST:-false}"
 
 # Namespaces / access
 CODER_NAMESPACE="${CODER_NAMESPACE:-coder}"
 CNPG_NAMESPACE="${CNPG_NAMESPACE:-cnpg-system}"
-CODER_HOSTNAME="${CODER_HOSTNAME:-}"                   # REQUIRED for ingress (e.g. coder.corp.internal)
-CODER_WILDCARD_HOSTNAME="${CODER_WILDCARD_HOSTNAME:-}" # optional, e.g. *.coder.corp.internal
+CODER_HOSTNAME="${CODER_HOSTNAME:-}"              # REQUIRED for ingress (e.g. coder.corp.internal)
+CODER_WILDCARD_HOSTNAME="${CODER_WILDCARD_HOSTNAME:-}"  # optional, e.g. *.coder.corp.internal
 CODER_SERVICE_TYPE="${CODER_SERVICE_TYPE:-ClusterIP}"
 
 # Ingress (Traefik) — TLS is terminated by Traefik, provisioned in advance
 INGRESS_ENABLE="${INGRESS_ENABLE:-true}"
 INGRESS_CLASS="${INGRESS_CLASS:-traefik}"
-TLS_SECRET_NAME="${TLS_SECRET_NAME:-}" # existing tls secret for the host (optional)
-TLS_CRT_FILE="${TLS_CRT_FILE:-}"       # or provide files -> secret 'coder-tls' is created
+TLS_SECRET_NAME="${TLS_SECRET_NAME:-}"            # existing tls secret for the host (optional)
+TLS_CRT_FILE="${TLS_CRT_FILE:-}"                  # or provide files -> secret 'coder-tls' is created
 TLS_KEY_FILE="${TLS_KEY_FILE:-}"
-CA_BUNDLE_FILE="${CA_BUNDLE_FILE:-}" # org CA bundle -> mounted into Coder + configmap
+CA_BUNDLE_FILE="${CA_BUNDLE_FILE:-}"              # org CA bundle -> mounted into Coder + configmap
 
 # Gateway API alternative (Traefik Gateway) — instead of an Ingress object
 GATEWAY_API="${GATEWAY_API:-false}"
 GATEWAY_NAME="${GATEWAY_NAME:-traefik-gateway}"
 GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-traefik}"
-GATEWAY_SECTION_NAME="${GATEWAY_SECTION_NAME:-}" # optional listener sectionName
+GATEWAY_SECTION_NAME="${GATEWAY_SECTION_NAME:-}"  # optional listener sectionName
 
 # Storage
 PG_STORAGE_SIZE="${PG_STORAGE_SIZE:-10Gi}"
-PG_STORAGE_CLASS="${PG_STORAGE_CLASS:-}" # empty = cluster default
+PG_STORAGE_CLASS="${PG_STORAGE_CLASS:-}"          # empty = cluster default
 HOME_STORAGE_CLASS="${HOME_STORAGE_CLASS:-}"
 
 # Admin (per request: admin / coder-admin by default)
@@ -112,70 +112,62 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 BUNDLE_NAME="coder-airgap-bundle"
 BUNDLE="${BUNDLE:-$SCRIPT_DIR/$BUNDLE_NAME}"
-[[ -f "$SCRIPT_DIR/.bundle-manifest" ]] && BUNDLE="$SCRIPT_DIR" # running inside bundle
+[[ -f "$SCRIPT_DIR/.bundle-manifest" ]] && BUNDLE="$SCRIPT_DIR"   # running inside bundle
 
-log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
-die() {
- printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2
- exit 1
-}
+die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found in PATH"; }
 
 ###############################################################################
 # PHASE 1 — DOWNLOAD  (internet-connected machine)
 ###############################################################################
 cmd_download() {
- need docker
- need curl
- need tar
- need unzip
- log "Creating bundle at $BUNDLE"
- mkdir -p "$BUNDLE"/{images,charts,bin,tf-providers,config,templates,build,manifests,pki}
+  need docker; need curl; need tar; need unzip
+  log "Creating bundle at $BUNDLE"
+  mkdir -p "$BUNDLE"/{images,charts,bin,tf-providers,config,templates,build,manifests,pki}
 
- # ---------------------------------------------------------------- binaries
- log "Downloading CLI binaries (coder, terraform, helm, kubectl)"
- curl -fL --retry 3 -o "$BUNDLE/bin/coder.tar.gz" \
-  "https://github.com/coder/coder/releases/download/v${CODER_VERSION}/coder_${CODER_VERSION}_linux_amd64.tar.gz"
- # Sanity-check we actually got a gzip archive (not an HTML error page)
- gzip -t "$BUNDLE/bin/coder.tar.gz" ||
-  die "Downloaded coder.tar.gz is not a valid gzip archive — check CODER_VERSION=${CODER_VERSION} exists at github.com/coder/coder/releases"
- # Extract everything, then locate the binary — member paths vary between
- # releases ('coder' vs './coder' vs nested), so never name the member.
- local coder_tmp
- coder_tmp="$(mktemp -d)"
- tar -xzf "$BUNDLE/bin/coder.tar.gz" -C "$coder_tmp"
- local coder_bin_path
- coder_bin_path="$(find "$coder_tmp" -type f -name coder | head -n1)"
- [[ -n "$coder_bin_path" ]] || die "Could not find 'coder' binary inside the release tarball (contents: $(cd "$coder_tmp" && find . -maxdepth 2 | tr '\n' ' '))"
- install -m 0755 "$coder_bin_path" "$BUNDLE/bin/coder"
- rm -rf "$coder_tmp" "$BUNDLE/bin/coder.tar.gz"
+  # ---------------------------------------------------------------- binaries
+  log "Downloading CLI binaries (coder, terraform, helm, kubectl)"
+  curl -fL --retry 3 -o "$BUNDLE/bin/coder.tar.gz" \
+    "https://github.com/coder/coder/releases/download/v${CODER_VERSION}/coder_${CODER_VERSION}_linux_amd64.tar.gz"
+  # Sanity-check we actually got a gzip archive (not an HTML error page)
+  gzip -t "$BUNDLE/bin/coder.tar.gz" \
+    || die "Downloaded coder.tar.gz is not a valid gzip archive — check CODER_VERSION=${CODER_VERSION} exists at github.com/coder/coder/releases"
+  # Extract everything, then locate the binary — member paths vary between
+  # releases ('coder' vs './coder' vs nested), so never name the member.
+  local coder_tmp; coder_tmp="$(mktemp -d)"
+  tar -xzf "$BUNDLE/bin/coder.tar.gz" -C "$coder_tmp"
+  local coder_bin_path
+  coder_bin_path="$(find "$coder_tmp" -type f -name coder | head -n1)"
+  [[ -n "$coder_bin_path" ]] || die "Could not find 'coder' binary inside the release tarball (contents: $(cd "$coder_tmp" && find . -maxdepth 2 | tr '\n' ' '))"
+  install -m 0755 "$coder_bin_path" "$BUNDLE/bin/coder"
+  rm -rf "$coder_tmp" "$BUNDLE/bin/coder.tar.gz"
 
- curl -fL --retry 3 -o /tmp/tf.zip \
-  "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
- unzip -oq /tmp/tf.zip terraform -d "$BUNDLE/bin" && rm -f /tmp/tf.zip
+  curl -fL --retry 3 -o /tmp/tf.zip \
+    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+  unzip -oq /tmp/tf.zip terraform -d "$BUNDLE/bin" && rm -f /tmp/tf.zip
 
- curl -fL --retry 3 "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" |
-  tar -xz -C "$BUNDLE/bin" --strip-components=1 linux-amd64/helm
- curl -fL --retry 3 -o "$BUNDLE/bin/kubectl" \
-  "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
- chmod +x "$BUNDLE"/bin/*
- "$BUNDLE/bin/coder" version >/dev/null 2>&1 ||
-  warn "coder binary won't run on THIS host (fine if you're only bundling), continuing"
+  curl -fL --retry 3 "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+    | tar -xz -C "$BUNDLE/bin" --strip-components=1 linux-amd64/helm
+  curl -fL --retry 3 -o "$BUNDLE/bin/kubectl" \
+    "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+  chmod +x "$BUNDLE"/bin/*
+  "$BUNDLE/bin/coder" version >/dev/null 2>&1 \
+    || warn "coder binary won't run on THIS host (fine if you're only bundling), continuing"
 
- # ------------------------------------------------------------- helm charts
- log "Pulling Helm charts (coder, cloudnative-pg — CNPG chart bundles its CRDs)"
- "$BUNDLE/bin/helm" repo add coder-v2 https://helm.coder.com/v2 --force-update >/dev/null
- "$BUNDLE/bin/helm" repo add cnpg https://cloudnative-pg.github.io/charts --force-update >/dev/null
- "$BUNDLE/bin/helm" repo update >/dev/null
- "$BUNDLE/bin/helm" pull coder-v2/coder --version "$CODER_CHART_VERSION" -d "$BUNDLE/charts"
- "$BUNDLE/bin/helm" pull cnpg/cloudnative-pg --version "$CNPG_CHART_VERSION" -d "$BUNDLE/charts"
+  # ------------------------------------------------------------- helm charts
+  log "Pulling Helm charts (coder, cloudnative-pg — CNPG chart bundles its CRDs)"
+  "$BUNDLE/bin/helm" repo add coder-v2 https://helm.coder.com/v2 --force-update >/dev/null
+  "$BUNDLE/bin/helm" repo add cnpg https://cloudnative-pg.github.io/charts --force-update >/dev/null
+  "$BUNDLE/bin/helm" repo update >/dev/null
+  "$BUNDLE/bin/helm" pull coder-v2/coder --version "$CODER_CHART_VERSION" -d "$BUNDLE/charts"
+  "$BUNDLE/bin/helm" pull cnpg/cloudnative-pg --version "$CNPG_CHART_VERSION" -d "$BUNDLE/charts"
 
- # ------------------------------------------- terraform provider mirror
- log "Building Terraform provider filesystem mirror (coder/coder, hashicorp/kubernetes)"
- local mirror_tmp
- mirror_tmp="$(mktemp -d)"
- cat >"$mirror_tmp/main.tf" <<EOF
+  # ------------------------------------------- terraform provider mirror
+  log "Building Terraform provider filesystem mirror (coder/coder, hashicorp/kubernetes)"
+  local mirror_tmp; mirror_tmp="$(mktemp -d)"
+  cat > "$mirror_tmp/main.tf" <<EOF
 terraform {
   required_providers {
     coder = {
@@ -189,12 +181,12 @@ terraform {
   }
 }
 EOF
- (cd "$mirror_tmp" && "$BUNDLE/bin/terraform" providers mirror -platform=linux_amd64 "$BUNDLE/tf-providers")
- rm -rf "$mirror_tmp"
+  (cd "$mirror_tmp" && "$BUNDLE/bin/terraform" providers mirror -platform=linux_amd64 "$BUNDLE/tf-providers")
+  rm -rf "$mirror_tmp"
 
- # ----------------------------------------------------------------- .tfrc
- log "Writing Terraform CLI config (.tfrc — filesystem mirror, per Coder air-gap docs)"
- cat >"$BUNDLE/config/terraformrc" <<'EOF'
+  # ----------------------------------------------------------------- .tfrc
+  log "Writing Terraform CLI config (.tfrc — filesystem mirror, per Coder air-gap docs)"
+  cat > "$BUNDLE/config/terraformrc" <<'EOF'
 # Air-gapped Terraform CLI config: providers come from the local mirror only.
 provider_installation {
   filesystem_mirror {
@@ -207,9 +199,9 @@ provider_installation {
 }
 EOF
 
- # ---------------------------------------- custom air-gapped Coder image
- log "Building custom air-gapped Coder server image (providers + .tfrc baked in)"
- cat >"$BUNDLE/build/Dockerfile.coder" <<EOF
+  # ---------------------------------------- custom air-gapped Coder image
+  log "Building custom air-gapped Coder server image (providers + .tfrc baked in)"
+  cat > "$BUNDLE/build/Dockerfile.coder" <<EOF
 # Per https://coder.com/docs/install/airgap — extend the official image with a
 # Terraform provider filesystem mirror and CLI config. Terraform itself is
 # already included at a supported version in the official image.
@@ -222,11 +214,11 @@ RUN chown -R coder:coder /opt/terraform
 USER coder
 ENV TF_CLI_CONFIG_FILE=/opt/terraform/terraformrc
 EOF
- docker build -f "$BUNDLE/build/Dockerfile.coder" -t "coder-airgap:v${CODER_VERSION}" "$BUNDLE"
+  docker build -f "$BUNDLE/build/Dockerfile.coder" -t "coder-airgap:v${CODER_VERSION}" "$BUNDLE"
 
- # ----------------------------------------------- workspace inner images
- log "Building workspace image: airgap/ubuntu-base (Docker + code-server + filebrowser baked in)"
- cat >"$BUNDLE/build/Dockerfile.ubuntu-base" <<EOF
+  # ----------------------------------------------- workspace inner images
+  log "Building workspace image: airgap/ubuntu-base (Docker + code-server + filebrowser baked in)"
+  cat > "$BUNDLE/build/Dockerfile.ubuntu-base" <<EOF
 FROM ubuntu:${UBUNTU_BASE_TAG}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \\
@@ -250,10 +242,10 @@ RUN userdel -r ubuntu 2>/dev/null || true; \\
 USER coder
 WORKDIR /home/coder
 EOF
- docker build -f "$BUNDLE/build/Dockerfile.ubuntu-base" -t airgap/ubuntu-base:latest "$BUNDLE/build"
+  docker build -f "$BUNDLE/build/Dockerfile.ubuntu-base" -t airgap/ubuntu-base:latest "$BUNDLE/build"
 
- log "Building workspace image: airgap/ubuntu-novnc (XFCE + TigerVNC + noVNC baked in)"
- cat >"$BUNDLE/build/Dockerfile.ubuntu-novnc" <<'EOF'
+  log "Building workspace image: airgap/ubuntu-novnc (XFCE + TigerVNC + noVNC baked in)"
+  cat > "$BUNDLE/build/Dockerfile.ubuntu-novnc" <<'EOF'
 FROM airgap/ubuntu-base:latest
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
@@ -268,33 +260,33 @@ RUN mkdir -p /home/coder/.vnc && \
 USER coder
 WORKDIR /home/coder
 EOF
- docker build -f "$BUNDLE/build/Dockerfile.ubuntu-novnc" -t airgap/ubuntu-novnc:latest "$BUNDLE/build"
+  docker build -f "$BUNDLE/build/Dockerfile.ubuntu-novnc" -t airgap/ubuntu-novnc:latest "$BUNDLE/build"
 
- # ---------------------------------------------------------- pull images
- log "Pulling remaining container images (envbox, CNPG operator, PostgreSQL, registry)"
- local pull_images=(
-  "ghcr.io/coder/envbox:${ENVBOX_VERSION}"
-  "ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}"
-  "ghcr.io/cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}"
-  "registry:2"
- )
- local img
- for img in "${pull_images[@]}"; do docker pull "$img"; done
+  # ---------------------------------------------------------- pull images
+  log "Pulling remaining container images (envbox, CNPG operator, PostgreSQL, registry)"
+  local pull_images=(
+    "ghcr.io/coder/envbox:${ENVBOX_VERSION}"
+    "ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}"
+    "ghcr.io/cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}"
+    "registry:2"
+  )
+  local img
+  for img in "${pull_images[@]}"; do docker pull "$img"; done
 
- # ---------------------------------------------------------- save images
- log "Saving all images to images/images.tar (this can take a while)"
- docker save -o "$BUNDLE/images/images.tar" \
-  "coder-airgap:v${CODER_VERSION}" \
-  airgap/ubuntu-base:latest \
-  airgap/ubuntu-novnc:latest \
-  "${pull_images[@]}"
+  # ---------------------------------------------------------- save images
+  log "Saving all images to images/images.tar (this can take a while)"
+  docker save -o "$BUNDLE/images/images.tar" \
+    "coder-airgap:v${CODER_VERSION}" \
+    airgap/ubuntu-base:latest \
+    airgap/ubuntu-novnc:latest \
+    "${pull_images[@]}"
 
- # ---------------------------------------------------- workspace templates
- log "Generating workspace templates (Kubernetes Deployment + envbox, local modules)"
- write_templates
+  # ---------------------------------------------------- workspace templates
+  log "Generating workspace templates (Kubernetes Deployment + envbox, local modules)"
+  write_templates
 
- # ------------------------------------------------------------- manifest
- cat >"$BUNDLE/.bundle-manifest" <<EOF
+  # ------------------------------------------------------------- manifest
+  cat > "$BUNDLE/.bundle-manifest" <<EOF
 CODER_VERSION=${CODER_VERSION}
 CODER_CHART_VERSION=${CODER_CHART_VERSION}
 ENVBOX_VERSION=${ENVBOX_VERSION}
@@ -303,22 +295,22 @@ CNPG_OPERATOR_VERSION=${CNPG_OPERATOR_VERSION}
 CNPG_PG_IMAGE_TAG=${CNPG_PG_IMAGE_TAG}
 EOF
 
- cp -f "$SCRIPT_DIR/$SCRIPT_NAME" "$BUNDLE/coder-airgap.sh"
- chmod +x "$BUNDLE/coder-airgap.sh"
- write_readme
+  cp -f "$SCRIPT_DIR/$SCRIPT_NAME" "$BUNDLE/coder-airgap.sh"
+  chmod +x "$BUNDLE/coder-airgap.sh"
+  write_readme
 
- # -------------------------------------------- auto-pack the whole bundle
- log "Packing bundle into ${BUNDLE_NAME}.tgz"
- tar -czf "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" -C "$(dirname "$BUNDLE")" "$(basename "$BUNDLE")"
+  # -------------------------------------------- auto-pack the whole bundle
+  log "Packing bundle into ${BUNDLE_NAME}.tgz"
+  tar -czf "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" -C "$(dirname "$BUNDLE")" "$(basename "$BUNDLE")"
 
- echo
- log "DONE."
- log "  Bundle dir : $BUNDLE"
- log "  Tarball    : $SCRIPT_DIR/${BUNDLE_NAME}.tgz  ($(du -h "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" | cut -f1))"
- echo
- echo "  Copy ${BUNDLE_NAME}.tgz (and this script) to the air-gapped bastion, then:"
- echo "      CODER_HOSTNAME=coder.corp.internal ./coder-airgap.sh install"
- echo "  (it auto-extracts the tarball and uses the bundled TLS registry)"
+  echo
+  log "DONE."
+  log "  Bundle dir : $BUNDLE"
+  log "  Tarball    : $SCRIPT_DIR/${BUNDLE_NAME}.tgz  ($(du -h "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" | cut -f1))"
+  echo
+  echo "  Copy ${BUNDLE_NAME}.tgz (and this script) to the air-gapped bastion, then:"
+  echo "      CODER_HOSTNAME=coder.corp.internal ./coder-airgap.sh install"
+  echo "  (it auto-extracts the tarball and uses the bundled TLS registry)"
 }
 
 ###############################################################################
@@ -326,8 +318,8 @@ EOF
 # so all \${...} inside is Terraform interpolation, not shell.
 ###############################################################################
 write_module_code_server() {
- mkdir -p "$1/modules/code-server"
- cat >"$1/modules/code-server/main.tf" <<'EOF'
+  mkdir -p "$1/modules/code-server"
+  cat > "$1/modules/code-server/main.tf" <<'EOF'
 terraform {
   required_providers {
     coder = { source = "coder/coder" }
@@ -381,8 +373,8 @@ EOF
 }
 
 write_module_filebrowser() {
- mkdir -p "$1/modules/filebrowser"
- cat >"$1/modules/filebrowser/main.tf" <<'EOF'
+  mkdir -p "$1/modules/filebrowser"
+  cat > "$1/modules/filebrowser/main.tf" <<'EOF'
 terraform {
   required_providers {
     coder = { source = "coder/coder" }
@@ -447,8 +439,8 @@ EOF
 }
 
 write_module_vscode_desktop() {
- mkdir -p "$1/modules/vscode-desktop"
- cat >"$1/modules/vscode-desktop/main.tf" <<'EOF'
+  mkdir -p "$1/modules/vscode-desktop"
+  cat > "$1/modules/vscode-desktop/main.tf" <<'EOF'
 terraform {
   required_providers {
     coder = { source = "coder/coder" }
@@ -487,8 +479,8 @@ EOF
 }
 
 write_module_novnc() {
- mkdir -p "$1/modules/novnc"
- cat >"$1/modules/novnc/main.tf" <<'EOF'
+  mkdir -p "$1/modules/novnc"
+  cat > "$1/modules/novnc/main.tf" <<'EOF'
 terraform {
   required_providers {
     coder = { source = "coder/coder" }
@@ -549,7 +541,7 @@ EOF
 # with a working Docker daemon (sysbox). Modeled on coder/coder's envbox
 # example template, adapted to kubernetes_deployment.
 write_template_common() {
- cat >"$1/main.tf" <<'EOF'
+  cat > "$1/main.tf" <<'EOF'
 terraform {
   required_providers {
     coder      = { source = "coder/coder" }
@@ -897,19 +889,19 @@ EOF
 }
 
 write_templates() {
- local t1="$BUNDLE/templates/ubuntu-base"
- local t2="$BUNDLE/templates/ubuntu-novnc"
- rm -rf "$t1" "$t2"
- mkdir -p "$t1" "$t2"
+  local t1="$BUNDLE/templates/ubuntu-base"
+  local t2="$BUNDLE/templates/ubuntu-novnc"
+  rm -rf "$t1" "$t2"
+  mkdir -p "$t1" "$t2"
 
- # ---------------- Template 1: ubuntu-base ---------------------------------
- # modules: vscode (desktop), terminal (native to Coder), filebrowser,
- #          code-server
- write_template_common "$t1"
- write_module_filebrowser "$t1"
- write_module_code_server "$t1"
- write_module_vscode_desktop "$t1"
- cat >>"$t1/main.tf" <<'EOF'
+  # ---------------- Template 1: ubuntu-base ---------------------------------
+  # modules: vscode (desktop), terminal (native to Coder), filebrowser,
+  #          code-server
+  write_template_common       "$t1"
+  write_module_filebrowser    "$t1"
+  write_module_code_server    "$t1"
+  write_module_vscode_desktop "$t1"
+  cat >> "$t1/main.tf" <<'EOF'
 
 # ------------------------- ubuntu-base extras --------------------------------
 module "code_server" {
@@ -925,7 +917,7 @@ module "vscode_desktop" {
   workspace_name = data.coder_workspace.me.name
 }
 EOF
- cat >"$t1/README.md" <<'EOF'
+  cat > "$t1/README.md" <<'EOF'
 # ubuntu-base — Kubernetes (Deployment) + envbox
 Vanilla Ubuntu workspace. Apps: Terminal (built-in), code-server,
 VS Code Desktop button, File Browser. Docker works inside the workspace
@@ -934,12 +926,12 @@ Fully offline: binaries baked into the image, modules vendored locally,
 providers from the local filesystem mirror.
 EOF
 
- # ---------------- Template 2: ubuntu-novnc --------------------------------
- # modules: terminal (native), filebrowser, novnc
- write_template_common "$t2"
- write_module_filebrowser "$t2"
- write_module_novnc "$t2"
- cat >>"$t2/main.tf" <<'EOF'
+  # ---------------- Template 2: ubuntu-novnc --------------------------------
+  # modules: terminal (native), filebrowser, novnc
+  write_template_common    "$t2"
+  write_module_filebrowser "$t2"
+  write_module_novnc       "$t2"
+  cat >> "$t2/main.tf" <<'EOF'
 
 # ------------------------- ubuntu-novnc extras -------------------------------
 module "novnc" {
@@ -947,7 +939,7 @@ module "novnc" {
   agent_id = coder_agent.main.id
 }
 EOF
- cat >"$t2/README.md" <<'EOF'
+  cat > "$t2/README.md" <<'EOF'
 # ubuntu-novnc — Kubernetes (Deployment) + envbox
 Ubuntu workspace with a full XFCE desktop in the browser (TigerVNC + noVNC).
 Apps: Terminal (built-in), File Browser, noVNC Desktop. Docker works inside
@@ -956,7 +948,7 @@ EOF
 }
 
 write_readme() {
- cat >"$BUNDLE/README.md" <<EOF
+  cat > "$BUNDLE/README.md" <<EOF
 # Coder air-gap bundle (Coder v${CODER_VERSION}) — EKS + Traefik edition
 
     bin/            coder, terraform, helm, kubectl (linux/amd64)
@@ -1014,101 +1006,100 @@ EOF
 # PHASE 2 — INSTALL  (air-gapped bastion)
 ###############################################################################
 kctl() { "$BUNDLE/bin/kubectl" "$@"; }
-hlm() { "$BUNDLE/bin/helm" "$@"; }
+hlm()  { "$BUNDLE/bin/helm" "$@"; }
 
 maybe_extract_bundle() {
- [[ -f "$BUNDLE/.bundle-manifest" ]] && return 0
- local cand
- for cand in "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" "$PWD/${BUNDLE_NAME}.tgz"; do
-  if [[ -f "$cand" ]]; then
-   log "Auto-extracting bundle tarball: $cand"
-   tar -xzf "$cand" -C "$(dirname "$cand")"
-   BUNDLE="$(dirname "$cand")/${BUNDLE_NAME}"
-   [[ -f "$BUNDLE/.bundle-manifest" ]] && return 0
-  fi
- done
- [[ -f "$BUNDLE/.bundle-manifest" ]] ||
-  die "Bundle not found. Place ${BUNDLE_NAME}.tgz next to this script (or run the script inside an extracted bundle)."
+  [[ -f "$BUNDLE/.bundle-manifest" ]] && return 0
+  local cand
+  for cand in "$SCRIPT_DIR/${BUNDLE_NAME}.tgz" "$PWD/${BUNDLE_NAME}.tgz"; do
+    if [[ -f "$cand" ]]; then
+      log "Auto-extracting bundle tarball: $cand"
+      tar -xzf "$cand" -C "$(dirname "$cand")"
+      BUNDLE="$(dirname "$cand")/${BUNDLE_NAME}"
+      [[ -f "$BUNDLE/.bundle-manifest" ]] && return 0
+    fi
+  done
+  [[ -f "$BUNDLE/.bundle-manifest" ]] \
+    || die "Bundle not found. Place ${BUNDLE_NAME}.tgz next to this script (or run the script inside an extracted bundle)."
 }
 
 detect_bastion_ip() {
- local ip="${BASTION_IP:-}"
- [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
- [[ -z "$ip" ]] && ip="$(ip -4 route get 10.0.0.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
- [[ -n "$ip" ]] || die "Could not detect bastion IP; set BASTION_IP=<ip reachable from EKS nodes>"
- echo "$ip"
+  local ip="${BASTION_IP:-}"
+  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [[ -z "$ip" ]] && ip="$(ip -4 route get 10.0.0.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+  [[ -n "$ip" ]] || die "Could not detect bastion IP; set BASTION_IP=<ip reachable from EKS nodes>"
+  echo "$ip"
 }
 
 setup_bundled_registry() {
- need openssl
- local host_ip
- host_ip="$(detect_bastion_ip)"
- REGISTRY="${host_ip}:${BUNDLED_REGISTRY_PORT}"
- local pki="$BUNDLE/pki"
- mkdir -p "$pki" "$BUNDLE/registry-data"
+  need openssl
+  local host_ip; host_ip="$(detect_bastion_ip)"
+  REGISTRY="${host_ip}:${BUNDLED_REGISTRY_PORT}"
+  local pki="$BUNDLE/pki"
+  mkdir -p "$pki" "$BUNDLE/registry-data"
 
- if [[ -n "$REGISTRY_TLS_CRT_FILE" && -n "$REGISTRY_TLS_KEY_FILE" ]]; then
-  log "Using provided (org-signed) registry TLS cert — zero node configuration needed"
-  cp -f "$REGISTRY_TLS_CRT_FILE" "$pki/registry.crt"
-  cp -f "$REGISTRY_TLS_KEY_FILE" "$pki/registry.key"
-  if [[ -n "$REGISTRY_TLS_CA_FILE" ]]; then
-   cp -f "$REGISTRY_TLS_CA_FILE" "$pki/registry-ca.crt"
-  fi
-  REGISTRY_SELF_SIGNED="false"
- else
-  log "Generating registry PKI (self-signed CA + server cert, SAN: IP:${host_ip})"
-  if [[ ! -f "$pki/registry-ca.crt" ]]; then
-   openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-    -keyout "$pki/registry-ca.key" -out "$pki/registry-ca.crt" \
-    -subj "/CN=coder-airgap-registry-ca" >/dev/null 2>&1
-  fi
-  openssl req -newkey rsa:4096 -sha256 -nodes \
-   -keyout "$pki/registry.key" -out "$pki/registry.csr" \
-   -subj "/CN=coder-airgap-registry" >/dev/null 2>&1
-  cat >"$pki/registry-san.cnf" <<EOF
+  if [[ -n "$REGISTRY_TLS_CRT_FILE" && -n "$REGISTRY_TLS_KEY_FILE" ]]; then
+    log "Using provided (org-signed) registry TLS cert — zero node configuration needed"
+    cp -f "$REGISTRY_TLS_CRT_FILE" "$pki/registry.crt"
+    cp -f "$REGISTRY_TLS_KEY_FILE" "$pki/registry.key"
+    if [[ -n "$REGISTRY_TLS_CA_FILE" ]]; then
+      cp -f "$REGISTRY_TLS_CA_FILE" "$pki/registry-ca.crt"
+    fi
+    REGISTRY_SELF_SIGNED="false"
+  else
+    log "Generating registry PKI (self-signed CA + server cert, SAN: IP:${host_ip})"
+    if [[ ! -f "$pki/registry-ca.crt" ]]; then
+      openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+        -keyout "$pki/registry-ca.key" -out "$pki/registry-ca.crt" \
+        -subj "/CN=coder-airgap-registry-ca" >/dev/null 2>&1
+    fi
+    openssl req -newkey rsa:4096 -sha256 -nodes \
+      -keyout "$pki/registry.key" -out "$pki/registry.csr" \
+      -subj "/CN=coder-airgap-registry" >/dev/null 2>&1
+    cat > "$pki/registry-san.cnf" <<EOF
 subjectAltName = IP:${host_ip}, IP:127.0.0.1, DNS:localhost, DNS:$(hostname -f 2>/dev/null || hostname)
 EOF
-  openssl x509 -req -in "$pki/registry.csr" -sha256 -days 3650 \
-   -CA "$pki/registry-ca.crt" -CAkey "$pki/registry-ca.key" -CAcreateserial \
-   -extfile "$pki/registry-san.cnf" -out "$pki/registry.crt" >/dev/null 2>&1
-  rm -f "$pki/registry.csr" "$pki/registry-san.cnf"
-  REGISTRY_SELF_SIGNED="true"
- fi
-
- # Trust the registry cert on the BASTION's docker daemon (for pushes)
- if [[ -f "$pki/registry-ca.crt" ]]; then
-  log "Installing registry CA into bastion docker trust (/etc/docker/certs.d/${REGISTRY}/)"
-  local certs_d="/etc/docker/certs.d/${REGISTRY}"
-  if [[ -w "$(dirname "$certs_d")" || $EUID -eq 0 ]]; then
-   mkdir -p "$certs_d" && cp -f "$pki/registry-ca.crt" "$certs_d/ca.crt"
-  else
-   sudo mkdir -p "$certs_d" && sudo cp -f "$pki/registry-ca.crt" "$certs_d/ca.crt" ||
-    die "Could not install registry CA to $certs_d — run: sudo mkdir -p $certs_d && sudo cp $pki/registry-ca.crt $certs_d/ca.crt, then re-run"
+    openssl x509 -req -in "$pki/registry.csr" -sha256 -days 3650 \
+      -CA "$pki/registry-ca.crt" -CAkey "$pki/registry-ca.key" -CAcreateserial \
+      -extfile "$pki/registry-san.cnf" -out "$pki/registry.crt" >/dev/null 2>&1
+    rm -f "$pki/registry.csr" "$pki/registry-san.cnf"
+    REGISTRY_SELF_SIGNED="true"
   fi
- fi
 
- log "Starting bundled TLS registry at https://${REGISTRY}"
- docker rm -f coder-airgap-registry >/dev/null 2>&1 || true
- docker run -d --restart=always --name coder-airgap-registry \
-  -p "${BUNDLED_REGISTRY_PORT}:5000" \
-  -v "$pki:/certs:ro" \
-  -v "$BUNDLE/registry-data:/var/lib/registry" \
-  -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/registry.crt \
-  -e REGISTRY_HTTP_TLS_KEY=/certs/registry.key \
-  registry:2 >/dev/null
- # Wait until the registry answers
- local i
- for i in $(seq 1 30); do
-  curl -fsk "https://127.0.0.1:${BUNDLED_REGISTRY_PORT}/v2/" >/dev/null 2>&1 && break
-  sleep 1
- done
- curl -fsk "https://127.0.0.1:${BUNDLED_REGISTRY_PORT}/v2/" >/dev/null 2>&1 ||
-  die "Bundled registry failed to start (docker logs coder-airgap-registry)"
+  # Trust the registry cert on the BASTION's docker daemon (for pushes)
+  if [[ -f "$pki/registry-ca.crt" ]]; then
+    log "Installing registry CA into bastion docker trust (/etc/docker/certs.d/${REGISTRY}/)"
+    local certs_d="/etc/docker/certs.d/${REGISTRY}"
+    if [[ -w "$(dirname "$certs_d")" || $EUID -eq 0 ]]; then
+      mkdir -p "$certs_d" && cp -f "$pki/registry-ca.crt" "$certs_d/ca.crt"
+    else
+      sudo mkdir -p "$certs_d" && sudo cp -f "$pki/registry-ca.crt" "$certs_d/ca.crt" \
+        || die "Could not install registry CA to $certs_d — run: sudo mkdir -p $certs_d && sudo cp $pki/registry-ca.crt $certs_d/ca.crt, then re-run"
+    fi
+  fi
 
- # Node-trust materials for the self-signed case
- if [[ "$REGISTRY_SELF_SIGNED" == "true" ]]; then
-  mkdir -p "$BUNDLE/manifests"
-  cat >"$BUNDLE/manifests/hosts.toml" <<EOF
+  log "Starting bundled TLS registry at https://${REGISTRY}"
+  docker rm -f coder-airgap-registry >/dev/null 2>&1 || true
+  docker run -d --restart=always --name coder-airgap-registry \
+    -p "${BUNDLED_REGISTRY_PORT}:5000" \
+    -v "$pki:/certs:ro" \
+    -v "$BUNDLE/registry-data:/var/lib/registry" \
+    -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/registry.crt \
+    -e REGISTRY_HTTP_TLS_KEY=/certs/registry.key \
+    registry:2 >/dev/null
+  # Wait until the registry answers
+  local i
+  for i in $(seq 1 30); do
+    curl -fsk "https://127.0.0.1:${BUNDLED_REGISTRY_PORT}/v2/" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -fsk "https://127.0.0.1:${BUNDLED_REGISTRY_PORT}/v2/" >/dev/null 2>&1 \
+    || die "Bundled registry failed to start (docker logs coder-airgap-registry)"
+
+  # Node-trust materials for the self-signed case
+  if [[ "$REGISTRY_SELF_SIGNED" == "true" ]]; then
+    mkdir -p "$BUNDLE/manifests"
+    cat > "$BUNDLE/manifests/hosts.toml" <<EOF
 # Place on every EKS node at: /etc/containerd/certs.d/${REGISTRY}/hosts.toml
 # together with the CA at:    /etc/containerd/certs.d/${REGISTRY}/ca.crt
 server = "https://${REGISTRY}"
@@ -1117,7 +1108,7 @@ server = "https://${REGISTRY}"
   capabilities = ["pull", "resolve"]
   ca = "/etc/containerd/certs.d/${REGISTRY}/ca.crt"
 EOF
-  cat >"$BUNDLE/manifests/node-trust-userdata.sh" <<EOF
+    cat > "$BUNDLE/manifests/node-trust-userdata.sh" <<EOF
 #!/usr/bin/env bash
 # Add to EKS launch-template user data, or run on every node via SSM:
 #   aws ssm send-command --document-name AWS-RunShellScript \\
@@ -1140,141 +1131,134 @@ grep -q 'config_path' /etc/containerd/config.toml || {
   echo 'Add: [plugins."io.containerd.grpc.v1.cri".registry] config_path = "/etc/containerd/certs.d"'
 }
 EOF
-  chmod +x "$BUNDLE/manifests/node-trust-userdata.sh"
-  warn "Self-signed registry CA in use. If the pull smoke test fails, distribute"
-  warn "node trust with: $BUNDLE/manifests/node-trust-userdata.sh (SSM / user data),"
-  warn "or re-run with an org-signed cert: REGISTRY_TLS_CRT_FILE=/KEY_FILE=."
- fi
+    chmod +x "$BUNDLE/manifests/node-trust-userdata.sh"
+    warn "Self-signed registry CA in use. If the pull smoke test fails, distribute"
+    warn "node trust with: $BUNDLE/manifests/node-trust-userdata.sh (SSM / user data),"
+    warn "or re-run with an org-signed cert: REGISTRY_TLS_CRT_FILE=/KEY_FILE=."
+  fi
 }
 
 pull_smoke_test() {
- [[ "$SKIP_PULL_TEST" == "true" ]] && {
-  warn "Skipping node pull smoke test (SKIP_PULL_TEST=true)"
-  return 0
- }
- log "Running node image-pull smoke test (${REGISTRY}/airgap/ubuntu-base:latest)"
- kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
- kctl -n "$CODER_NAMESPACE" run airgap-pull-test \
-  --image="${REGISTRY}/airgap/ubuntu-base:latest" \
-  --image-pull-policy=Always --restart=Never \
-  --command -- /bin/true >/dev/null
- local i phase reason
- for i in $( # up to 10 min — workspace images are large
-  seq 1 120
- ); do
-  phase="$(kctl -n "$CODER_NAMESPACE" get pod airgap-pull-test -o jsonpath='{.status.phase}' 2>/dev/null || true)"
-  [[ "$phase" == "Succeeded" ]] && break
-  reason="$(kctl -n "$CODER_NAMESPACE" get pod airgap-pull-test \
-   -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)"
-  if [[ "$reason" == "ImagePullBackOff" || "$reason" == "ErrImagePull" ]]; then
-   kctl -n "$CODER_NAMESPACE" describe pod airgap-pull-test | sed -n '/Events:/,$p' >&2
-   kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
-   die "Nodes cannot pull from ${REGISTRY}. Fixes: (1) security group must allow nodes -> bastion:${BUNDLED_REGISTRY_PORT}; (2) if using the generated CA, install node trust via $BUNDLE/manifests/node-trust-userdata.sh; (3) best: re-run with an org-signed registry cert (REGISTRY_TLS_CRT_FILE/KEY_FILE)."
-  fi
-  sleep 5
- done
- kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
- [[ "$phase" == "Succeeded" ]] || die "Pull smoke test did not complete in time — investigate 'kubectl -n $CODER_NAMESPACE describe pod airgap-pull-test' scheduling/pull events, then re-run."
- log "Smoke test passed — nodes can pull from the bundled registry."
+  [[ "$SKIP_PULL_TEST" == "true" ]] && { warn "Skipping node pull smoke test (SKIP_PULL_TEST=true)"; return 0; }
+  log "Running node image-pull smoke test (${REGISTRY}/airgap/ubuntu-base:latest)"
+  kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
+  kctl -n "$CODER_NAMESPACE" run airgap-pull-test \
+    --image="${REGISTRY}/airgap/ubuntu-base:latest" \
+    --image-pull-policy=Always --restart=Never \
+    --command -- /bin/true >/dev/null
+  local i phase reason
+  for i in $(seq 1 120); do   # up to 10 min — workspace images are large
+    phase="$(kctl -n "$CODER_NAMESPACE" get pod airgap-pull-test -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+    [[ "$phase" == "Succeeded" ]] && break
+    reason="$(kctl -n "$CODER_NAMESPACE" get pod airgap-pull-test \
+      -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)"
+    if [[ "$reason" == "ImagePullBackOff" || "$reason" == "ErrImagePull" ]]; then
+      kctl -n "$CODER_NAMESPACE" describe pod airgap-pull-test | sed -n '/Events:/,$p' >&2
+      kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
+      die "Nodes cannot pull from ${REGISTRY}. Fixes: (1) security group must allow nodes -> bastion:${BUNDLED_REGISTRY_PORT}; (2) if using the generated CA, install node trust via $BUNDLE/manifests/node-trust-userdata.sh; (3) best: re-run with an org-signed registry cert (REGISTRY_TLS_CRT_FILE/KEY_FILE)."
+    fi
+    sleep 5
+  done
+  kctl -n "$CODER_NAMESPACE" delete pod airgap-pull-test --ignore-not-found >/dev/null 2>&1
+  [[ "$phase" == "Succeeded" ]] || die "Pull smoke test did not complete in time — investigate 'kubectl -n $CODER_NAMESPACE describe pod airgap-pull-test' scheduling/pull events, then re-run."
+  log "Smoke test passed — nodes can pull from the bundled registry."
 }
 
 create_pki_resources() {
- # Ingress TLS secret (only if cert files provided; Traefik may already hold
- # the cert cluster-wide, in which case nothing is needed here)
- if [[ -n "$TLS_CRT_FILE" && -n "$TLS_KEY_FILE" ]]; then
-  TLS_SECRET_NAME="${TLS_SECRET_NAME:-coder-tls}"
-  log "Creating ingress TLS secret '$TLS_SECRET_NAME' from provided cert/key"
-  kctl -n "$CODER_NAMESPACE" create secret tls "$TLS_SECRET_NAME" \
-   --cert="$TLS_CRT_FILE" --key="$TLS_KEY_FILE" \
-   --dry-run=client -o yaml | kctl apply -f -
- fi
+  # Ingress TLS secret (only if cert files provided; Traefik may already hold
+  # the cert cluster-wide, in which case nothing is needed here)
+  if [[ -n "$TLS_CRT_FILE" && -n "$TLS_KEY_FILE" ]]; then
+    TLS_SECRET_NAME="${TLS_SECRET_NAME:-coder-tls}"
+    log "Creating ingress TLS secret '$TLS_SECRET_NAME' from provided cert/key"
+    kctl -n "$CODER_NAMESPACE" create secret tls "$TLS_SECRET_NAME" \
+      --cert="$TLS_CRT_FILE" --key="$TLS_KEY_FILE" \
+      --dry-run=client -o yaml | kctl apply -f -
+  fi
 
- # Org CA bundle — mounted into Coder pods (chart 'coder.certs') and also
- # published as a ConfigMap for workspaces/templates to consume if needed.
- if [[ -n "$CA_BUNDLE_FILE" ]]; then
-  log "Creating CA bundle secret + configmap 'coder-ca-bundle'"
-  kctl -n "$CODER_NAMESPACE" create secret generic coder-ca-bundle \
-   --from-file=ca.crt="$CA_BUNDLE_FILE" \
-   --dry-run=client -o yaml | kctl apply -f -
-  kctl -n "$CODER_NAMESPACE" create configmap coder-ca-bundle \
-   --from-file=ca.crt="$CA_BUNDLE_FILE" \
-   --dry-run=client -o yaml | kctl apply -f -
- fi
+  # Org CA bundle — mounted into Coder pods (chart 'coder.certs') and also
+  # published as a ConfigMap for workspaces/templates to consume if needed.
+  if [[ -n "$CA_BUNDLE_FILE" ]]; then
+    log "Creating CA bundle secret + configmap 'coder-ca-bundle'"
+    kctl -n "$CODER_NAMESPACE" create secret generic coder-ca-bundle \
+      --from-file=ca.crt="$CA_BUNDLE_FILE" \
+      --dry-run=client -o yaml | kctl apply -f -
+    kctl -n "$CODER_NAMESPACE" create configmap coder-ca-bundle \
+      --from-file=ca.crt="$CA_BUNDLE_FILE" \
+      --dry-run=client -o yaml | kctl apply -f -
+  fi
 }
 
 cmd_install() {
- need docker
- need curl
- maybe_extract_bundle
- # shellcheck disable=SC1091
- source "$BUNDLE/.bundle-manifest"
- [[ -x "$BUNDLE/bin/kubectl" && -x "$BUNDLE/bin/helm" && -x "$BUNDLE/bin/coder" ]] || die "bundle bin/ is incomplete"
- kctl get nodes >/dev/null || die "kubectl cannot reach the cluster (check KUBECONFIG)"
- mkdir -p "$BUNDLE/manifests"
+  need docker; need curl
+  maybe_extract_bundle
+  # shellcheck disable=SC1091
+  source "$BUNDLE/.bundle-manifest"
+  [[ -x "$BUNDLE/bin/kubectl" && -x "$BUNDLE/bin/helm" && -x "$BUNDLE/bin/coder" ]] || die "bundle bin/ is incomplete"
+  kctl get nodes >/dev/null || die "kubectl cannot reach the cluster (check KUBECONFIG)"
+  mkdir -p "$BUNDLE/manifests"
 
- # ------------------------------------------------------------- preflight
- if [[ "$INGRESS_ENABLE" == "true" || "$GATEWAY_API" == "true" ]]; then
-  [[ -n "$CODER_HOSTNAME" ]] || die "CODER_HOSTNAME is required (e.g. CODER_HOSTNAME=coder.corp.internal) — it becomes the https:// access URL behind Traefik. To skip ingress entirely: INGRESS_ENABLE=false CODER_SERVICE_TYPE=NodePort."
- fi
- if [[ -z "$PG_STORAGE_CLASS" ]]; then
-  kctl get storageclass -o jsonpath='{range .items[*]}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{"\n"}{end}' 2>/dev/null | grep -q true ||
-   warn "No default StorageClass detected — PVCs may hang. Ensure the EBS CSI addon is installed, or set PG_STORAGE_CLASS/HOME_STORAGE_CLASS."
- fi
+  # ------------------------------------------------------------- preflight
+  if [[ "$INGRESS_ENABLE" == "true" || "$GATEWAY_API" == "true" ]]; then
+    [[ -n "$CODER_HOSTNAME" ]] || die "CODER_HOSTNAME is required (e.g. CODER_HOSTNAME=coder.corp.internal) — it becomes the https:// access URL behind Traefik. To skip ingress entirely: INGRESS_ENABLE=false CODER_SERVICE_TYPE=NodePort."
+  fi
+  if [[ -z "$PG_STORAGE_CLASS" ]]; then
+    kctl get storageclass -o jsonpath='{range .items[*]}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{"\n"}{end}' 2>/dev/null | grep -q true \
+      || warn "No default StorageClass detected — PVCs may hang. Ensure the EBS CSI addon is installed, or set PG_STORAGE_CLASS/HOME_STORAGE_CLASS."
+  fi
 
- # ------------------------------------------------------------ load images
- log "Loading images from bundle (docker load)"
- docker load -i "$BUNDLE/images/images.tar"
+  # ------------------------------------------------------------ load images
+  log "Loading images from bundle (docker load)"
+  docker load -i "$BUNDLE/images/images.tar"
 
- # --------------------------------------------------------------- registry
- local REGISTRY_SELF_SIGNED="false"
- if [[ -z "$REGISTRY" ]]; then
-  setup_bundled_registry
- else
-  log "Using external registry: $REGISTRY (bundled registry skipped)"
- fi
+  # --------------------------------------------------------------- registry
+  local REGISTRY_SELF_SIGNED="false"
+  if [[ -z "$REGISTRY" ]]; then
+    setup_bundled_registry
+  else
+    log "Using external registry: $REGISTRY (bundled registry skipped)"
+  fi
 
- log "Tagging & pushing images to $REGISTRY"
- local pairs=(
-  "coder-airgap:v${CODER_VERSION}|coder-airgap:v${CODER_VERSION}"
-  "airgap/ubuntu-base:latest|airgap/ubuntu-base:latest"
-  "airgap/ubuntu-novnc:latest|airgap/ubuntu-novnc:latest"
-  "ghcr.io/coder/envbox:${ENVBOX_VERSION}|coder/envbox:${ENVBOX_VERSION}"
-  "ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}|cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}"
-  "ghcr.io/cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}|cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}"
- )
- local pair src dst
- for pair in "${pairs[@]}"; do
-  src="${pair%%|*}"
-  dst="${pair##*|}"
-  docker tag "$src" "$REGISTRY/$dst"
-  docker push "$REGISTRY/$dst"
- done
+  log "Tagging & pushing images to $REGISTRY"
+  local pairs=(
+    "coder-airgap:v${CODER_VERSION}|coder-airgap:v${CODER_VERSION}"
+    "airgap/ubuntu-base:latest|airgap/ubuntu-base:latest"
+    "airgap/ubuntu-novnc:latest|airgap/ubuntu-novnc:latest"
+    "ghcr.io/coder/envbox:${ENVBOX_VERSION}|coder/envbox:${ENVBOX_VERSION}"
+    "ghcr.io/cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}|cloudnative-pg/cloudnative-pg:${CNPG_OPERATOR_VERSION}"
+    "ghcr.io/cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}|cloudnative-pg/postgresql:${CNPG_PG_IMAGE_TAG}"
+  )
+  local pair src dst
+  for pair in "${pairs[@]}"; do
+    src="${pair%%|*}"; dst="${pair##*|}"
+    docker tag "$src" "$REGISTRY/$dst"
+    docker push "$REGISTRY/$dst"
+  done
 
- # -------------------------------------------------------------- namespaces
- kctl create namespace "$CNPG_NAMESPACE" --dry-run=client -o yaml | kctl apply -f -
- kctl create namespace "$CODER_NAMESPACE" --dry-run=client -o yaml | kctl apply -f -
+  # -------------------------------------------------------------- namespaces
+  kctl create namespace "$CNPG_NAMESPACE"  --dry-run=client -o yaml | kctl apply -f -
+  kctl create namespace "$CODER_NAMESPACE" --dry-run=client -o yaml | kctl apply -f -
 
- # -------------------------------------------------- PKI secrets/configmaps
- create_pki_resources
+  # -------------------------------------------------- PKI secrets/configmaps
+  create_pki_resources
 
- # ------------------------------------------------- node pull smoke test
- pull_smoke_test
+  # ------------------------------------------------- node pull smoke test
+  pull_smoke_test
 
- # ------------------------------------------------------------ CNPG operator
- log "Installing CloudNativePG operator (chart bundles its CRDs)"
- hlm upgrade --install cnpg "$BUNDLE/charts/cloudnative-pg-${CNPG_CHART_VERSION}.tgz" \
-  --namespace "$CNPG_NAMESPACE" \
-  --set "image.repository=${REGISTRY}/cloudnative-pg/cloudnative-pg" \
-  --set "image.tag=${CNPG_OPERATOR_VERSION}" \
-  --wait --timeout 10m
- kctl wait --for=condition=Established "crd/clusters.postgresql.cnpg.io" --timeout=180s
+  # ------------------------------------------------------------ CNPG operator
+  log "Installing CloudNativePG operator (chart bundles its CRDs)"
+  hlm upgrade --install cnpg "$BUNDLE/charts/cloudnative-pg-${CNPG_CHART_VERSION}.tgz" \
+    --namespace "$CNPG_NAMESPACE" \
+    --set "image.repository=${REGISTRY}/cloudnative-pg/cloudnative-pg" \
+    --set "image.tag=${CNPG_OPERATOR_VERSION}" \
+    --wait --timeout 10m
+  kctl wait --for=condition=Established "crd/clusters.postgresql.cnpg.io" --timeout=180s
 
- # ---------------------------------------------------------------- postgres
- # NOTE: CloudNativePG auto-provisions its own internal PKI (CA, server and
- # replication certs) as Kubernetes secrets — nothing extra to configure.
- log "Provisioning PostgreSQL cluster 'coder-db' (CloudNativePG)"
- {
-  cat <<EOF
+  # ---------------------------------------------------------------- postgres
+  # NOTE: CloudNativePG auto-provisions its own internal PKI (CA, server and
+  # replication certs) as Kubernetes secrets — nothing extra to configure.
+  log "Provisioning PostgreSQL cluster 'coder-db' (CloudNativePG)"
+  {
+    cat <<EOF
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -1290,28 +1274,28 @@ spec:
   storage:
     size: ${PG_STORAGE_SIZE}
 EOF
-  [[ -n "$PG_STORAGE_CLASS" ]] && echo "    storageClass: ${PG_STORAGE_CLASS}"
- } >"$BUNDLE/manifests/coder-db.yaml"
- kctl apply -f "$BUNDLE/manifests/coder-db.yaml"
+    [[ -n "$PG_STORAGE_CLASS" ]] && echo "    storageClass: ${PG_STORAGE_CLASS}"
+  } > "$BUNDLE/manifests/coder-db.yaml"
+  kctl apply -f "$BUNDLE/manifests/coder-db.yaml"
 
- log "Waiting for PostgreSQL to become ready (a few minutes)..."
- if ! kctl wait --for=condition=Ready "cluster/coder-db" -n "$CODER_NAMESPACE" --timeout=15m 2>/dev/null; then
-  kctl wait --for=jsonpath='{.status.readyInstances}'=1 "cluster/coder-db" \
-   -n "$CODER_NAMESPACE" --timeout=15m
- fi
+  log "Waiting for PostgreSQL to become ready (a few minutes)..."
+  if ! kctl wait --for=condition=Ready "cluster/coder-db" -n "$CODER_NAMESPACE" --timeout=15m 2>/dev/null; then
+    kctl wait --for=jsonpath='{.status.readyInstances}'=1 "cluster/coder-db" \
+      -n "$CODER_NAMESPACE" --timeout=15m
+  fi
 
- # ------------------------------------------------------------------- coder
- local access_url internal_url
- internal_url="http://coder.${CODER_NAMESPACE}.svc.cluster.local"
- if [[ -n "$CODER_HOSTNAME" ]]; then
-  access_url="https://${CODER_HOSTNAME}"
- else
-  access_url="$internal_url"
- fi
+  # ------------------------------------------------------------------- coder
+  local access_url internal_url
+  internal_url="http://coder.${CODER_NAMESPACE}.svc.cluster.local"
+  if [[ -n "$CODER_HOSTNAME" ]]; then
+    access_url="https://${CODER_HOSTNAME}"
+  else
+    access_url="$internal_url"
+  fi
 
- log "Installing Coder (image: ${REGISTRY}/coder-airgap:v${CODER_VERSION}, access URL: ${access_url})"
- {
-  cat <<EOF
+  log "Installing Coder (image: ${REGISTRY}/coder-airgap:v${CODER_VERSION}, access URL: ${access_url})"
+  {
+    cat <<EOF
 coder:
   image:
     repo: "${REGISTRY}/coder-airgap"
@@ -1338,53 +1322,53 @@ coder:
     - name: CODER_BLOCK_DIRECT
       value: "true"
 EOF
-  if [[ -n "$CODER_WILDCARD_HOSTNAME" ]]; then
-   cat <<EOF
+    if [[ -n "$CODER_WILDCARD_HOSTNAME" ]]; then
+      cat <<EOF
     - name: CODER_WILDCARD_ACCESS_URL
       value: "${CODER_WILDCARD_HOSTNAME}"
 EOF
-  fi
-  # Org CA bundle -> mounted into Coder pods (SSL trust)
-  if [[ -n "$CA_BUNDLE_FILE" ]]; then
-   cat <<EOF
+    fi
+    # Org CA bundle -> mounted into Coder pods (SSL trust)
+    if [[ -n "$CA_BUNDLE_FILE" ]]; then
+      cat <<EOF
   certs:
     secrets:
       - name: coder-ca-bundle
         key: ca.crt
 EOF
-  fi
-  # Traefik Ingress object (unless using Gateway API)
-  if [[ "$INGRESS_ENABLE" == "true" && "$GATEWAY_API" != "true" && -n "$CODER_HOSTNAME" ]]; then
-   cat <<EOF
+    fi
+    # Traefik Ingress object (unless using Gateway API)
+    if [[ "$INGRESS_ENABLE" == "true" && "$GATEWAY_API" != "true" && -n "$CODER_HOSTNAME" ]]; then
+      cat <<EOF
   ingress:
     enable: true
     className: "${INGRESS_CLASS}"
     host: "${CODER_HOSTNAME}"
 EOF
-   [[ -n "$CODER_WILDCARD_HOSTNAME" ]] && cat <<EOF
+      [[ -n "$CODER_WILDCARD_HOSTNAME" ]] && cat <<EOF
     wildcardHost: "${CODER_WILDCARD_HOSTNAME}"
 EOF
-   cat <<EOF
+      cat <<EOF
     tls:
       enable: true
 EOF
-   [[ -n "$TLS_SECRET_NAME" ]] && cat <<EOF
+      [[ -n "$TLS_SECRET_NAME" ]] && cat <<EOF
       secretName: "${TLS_SECRET_NAME}"
 EOF
-  fi
- } >"$BUNDLE/manifests/coder-values.yaml"
+    fi
+  } > "$BUNDLE/manifests/coder-values.yaml"
 
- hlm upgrade --install coder "$BUNDLE/charts/coder-${CODER_CHART_VERSION}.tgz" \
-  --namespace "$CODER_NAMESPACE" \
-  --values "$BUNDLE/manifests/coder-values.yaml" \
-  --wait --timeout 10m
- kctl rollout status deployment/coder -n "$CODER_NAMESPACE" --timeout=10m
+  hlm upgrade --install coder "$BUNDLE/charts/coder-${CODER_CHART_VERSION}.tgz" \
+    --namespace "$CODER_NAMESPACE" \
+    --values "$BUNDLE/manifests/coder-values.yaml" \
+    --wait --timeout 10m
+  kctl rollout status deployment/coder -n "$CODER_NAMESPACE" --timeout=10m
 
- # ------------------------------------------- Gateway API HTTPRoute (opt-in)
- if [[ "$GATEWAY_API" == "true" ]]; then
-  log "Creating Gateway API HTTPRoute -> gateway '${GATEWAY_NAME}' (ns: ${GATEWAY_NAMESPACE})"
-  {
-   cat <<EOF
+  # ------------------------------------------- Gateway API HTTPRoute (opt-in)
+  if [[ "$GATEWAY_API" == "true" ]]; then
+    log "Creating Gateway API HTTPRoute -> gateway '${GATEWAY_NAME}' (ns: ${GATEWAY_NAMESPACE})"
+    {
+      cat <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -1395,8 +1379,8 @@ spec:
     - name: ${GATEWAY_NAME}
       namespace: ${GATEWAY_NAMESPACE}
 EOF
-   [[ -n "$GATEWAY_SECTION_NAME" ]] && echo "      sectionName: ${GATEWAY_SECTION_NAME}"
-   cat <<EOF
+      [[ -n "$GATEWAY_SECTION_NAME" ]] && echo "      sectionName: ${GATEWAY_SECTION_NAME}"
+      cat <<EOF
   hostnames:
     - "${CODER_HOSTNAME}"
   rules:
@@ -1404,86 +1388,86 @@ EOF
         - name: coder
           port: 80
 EOF
-  } >"$BUNDLE/manifests/coder-httproute.yaml"
-  kctl apply -f "$BUNDLE/manifests/coder-httproute.yaml"
-  warn "Ensure the Gateway's listener allowedRoutes permits namespace '${CODER_NAMESPACE}'."
- fi
+    } > "$BUNDLE/manifests/coder-httproute.yaml"
+    kctl apply -f "$BUNDLE/manifests/coder-httproute.yaml"
+    warn "Ensure the Gateway's listener allowedRoutes permits namespace '${CODER_NAMESPACE}'."
+  fi
 
- # ------------------------------------------------ first user + templates
- log "Creating admin user '${ADMIN_USERNAME}' and pushing templates (via temporary port-forward)"
- kctl -n "$CODER_NAMESPACE" port-forward svc/coder 32112:80 >/dev/null 2>&1 &
- local pf_pid=$!
- trap 'kill "$pf_pid" 2>/dev/null || true' EXIT
- sleep 4
+  # ------------------------------------------------ first user + templates
+  log "Creating admin user '${ADMIN_USERNAME}' and pushing templates (via temporary port-forward)"
+  kctl -n "$CODER_NAMESPACE" port-forward svc/coder 32112:80 >/dev/null 2>&1 &
+  local pf_pid=$!
+  trap 'kill "$pf_pid" 2>/dev/null || true' EXIT
+  sleep 4
 
- export CODER_URL="http://127.0.0.1:32112"
- if ! "$BUNDLE/bin/coder" login "$CODER_URL" \
-  --first-user-email "$ADMIN_EMAIL" \
-  --first-user-username "$ADMIN_USERNAME" \
-  --first-user-password "$ADMIN_PASSWORD" \
-  --first-user-trial=false; then
-  warn "First-user creation failed (a user may already exist)."
-  warn "Log in manually:  $BUNDLE/bin/coder login $CODER_URL"
-  warn "then re-run:      REGISTRY=$REGISTRY $0 push-templates"
-  die "Aborting before template push."
- fi
+  export CODER_URL="http://127.0.0.1:32112"
+  if ! "$BUNDLE/bin/coder" login "$CODER_URL" \
+        --first-user-email    "$ADMIN_EMAIL" \
+        --first-user-username "$ADMIN_USERNAME" \
+        --first-user-password "$ADMIN_PASSWORD" \
+        --first-user-trial=false; then
+    warn "First-user creation failed (a user may already exist)."
+    warn "Log in manually:  $BUNDLE/bin/coder login $CODER_URL"
+    warn "then re-run:      REGISTRY=$REGISTRY $0 push-templates"
+    die  "Aborting before template push."
+  fi
 
- push_templates
+  push_templates
 
- kill "$pf_pid" 2>/dev/null || true
- trap - EXIT
+  kill "$pf_pid" 2>/dev/null || true
+  trap - EXIT
 
- # ---------------------------------------------------------------- summary
- echo
- log "================================================================"
- log " Coder is installed and fully air-gapped."
- log "   Namespace:      $CODER_NAMESPACE"
- log "   URL:            $access_url   (via Traefik, TLS pre-provisioned)"
- log "   Agent URL:      $internal_url (internal, no external TLS dependency)"
- log "   Registry:       https://$REGISTRY (bundled, TLS)"
- log "   Admin login:    $ADMIN_USERNAME / $ADMIN_PASSWORD"
- log "   Templates:      ubuntu-base, ubuntu-novnc  (Kubernetes Deployment + envbox)"
- log "================================================================"
- warn "CHANGE the admin password after first login (Account -> Security)."
- warn "Keep the bundled registry container running — workspace pods pull from it."
+  # ---------------------------------------------------------------- summary
+  echo
+  log "================================================================"
+  log " Coder is installed and fully air-gapped."
+  log "   Namespace:      $CODER_NAMESPACE"
+  log "   URL:            $access_url   (via Traefik, TLS pre-provisioned)"
+  log "   Agent URL:      $internal_url (internal, no external TLS dependency)"
+  log "   Registry:       https://$REGISTRY (bundled, TLS)"
+  log "   Admin login:    $ADMIN_USERNAME / $ADMIN_PASSWORD"
+  log "   Templates:      ubuntu-base, ubuntu-novnc  (Kubernetes Deployment + envbox)"
+  log "================================================================"
+  warn "CHANGE the admin password after first login (Account -> Security)."
+  warn "Keep the bundled registry container running — workspace pods pull from it."
 }
 
 push_templates() {
- # shellcheck disable=SC1091
- source "$BUNDLE/.bundle-manifest"
- local coder_bin="$BUNDLE/bin/coder"
- local internal_url="http://coder.${CODER_NAMESPACE}.svc.cluster.local"
- local t inner_image
- for t in ubuntu-base ubuntu-novnc; do
-  inner_image="$REGISTRY/airgap/$t:latest"
-  log "Pushing template '$t' (inner image: $inner_image)"
-  "$coder_bin" templates push "$t" \
-   --directory "$BUNDLE/templates/$t" \
-   --variable "namespace=${CODER_NAMESPACE}" \
-   --variable "envbox_image=${REGISTRY}/coder/envbox:${ENVBOX_VERSION}" \
-   --variable "inner_image=${inner_image}" \
-   --variable "agent_url=${internal_url}" \
-   --variable "home_storage_class=${HOME_STORAGE_CLASS}" \
-   --message "air-gap zero-to-hero install" \
-   --yes
- done
+  # shellcheck disable=SC1091
+  source "$BUNDLE/.bundle-manifest"
+  local coder_bin="$BUNDLE/bin/coder"
+  local internal_url="http://coder.${CODER_NAMESPACE}.svc.cluster.local"
+  local t inner_image
+  for t in ubuntu-base ubuntu-novnc; do
+    inner_image="$REGISTRY/airgap/$t:latest"
+    log "Pushing template '$t' (inner image: $inner_image)"
+    "$coder_bin" templates push "$t" \
+      --directory "$BUNDLE/templates/$t" \
+      --variable "namespace=${CODER_NAMESPACE}" \
+      --variable "envbox_image=${REGISTRY}/coder/envbox:${ENVBOX_VERSION}" \
+      --variable "inner_image=${inner_image}" \
+      --variable "agent_url=${internal_url}" \
+      --variable "home_storage_class=${HOME_STORAGE_CLASS}" \
+      --message "air-gap zero-to-hero install" \
+      --yes
+  done
 }
 
 cmd_push_templates() {
- maybe_extract_bundle
- [[ -n "$REGISTRY" ]] || REGISTRY="$(detect_bastion_ip):${BUNDLED_REGISTRY_PORT}"
- push_templates
+  maybe_extract_bundle
+  [[ -n "$REGISTRY" ]] || REGISTRY="$(detect_bastion_ip):${BUNDLED_REGISTRY_PORT}"
+  push_templates
 }
 
 ###############################################################################
 # entrypoint
 ###############################################################################
 case "${1:-}" in
-download) cmd_download ;;
-install) cmd_install ;;
-push-templates) cmd_push_templates ;;
-*)
- cat <<EOF
+  download)       cmd_download ;;
+  install)        cmd_install ;;
+  push-templates) cmd_push_templates ;;
+  *)
+    cat <<EOF
 Usage: $SCRIPT_NAME <command>
 
   download        (connected machine)   Build the offline bundle AND pack it
@@ -1513,6 +1497,6 @@ Key environment variables
              ADMIN_USERNAME ADMIN_PASSWORD ADMIN_EMAIL   (default admin/coder-admin)
              REGISTRY=host:port   (only to BYPASS the bundled registry)
 EOF
- exit 1
- ;;
+    exit 1
+    ;;
 esac
