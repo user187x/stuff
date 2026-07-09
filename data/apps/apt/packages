@@ -240,6 +240,7 @@ media=(
  "ffmpeg"                   # "the audio/video swiss army knife"
  "ffmpegthumbnailer"        # "lightweight video thumbnail generator"
  "imagemagick"              # "command-line image manipulation toolkit"
+ "v4l-utils"                # "camera util"
  "cava"                     # "console audio visualizer that dances to your music"
  "pulseaudio-utils"         # "pactl and friends for pulseaudio control"
  "jp2a"                     # "render JPEGs as ASCII art"
