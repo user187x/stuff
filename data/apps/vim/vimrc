@@ -189,7 +189,7 @@ augroup ShellFormatting
 
  " C and C++ Formatting (clang-format)
  autocmd FileType c,cpp if executable('clang-format') |
- \ let &l:equalprg = "clang-format -style='{BasedOnStyle: Google, IndentWidth: 1, UseTab: Never}'" |
+ \ let &l:equalprg = "./formatters/clang-format -style='{BasedOnStyle: Google, IndentWidth: 1, UseTab: Never}'" |
  \ nnoremap <buffer> == mzgg=G`z|
  \ elseif executable('uncrustify') |
  \ let &l:equalprg = 'uncrustify -q -c /dev/null -l ' . (&filetype ==# 'cpp' ? 'CPP' : 'C')
@@ -198,9 +198,8 @@ augroup ShellFormatting
  \ endif
 
  " Java Formatting (google-java-format)
- " Note: The trailing '-' tells the jar to format standard input rather than a file on disk.
  autocmd FileType java if executable('java') |
- \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.config/vim/java-formatter.jar -' |
+ \ let b:fmt_cmd = 'java -jar ' . $HOME . './formatters/java-formatter.jar -' |
  \ let &l:equalprg = b:fmt_cmd |
  \ nnoremap <buffer> == mzgg=G`z|
  \ endif
@@ -221,7 +220,6 @@ augroup ShellFormatting
 augroup END
 
 " Make current file executable (chmod +x) for shell or python scripts
-" Mapped to <leader>x (Space+X). Saves the buffer first so the file exists on disk.
 function! s:MakeExecutable()
  if &filetype !=# 'sh' && &filetype !=# 'python'
   echohl WarningMsg
