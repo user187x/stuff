@@ -1,20 +1,26 @@
-" vim: set ft=bash :
+" vim: set ft=vim :
 " This MUST be the first line in your .vimrc to ensure no side effects.
 set nocompatible
 
-call plug#begin('~/.config/vim/plugged')
- Plug 'preservim/nerdtree'
- Plug 'junegunn/fzf'
- Plug 'junegunn/fzf.vim'
- Plug 'instant-markdown/vim-instant-markdown'
- Plug 'https://github.com/itchyny/calendar.vim'
- Plug 'cespare/vim-toml', { 'branch': 'main' }
- Plug 'tpope/vim-sensible'
- Plug 'vim-airline/vim-airline'
- Plug 'mzlogin/vim-markdown-toc'
- Plug 'morhetz/gruvbox'
- Plug 'sheerun/vim-polyglot'
-call plug#end()
+" Skip the plugin block gracefully if vim-plug isn't installed yet,
+" instead of erroring on every Plug line.
+if empty(globpath(&runtimepath, 'autoload/plug.vim'))
+ echomsg 'vim-plug not found - plugins disabled. Install it from https://github.com/junegunn/vim-plug'
+else
+ call plug#begin('~/.config/vim/plugged')
+  Plug 'preservim/nerdtree'
+  Plug 'junegunn/fzf'
+  Plug 'junegunn/fzf.vim'
+  Plug 'instant-markdown/vim-instant-markdown'
+  Plug 'https://github.com/itchyny/calendar.vim'
+  Plug 'cespare/vim-toml', { 'branch': 'main' }
+  Plug 'tpope/vim-sensible'
+  Plug 'vim-airline/vim-airline'
+  Plug 'mzlogin/vim-markdown-toc'
+  Plug 'morhetz/gruvbox'
+  Plug 'sheerun/vim-polyglot'
+ call plug#end()
+endif
 
 " Enable syntax highlighting based on file type
 syntax on
@@ -38,7 +44,7 @@ set smartindent
 " Convert tabs to spaces (standard for most modern coding styles)
 set expandtab
 " The number of spaces inserted for each indentation level
-set shiftwidth=1
+set shiftwidth=4
 " The number of spaces a <Tab> counts for
 set tabstop=4
 " When pressing <Tab> or <Backspace>, treat spaces like a tab
@@ -75,7 +81,7 @@ inoremap jj <Esc>
 
 " Shortcut for writing as SUDO while in VIM
 cnoremap w!! execute 'silent! write !sudo tee % >/dev/null' <bar> edit!
-command W execute 'silent! write !sudo tee % >/dev/null' | edit!
+command! W execute 'silent! write !sudo tee % >/dev/null' | edit!
 
 " Saves the current file when you press Space + w
 nnoremap <leader>w :w<CR>
@@ -84,10 +90,9 @@ nnoremap <leader>w :w<CR>
 nnoremap <leader>q :q<CR>
 
 " Insert comment '#' at the beginning of selected lines in visual mode
-vnoremap <leader>3 :s/^/#/<CR>
-
-" Insert comment '#' at the beginning of selected lines in visual mode
-vnoremap # :s/^/#/<CR>
+vnoremap <leader># :s/^/#/<CR>
+" (Removed the duplicate bare '#' mapping — it shadowed the built-in
+" visual-mode '#' which searches backward for the selected text.)
 
 " Stops highlighting momentary when no longer needed
 nnoremap <leader><space> :nohlsearch<CR>
@@ -113,16 +118,32 @@ augroup ExtensionlessFiles
   autocmd BufRead,BufNewFile * if expand('%:t') !~ '\.' && &filetype == '' | set filetype=text | endif
 augroup END
 
-autocmd BufEnter *
-  \ if tabpagenr('$') == 1 &&
-  \  winnr('$') == 1 &&
-  \  exists('b:NERDTree') &&
-  \  b:NERDTree.isTabTree() |
-  \  quit |
-  \ endif
+augroup NERDTreeAutoClose
+  autocmd!
+  autocmd BufEnter *
+    \ if tabpagenr('$') == 1 &&
+    \  winnr('$') == 1 &&
+    \  exists('b:NERDTree') &&
+    \  b:NERDTree.isTabTree() |
+    \  quit |
+    \ endif
+augroup END
 
 " FZF Finder
 nnoremap <C-p> :Files<CR>
+
+" Strips trailing space (keeps cursor position and last-search pattern)
+function! s:StripTrailingWhitespace()
+  let l:view = winsaveview()
+  keeppatterns %s/\s\+$//e
+  call winrestview(l:view)
+endfunction
+nnoremap <F4> :call <SID>StripTrailingWhitespace()<CR>
+" Strips trailing space automatically on Save
+augroup StripWhitespace
+  autocmd!
+  autocmd BufWritePre * call <SID>StripTrailingWhitespace()
+augroup END
 
 " Set netrw home directory to XDG_CONFIG_HOME/vim
 if empty($XDG_CONFIG_HOME)
@@ -131,9 +152,16 @@ else
  let g:netrw_home = $XDG_CONFIG_HOME . '/vim'
 endif
 
-" Toogle insert-paste to Control+i
-nnoremap <C-i> :set invpaste<CR>
-inoremap <C-i> <C-O> :set invpaste<CR>
+" Toggle insert-paste
+" NOTE: <C-i> is the same key as <Tab> in a terminal, so mapping it would
+" break jumplist navigation. Kept disabled (with proper '"' comments).
+" nnoremap <C-i> :set invpaste<CR>
+" inoremap <C-i> <C-O>:set invpaste<CR>
+
+nnoremap <leader>p :set invpaste<CR>
+" 'pastetoggle' works even while 'paste' is on (insert-mode mappings are
+" disabled in paste mode, so an inoremap could turn it on but never off).
+set pastetoggle=<F3>
 
 " Shift visual selection left/right with Shift+Arrows and stay in visual mode
 vnoremap <S-Left>  <gv
@@ -150,14 +178,14 @@ augroup ShellFormatting
  autocmd FileType sh if executable('shfmt') |
  \ let b:fmt_cmd = 'shfmt -i 1 -ci' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " Python Formatting (ruff)
  autocmd FileType python if executable('ruff') |
  \ let b:fmt_cmd = 'ruff format --stdin-filename % --quiet --no-cache' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " C and C++ Formatting (clang-format)
@@ -165,7 +193,7 @@ augroup ShellFormatting
  autocmd FileType c,cpp if executable('clang-format') |
  \ let b:fmt_cmd = 'clang-format -style=Google' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " Java Formatting (google-java-format)
@@ -173,21 +201,21 @@ augroup ShellFormatting
  autocmd FileType java if executable('java') |
  \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.local/share/java-formatter.jar -' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " JavaScript, JSON, and YAML Formatting (prettier)
  autocmd FileType javascript,json,yaml if executable('prettier') |
  \ let b:fmt_cmd = 'prettier --stdin-filepath %' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " TOML Formatting (taplo)
  autocmd FileType toml if executable('taplo') |
  \ let b:fmt_cmd = 'taplo format -' |
  \ let &l:equalprg = b:fmt_cmd |
- \ nnoremap <buffer> == mzgg=G`z |
+ \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 augroup END
 
