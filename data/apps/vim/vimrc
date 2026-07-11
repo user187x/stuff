@@ -2,6 +2,8 @@
 " This MUST be the first line in your .vimrc to ensure no side effects.
 set nocompatible
 
+let g:java_ignore_markdown = 1
+
 " Skip the plugin block gracefully if vim-plug isn't installed yet,
 " instead of erroring on every Plug line.
 if empty(globpath(&runtimepath, 'autoload/plug.vim'))
@@ -152,11 +154,8 @@ else
  let g:netrw_home = $XDG_CONFIG_HOME . '/vim'
 endif
 
-" Toggle insert-paste
-" NOTE: <C-i> is the same key as <Tab> in a terminal, so mapping it would
-" break jumplist navigation. Kept disabled (with proper '"' comments).
-" nnoremap <C-i> :set invpaste<CR>
-" inoremap <C-i> <C-O>:set invpaste<CR>
+" cnoreabbrev nocmt g/\\\|^\s*\/\*\|\*\/\|\s*\*\s/d
+cnoreabbrev nocmt %!gcc -fpreprocessed -dD -E %
 
 nnoremap <leader>p :set invpaste<CR>
 " 'pastetoggle' works even while 'paste' is on (insert-mode mappings are
@@ -189,17 +188,19 @@ augroup ShellFormatting
  \ endif
 
  " C and C++ Formatting (clang-format)
- " Note: '-i' is omitted because equalprg requires reading from stdin and writing to stdout.
  autocmd FileType c,cpp if executable('clang-format') |
- \ let b:fmt_cmd = 'clang-format -style=Google' |
- \ let &l:equalprg = b:fmt_cmd |
+ \ let &l:equalprg = "clang-format -style='{BasedOnStyle: Google, IndentWidth: 1, UseTab: Never}'" |
+ \ nnoremap <buffer> == mzgg=G`z|
+ \ elseif executable('uncrustify') |
+ \ let &l:equalprg = 'uncrustify -q -c /dev/null -l ' . (&filetype ==# 'cpp' ? 'CPP' : 'C')
+ \   . ' --set indent_columns=1 --set indent_with_tabs=0' |
  \ nnoremap <buffer> == mzgg=G`z|
  \ endif
 
  " Java Formatting (google-java-format)
  " Note: The trailing '-' tells the jar to format standard input rather than a file on disk.
  autocmd FileType java if executable('java') |
- \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.local/share/java-formatter.jar -' |
+ \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.config/vim/java-formatter.jar -' |
  \ let &l:equalprg = b:fmt_cmd |
  \ nnoremap <buffer> == mzgg=G`z|
  \ endif
