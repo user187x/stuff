@@ -1,0 +1,29 @@
+#!/bin/bash
+
+read -erp "Enter location to save output (press enter to skip) : " output
+
+# If the user presses enter (empty input), default to the screen
+if [[ -z "${output}" ]]; then
+ out="/dev/tty"
+else
+ out="${output}"
+fi
+
+{
+ echo "=== OS & Kernel ==="
+ uname -a
+ cat /etc/os-release
+ echo -e "\n=== CPU Info ==="
+ lscpu
+ echo -e "\n=== Hardware Summary ==="
+ sudo lshw -short
+ echo -e "\n=== PCI Devices ==="
+ lspci
+ echo -e "\n=== USB Devices ==="
+ lsusb
+ echo -e "\n=== Memory Usage ==="
+ free -h
+ echo -e "\n=== Disk Space ==="
+ df -h
+
+} >"${out}"
