@@ -39,3 +39,6 @@ data/work/kv4p-ht/.git
 resources/os/components/icons/payload.tar
 target/
 certs/
+data/apps/vim/package*
+data/apps/vim/package/*
+data/apps/vim/node_modules/*

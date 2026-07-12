@@ -1,0 +1,3 @@
+/home/xxx/Desktop/ThermalCamera/build/CMakeFiles/ir_bridge.dir
+/home/xxx/Desktop/ThermalCamera/build/CMakeFiles/edit_cache.dir
+/home/xxx/Desktop/ThermalCamera/build/CMakeFiles/rebuild_cache.dir

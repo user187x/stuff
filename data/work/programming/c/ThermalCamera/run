@@ -1,0 +1,34 @@
+#!/bin/bash
+
+if ! id -nG | grep -qw "video"; then
+ sudo usermod -aG video $USER
+else
+ echo "user in video group"
+fi
+
+# Rebuild the C++ bridge
+(cd build && make)
+
+# Rebuild the Java classes
+mvn clean compile
+
+# Execute, replacing "/dev/video2" with whatever v4l2-ctl outputted for the thermal module
+export LD_LIBRARY_PATH=$(pwd)/lib:$LD_LIBRARY_PATH
+
+# Run Java code
+sudo mvn exec:java \
+ -Dexec.mainClass="com.platform.thermal.IRDriver" \
+ -Dexec.args="/dev/video2" \
+ -Djna.library.path="$(pwd)/build"
+
+readarray -t devices < <(v4l2-ctl --list-devices 2>&1)
+
+for device in "${!devices[@]}"; do
+ entry="${devices[$device]}"
+ echo -e "Trying \e[92m${entry}\e[0m"
+
+ sudo mvn exec:java \
+  -Dexec.mainClass="com.platform.thermal.IRDriver" \
+  -Dexec.args="${entry}" \
+  -Djna.library.path="$(pwd)/build"
+done

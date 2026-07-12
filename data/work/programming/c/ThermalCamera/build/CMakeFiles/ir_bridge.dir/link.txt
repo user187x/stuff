@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -shared -Wl,--dependency-file=CMakeFiles/ir_bridge.dir/link.d -Wl,-soname,libir_bridge.so -o libir_bridge.so CMakeFiles/ir_bridge.dir/ir_bridge.cpp.o   -L/home/xxx/Desktop/ThermalCamera/lib  -Wl,-rpath,/home/xxx/Desktop/ThermalCamera/lib -lthermometry -lSimple -lm
