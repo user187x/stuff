@@ -108,7 +108,7 @@ function! s:SmartComment() range
     let l:esc_cmt = escape(l:cmt, '/')
 
     " Apply comment character and a space to the start of each highlighted line
-    execute 'silent! ' . a:firstline . ',' . a:lastline . 's/^/' . l:esc_cmt . ' /'
+    execute 'silent! keeppatterns ' . a:firstline . ',' . a:lastline . 's/^/' . l:esc_cmt . ' /'
 endfunction
 
 " Map bare '#' in visual mode to trigger the SmartComment function
@@ -185,6 +185,10 @@ set pastetoggle=<F3>
 vnoremap <S-Left>  <gv
 vnoremap <S-Right> >gv
 
+" Shift visual selection left/right by exactly 1 space and stay in visual mode
+vnoremap > :<C-u>silent! keeppatterns '<,'>s/^/ /<CR>gv
+vnoremap < :<C-u>silent! keeppatterns '<,'>s/^ //<CR>gv
+
 " Toggle Visual Mode with Alt+v (Commonly recognized as Meta)
 nnoremap <M-v> v
 vnoremap <M-v> <Esc>
@@ -208,7 +212,7 @@ augroup ShellFormatting
 
  " C and C++ Formatting (clang-format)
  autocmd FileType c,cpp if executable('clang-format') |
- \ let &l:equalprg = "./formatters/clang-format -style='{BasedOnStyle: Google, IndentWidth: 1, UseTab: Never}'" |
+ \ let &l:equalprg = "$HOME/.config/vim/formatters/clang-format -style='{BasedOnStyle: Google, IndentWidth: 1, UseTab: Never}'" |
  \ nnoremap <buffer> == mzgg=G`z|
  \ elseif executable('uncrustify') |
  \ let &l:equalprg = 'uncrustify -q -c /dev/null -l ' . (&filetype ==# 'cpp' ? 'CPP' : 'C')
@@ -218,7 +222,7 @@ augroup ShellFormatting
 
  " Java Formatting (google-java-format)
  autocmd FileType java if executable('java') |
- \ let b:fmt_cmd = 'java -jar ' . $HOME . './formatters/java-formatter.jar -' |
+ \ let b:fmt_cmd = 'java -jar ' . $HOME . '/.config/vim/formatters/java-format.jar -' |
  \ let &l:equalprg = b:fmt_cmd |
  \ nnoremap <buffer> == mzgg=G`z|
  \ endif
