@@ -91,10 +91,29 @@ nnoremap <leader>w :w<CR>
 " Quits the current file or window when you press Space + q.
 nnoremap <leader>q :q<CR>
 
-" Insert comment '#' at the beginning of selected lines in visual mode
-vnoremap <leader># :s/^/#/<CR>
-" (Removed the duplicate bare '#' mapping — it shadowed the built-in
-" visual-mode '#' which searches backward for the selected text.)
+" --- Smart Visual Commenting ---
+function! s:SmartComment() range
+    " Default to shell/config style
+    let l:cmt = '#'
+
+    if &filetype ==# 'vim'
+        let l:cmt = '"'
+    elseif index(['c', 'cpp', 'java', 'javascript', 'go', 'rust', 'json'], &filetype) >= 0
+        let l:cmt = '//'
+    elseif index(['sh', 'bash', 'python', 'yaml', 'toml', 'ruby', 'perl'], &filetype) >= 0
+        let l:cmt = '#'
+    endif
+
+    " Escape special characters (like slashes) for the substitute regex
+    let l:esc_cmt = escape(l:cmt, '/')
+
+    " Apply comment character and a space to the start of each highlighted line
+    execute 'silent! ' . a:firstline . ',' . a:lastline . 's/^/' . l:esc_cmt . ' /'
+endfunction
+
+" Map bare '#' in visual mode to trigger the SmartComment function
+vnoremap # :call <SID>SmartComment()<CR>
+" -------------------------------
 
 " Stops highlighting momentary when no longer needed
 nnoremap <leader><space> :nohlsearch<CR>
