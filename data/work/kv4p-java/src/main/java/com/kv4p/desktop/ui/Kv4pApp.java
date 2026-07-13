@@ -7,7 +7,11 @@ import com.kv4p.desktop.audio.TxAudioCapture;
 import com.kv4p.desktop.protocol.Structs.DeviceState;
 import com.kv4p.desktop.protocol.Structs.Hello;
 import com.kv4p.desktop.serial.SerialLink;
-
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.Mixer;
+import javax.sound.sampled.SourceDataLine;
+import javax.sound.sampled.TargetDataLine;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
@@ -15,23 +19,22 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-
 import static com.kv4p.desktop.protocol.Kv4pProtocol.*;
 
 /**
- * kv4p HT for Desktop — Java Swing baseline mirroring the Android app's
+ * kv4p HT for Desktop   Java Swing baseline mirroring the Android app's
  * main radio screen: connect, frequency/tone/squelch config, RX audio,
  * push-to-talk with mic streaming, RSSI meter and squelch/TX indicators.
- *
  * Targets Java 26 (builds on any JDK >= 21).
  */
 public final class Kv4pApp extends JFrame {
-
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
-    // Connection
+    // Connection & Audio Routing
     private final JComboBox<SerialPort> portCombo = new JComboBox<>();
-    private final JButton refreshBtn = new JButton("Refresh");
+    private final JComboBox<Mixer.Info> rxAudioCombo = new JComboBox<>();
+    private final JComboBox<Mixer.Info> txAudioCombo = new JComboBox<>();
+    private final JButton refreshBtn = new JButton("Refresh Devices");
     private final JButton connectBtn = new JButton("Connect");
     private final JLabel statusLabel = new JLabel("Disconnected");
 
@@ -55,9 +58,9 @@ public final class Kv4pApp extends JFrame {
     // Live state
     private final JButton pttButton = new JButton("PUSH TO TALK");
     private final JProgressBar rssiBar = new JProgressBar(0, 255);
-    private final JLabel modeLabel = new JLabel("—");
-    private final JLabel squelchLabel = new JLabel("—");
-    private final JLabel freqLabel = new JLabel("—");
+    private final JLabel modeLabel = new JLabel("---");
+    private final JLabel squelchLabel = new JLabel("---");
+    private final JLabel freqLabel = new JLabel("---");
     private final JTextArea logArea = new JTextArea(10, 60);
 
     private SerialLink link;
@@ -66,7 +69,7 @@ public final class Kv4pApp extends JFrame {
     private TxAudioCapture txCapture;
 
     public Kv4pApp() {
-        super("kv4p HT — Desktop");
+        super("kv4p HT   Desktop");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(8, 8));
 
@@ -76,34 +79,79 @@ public final class Kv4pApp extends JFrame {
 
         wireActions();
         setControlsEnabled(false);
-        refreshPorts();
+        refreshDevices();
         pack();
         setMinimumSize(getSize());
         setLocationRelativeTo(null);
     }
 
     // ---------------- UI construction ----------------
-
     private JPanel buildConnectionPanel() {
-        var panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-        panel.setBorder(new TitledBorder("Connection"));
-        portCombo.setPreferredSize(new Dimension(220, portCombo.getPreferredSize().height));
+        var panel = new JPanel(new GridLayout(3, 1, 4, 4));
+        panel.setBorder(new TitledBorder("Hardware & Audio Setup"));
+
+        // Isolated renderer for the Serial Port selection list
         portCombo.setRenderer(new DefaultListCellRenderer() {
             @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
+            public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof SerialPort p) {
-                    setText(p.getSystemPortName() + " — " + p.getDescriptivePortName());
+                    setText(p.getSystemPortName() + "   " + p.getDescriptivePortName());
                 }
                 return this;
             }
         });
-        panel.add(new JLabel("Serial port:"));
-        panel.add(portCombo);
-        panel.add(refreshBtn);
-        panel.add(connectBtn);
-        panel.add(statusLabel);
+
+        // Isolated renderer for RX Audio selection
+        rxAudioCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Mixer.Info info) {
+                    setText(info.getName() + " (" + info.getDescription() + ")");
+                }
+                return this;
+            }
+        });
+
+        // Isolated renderer for TX Audio selection
+        txAudioCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Mixer.Info info) {
+                    setText(info.getName() + " (" + info.getDescription() + ")");
+                }
+                return this;
+            }
+        });
+
+        // Use safe baseline dimension limits rather than uncalculated runtime lookups
+        portCombo.setPreferredSize(new Dimension(280, 26));
+        rxAudioCombo.setPreferredSize(new Dimension(350, 26));
+        txAudioCombo.setPreferredSize(new Dimension(350, 26));
+
+        // Row 1: Serial Selection
+        var serialRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        serialRow.add(new JLabel("Serial Port:"));
+        serialRow.add(portCombo);
+        serialRow.add(refreshBtn);
+        serialRow.add(connectBtn);
+        serialRow.add(statusLabel);
+        panel.add(serialRow);
+
+        // Row 2: RX Audio (Speaker) Selection
+        var rxRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        rxRow.add(new JLabel("RX Audio (Speaker):"));
+        rxRow.add(rxAudioCombo);
+        panel.add(rxRow);
+
+        // Row 3: TX Audio (Mic) Selection
+        var txRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        txRow.add(new JLabel("TX Audio (Mic):    "));
+        txRow.add(txAudioCombo);
+        panel.add(txRow);
+
         return panel;
     }
 
@@ -116,10 +164,13 @@ public final class Kv4pApp extends JFrame {
 
         gbc.gridx = 0; gbc.gridy = 0;
         center.add(buildRadioConfigPanel(), gbc);
+
         gbc.gridx = 1;
         center.add(buildTogglesPanel(), gbc);
+
         gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
         center.add(buildLivePanel(), gbc);
+
         return center;
     }
 
@@ -134,11 +185,13 @@ public final class Kv4pApp extends JFrame {
         addRow(panel, gbc, row++, "RX freq (MHz):", freqRxField);
         addRow(panel, gbc, row++, "TX freq (MHz):", freqTxField);
         addRow(panel, gbc, row++, "Bandwidth:", bwCombo);
-        addRow(panel, gbc, row++, "Squelch (0–8):", squelchSpinner);
+        addRow(panel, gbc, row++, "Squelch (0-8):", squelchSpinner);
         addRow(panel, gbc, row++, "CTCSS TX idx:", ctcssTxSpinner);
         addRow(panel, gbc, row++, "CTCSS RX idx:", ctcssRxSpinner);
+
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
         panel.add(tuneBtn, gbc);
+
         bwCombo.setSelectedIndex(1);
         return panel;
     }
@@ -155,14 +208,17 @@ public final class Kv4pApp extends JFrame {
         var panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(new TitledBorder("Options"));
+
         panel.add(highPowerCheck);
         panel.add(filterPreCheck);
         panel.add(filterHighCheck);
         panel.add(filterLowCheck);
         panel.add(rxAudioCheck);
         panel.add(Box.createVerticalStrut(8));
+
         txAllowedCheck.setForeground(new Color(150, 60, 0));
         panel.add(txAllowedCheck);
+
         return panel;
     }
 
@@ -183,8 +239,10 @@ public final class Kv4pApp extends JFrame {
         status.add(new JLabel("Tuned:"));
         status.add(freqLabel);
         status.add(new JLabel("RSSI:"));
+
         rssiBar.setStringPainted(true);
         status.add(rssiBar);
+
         panel.add(status, BorderLayout.CENTER);
         return panel;
     }
@@ -198,13 +256,14 @@ public final class Kv4pApp extends JFrame {
     }
 
     // ---------------- Behavior ----------------
-
     private void wireActions() {
-        refreshBtn.addActionListener(e -> refreshPorts());
+        refreshBtn.addActionListener(e -> refreshDevices());
+
         connectBtn.addActionListener(e -> {
             if (client == null) connect();
             else disconnect("Disconnected");
         });
+
         tuneBtn.addActionListener(e -> tune());
 
         highPowerCheck.addActionListener(e -> ifConnected(c -> c.setFlag(HOST_STATE_HIGH_POWER, highPowerCheck.isSelected())));
@@ -214,39 +273,67 @@ public final class Kv4pApp extends JFrame {
         txAllowedCheck.addActionListener(e -> ifConnected(c -> c.setTxAllowed(txAllowedCheck.isSelected())));
         rxAudioCheck.addActionListener(e -> ifConnected(c -> c.setRxAudioOpen(rxAudioCheck.isSelected())));
 
-        // Press-and-hold PTT, like the Android app.
+        // Press-and-hold PTT
         pttButton.addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) { setPtt(true); }
             @Override public void mouseReleased(MouseEvent e) { setPtt(false); }
         });
     }
 
-    private void refreshPorts() {
+    private void refreshDevices() {
+        // Refresh Serial Ports
         portCombo.removeAllItems();
         for (SerialPort p : SerialLink.availablePorts()) {
             portCombo.addItem(p);
         }
+
+        // Refresh Audio Devices
+        rxAudioCombo.removeAllItems();
+        txAudioCombo.removeAllItems();
+
+        DataLine.Info rxInfo = new DataLine.Info(SourceDataLine.class, RxAudioPlayer.FORMAT);
+        DataLine.Info txInfo = new DataLine.Info(TargetDataLine.class, TxAudioCapture.FORMAT);
+
+        for (Mixer.Info info : AudioSystem.getMixerInfo()) {
+            Mixer mixer = AudioSystem.getMixer(info);
+
+            // Identify speakers that support our RX data format
+            if (mixer.isLineSupported(rxInfo)) {
+                rxAudioCombo.addItem(info);
+            }
+            // Identify microphones that support our TX data format
+            if (mixer.isLineSupported(txInfo)) {
+                txAudioCombo.addItem(info);
+            }
+        }
     }
 
     private void connect() {
-        SerialPort selected = (SerialPort) portCombo.getSelectedItem();
-        if (selected == null) {
+        SerialPort selectedPort = (SerialPort) portCombo.getSelectedItem();
+        Mixer.Info selectedRxAudio = (Mixer.Info) rxAudioCombo.getSelectedItem();
+
+        if (selectedPort == null) {
             JOptionPane.showMessageDialog(this, "No serial port selected.", "kv4p", JOptionPane.WARNING_MESSAGE);
             return;
         }
+
         try {
-            link = SerialLink.open(selected);
+            link = SerialLink.open(selectedPort);
             client = Kv4pClient.connect(link);
             client.addListener(new UiListener());
+
             rxPlayer = new RxAudioPlayer();
-            rxPlayer.start();
+            rxPlayer.start(selectedRxAudio);
+
             txCapture = new TxAudioCapture(frame -> {
                 Kv4pClient c = client;
                 if (c != null) c.sendTxAudioFrame(frame);
             });
-            statusLabel.setText("Waiting for HELLO on " + link.portName() + "…");
+
+            statusLabel.setText("Waiting for HELLO on " + link.portName() + "...");
             connectBtn.setText("Disconnect");
             log("Opened " + link.portName() + " @ " + SERIAL_BAUD + " baud, reset device, waiting for HELLO");
+
         } catch (Exception ex) {
             disconnect("Connect failed: " + ex.getMessage());
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Connect failed", JOptionPane.ERROR_MESSAGE);
@@ -258,13 +345,14 @@ public final class Kv4pApp extends JFrame {
         if (rxPlayer != null) { rxPlayer.close(); rxPlayer = null; }
         if (client != null) { client.close(); client = null; }
         link = null;
+
         SwingUtilities.invokeLater(() -> {
             statusLabel.setText(reason);
             connectBtn.setText("Connect");
             setControlsEnabled(false);
-            modeLabel.setText("—");
-            squelchLabel.setText("—");
-            freqLabel.setText("—");
+            modeLabel.setText("---");
+            squelchLabel.setText("---");
+            freqLabel.setText("---");
             rssiBar.setValue(0);
         });
     }
@@ -290,15 +378,23 @@ public final class Kv4pApp extends JFrame {
     private void setPtt(boolean down) {
         Kv4pClient c = client;
         if (c == null) return;
+
         if (down && !txAllowedCheck.isSelected()) {
             log("PTT ignored: enable 'TX allowed' first (firmware safety flag).");
             return;
         }
+
         c.setPtt(down);
         pttButton.setBackground(down ? new Color(255, 120, 120) : new Color(220, 220, 220));
+
+        Mixer.Info selectedTxAudio = (Mixer.Info) txAudioCombo.getSelectedItem();
         try {
-            if (down) txCapture.start();
-            else { txCapture.close(); txCapture = new TxAudioCapture(f -> { if (client != null) client.sendTxAudioFrame(f); }); }
+            if (down) {
+                txCapture.start(selectedTxAudio);
+            } else {
+                txCapture.close();
+                txCapture = new TxAudioCapture(f -> { if (client != null) client.sendTxAudioFrame(f); });
+            }
         } catch (Exception ex) {
             log("Mic error: " + ex.getMessage());
         }
@@ -325,19 +421,20 @@ public final class Kv4pApp extends JFrame {
     }
 
     // ---------------- Client events ----------------
-
     private final class UiListener implements Kv4pClient.Listener {
         @Override
         public void onHello(Hello hello) {
-            log(String.format("HELLO: fw v%d, module=%s, window=%d, band %.1f–%.1f MHz, features=0x%02X",
+            log(String.format("HELLO: fw v%d, module=%s, window=%d, band %.1f-%.1f MHz, features=0x%02X",
                     hello.version().ver(),
                     hello.version().radioModuleStatus() == RADIO_MODULE_FOUND ? "found" : "NOT FOUND",
                     hello.version().windowSize(),
                     hello.version().minRadioFreq(), hello.version().maxRadioFreq(),
                     hello.version().features()));
+
             SwingUtilities.invokeLater(() -> {
-                statusLabel.setText("Connected — firmware v" + hello.version().ver());
+                statusLabel.setText("Connected - firmware v" + hello.version().ver());
                 setControlsEnabled(true);
+
                 DeviceState d = hello.deviceState();
                 freqRxField.setText(String.format("%.4f", d.freqRx()));
                 freqTxField.setText(String.format("%.4f", d.freqTx()));
@@ -351,6 +448,7 @@ public final class Kv4pApp extends JFrame {
                 filterLowCheck.setSelected(d.flag(HOST_STATE_FILTER_LOW));
                 txAllowedCheck.setSelected(d.flag(HOST_STATE_TX_ALLOWED));
             });
+
             // Open RX audio by default, mirroring the Android app.
             ifConnected(c -> c.setRxAudioOpen(rxAudioCheck.isSelected()));
         }
@@ -366,7 +464,7 @@ public final class Kv4pApp extends JFrame {
                 squelchLabel.setText(state.flag(DEVICE_STATE_SQUELCHED) ? "Closed" : "OPEN");
                 freqLabel.setText(String.format("RX %.4f / TX %.4f MHz", state.freqRx(), state.freqTx()));
                 rssiBar.setValue(state.latestRssi());
-                rssiBar.setString("S " + state.latestRssi());
+                rssiBar.setString("S-" + state.latestRssi());
                 if (state.lastError() != DEVICE_STATE_ERROR_NONE) {
                     log("Device error: " + state.lastError());
                 }

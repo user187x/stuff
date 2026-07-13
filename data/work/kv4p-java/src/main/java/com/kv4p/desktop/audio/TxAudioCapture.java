@@ -15,8 +15,7 @@ import javax.sound.sampled.TargetDataLine;
  * blocks, and hands them to the sender (COMMAND_HOST_TX_AUDIO).
  */
 public final class TxAudioCapture implements AutoCloseable {
-
-  private static final AudioFormat FORMAT =
+  public static final AudioFormat FORMAT =
       new AudioFormat(AUDIO_WIRE_SAMPLE_RATE, 16, 1, true, false);
 
   private final Consumer<byte[]> frameSink;
@@ -28,23 +27,20 @@ public final class TxAudioCapture implements AutoCloseable {
     this.frameSink = adpcmFrameSink;
   }
 
-  public synchronized void start() throws LineUnavailableException {
+  public synchronized void start(Mixer.Info selectedMixerInfo) throws LineUnavailableException {
     if (running) return;
-
     DataLine.Info info = new DataLine.Info(TargetDataLine.class, FORMAT);
     line = null;
 
-    // Explicitly target PipeWire/PulseAudio for reliable microphone capture
-    for (Mixer.Info mixerInfo : AudioSystem.getMixerInfo()) {
-      if (mixerInfo.getName().contains("PulseAudio") || mixerInfo.getName().contains("PipeWire")) {
-        Mixer mixer = AudioSystem.getMixer(mixerInfo);
-        if (mixer.isLineSupported(info)) {
-          line = (TargetDataLine) mixer.getLine(info);
-          break;
-        }
+    // Use the user-selected device if provided and supported
+    if (selectedMixerInfo != null) {
+      Mixer mixer = AudioSystem.getMixer(selectedMixerInfo);
+      if (mixer.isLineSupported(info)) {
+        line = (TargetDataLine) mixer.getLine(info);
       }
     }
 
+    // Fallback to the default system audio line
     if (line == null) {
       line = (TargetDataLine) AudioSystem.getLine(info);
     }
@@ -59,6 +55,7 @@ public final class TxAudioCapture implements AutoCloseable {
     var encoder = new ImaAdpcm.Encoder();
     byte[] raw = new byte[ImaAdpcm.BLOCK_SAMPLES * 2];
     short[] pcm = new short[ImaAdpcm.BLOCK_SAMPLES];
+
     while (running) {
       int filled = 0;
       while (running && filled < raw.length) {
