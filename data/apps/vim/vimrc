@@ -107,8 +107,14 @@ function! s:SmartComment() range
     " Escape special characters (like slashes) for the substitute regex
     let l:esc_cmt = escape(l:cmt, '/')
 
-    " Apply comment character and a space to the start of each highlighted line
-    execute 'silent! keeppatterns ' . a:firstline . ',' . a:lastline . 's/^/' . l:esc_cmt . ' /'
+    " Check if the first line of the selection is already commented to toggle
+    if getline(a:firstline) =~# '^\s*' . l:esc_cmt
+        " Uncomment: Remove comment character and up to one trailing space
+        execute 'silent! keeppatterns ' . a:firstline . ',' . a:lastline . 's/^\(\s*\)' . l:esc_cmt . '\s\?/\1/'
+    else
+        " Comment: Apply comment character and a space to the start of each highlighted line
+        execute 'silent! keeppatterns ' . a:firstline . ',' . a:lastline . 's/^/' . l:esc_cmt . ' /'
+    endif
 endfunction
 
 " Map bare '#' in visual mode to trigger the SmartComment function
