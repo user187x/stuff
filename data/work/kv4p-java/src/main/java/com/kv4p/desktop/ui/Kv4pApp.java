@@ -266,22 +266,43 @@ public final class Kv4pApp extends JFrame {
     return panel;
   }
 
-  // TODO - Implement the message functionality
   private JPanel buildMessagePanel() {
-
     var panel = new JPanel(new BorderLayout(8, 8));
     panel.setBorder(new TitledBorder("Messenger"));
 
-    sendButton.setFont(pttButton.getFont().deriveFont(Font.BOLD, 20f));
-    sendButton.setPreferredSize(new Dimension(200, 70));
-    sendButton.setBackground(new Color(220, 220, 220));
-    panel.add(sendButton, BorderLayout.WEST);
+    // Main container for the stacked sections
+    var mainStack = new JPanel();
+    mainStack.setLayout(new BoxLayout(mainStack, BoxLayout.Y_AXIS));
 
-    var messages = new JPanel(new GridLayout(4, 2, 6, 2));
-    messages.add(new JLabel("Messages"));
-    messages.add(modeLabel);
+    // --- TOP: Compose Section ---
+    var composePanel = new JPanel(new BorderLayout(8, 0));
+    composePanel.setBorder(new TitledBorder("Compose Message"));
 
-    panel.add(messages, BorderLayout.CENTER);
+    // Send button on the left of the compose area
+    sendButton.setFont(sendButton.getFont().deriveFont(Font.BOLD, 12f));
+    sendButton.setPreferredSize(new Dimension(100, 50));
+    sendButton.setBackground(new Color(50, 150, 80));
+    sendButton.setOpaque(true);
+    sendButton.setContentAreaFilled(true);
+    composePanel.add(sendButton, BorderLayout.WEST);
+
+    // Text area for input
+    var sendArea = new JTextArea(3, 40);
+    composePanel.add(new JScrollPane(sendArea), BorderLayout.CENTER);
+
+    mainStack.add(composePanel);
+    mainStack.add(Box.createVerticalStrut(8));
+
+    // --- BOTTOM: Receive Section ---
+    var receiveArea = new JTextArea(5, 40);
+    receiveArea.setEditable(false);
+    var receivePanel = new JPanel(new BorderLayout());
+    receivePanel.setBorder(new TitledBorder("Received Messages"));
+    receivePanel.add(new JScrollPane(receiveArea), BorderLayout.CENTER);
+
+    mainStack.add(receivePanel);
+
+    panel.add(mainStack, BorderLayout.CENTER);
     return panel;
   }
 
@@ -293,7 +314,6 @@ public final class Kv4pApp extends JFrame {
     return scroll;
   }
 
-  // ---------------- Behavior ----------------
   private void wireActions() {
     refreshBtn.addActionListener(e -> refreshDevices());
 
@@ -386,14 +406,14 @@ public final class Kv4pApp extends JFrame {
                 if (c != null) c.sendTxAudioFrame(frame);
               });
 
-      statusLabel.setText("Waiting for HELLO on " + link.portName() + "...");
+      statusLabel.setText("Waiting for device initialization " + link.portName() + "...");
       connectBtn.setText("Disconnect");
       log(
           "Opened "
               + link.portName()
               + " @ "
               + SERIAL_BAUD
-              + " baud, reset device, waiting for HELLO");
+              + " baud, reset device, initializing...");
 
     } catch (Exception ex) {
       disconnect("Connect failed: " + ex.getMessage());
