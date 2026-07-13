@@ -53,7 +53,7 @@ public final class Kv4pApp extends JFrame {
 
   // Live state
   private final JButton pttButton = new JButton("PUSH TO TALK");
-  private final JButton sendButton = new JButton("Send")
+  private final JButton sendButton = new JButton("Send");
   private final JProgressBar rssiBar = new JProgressBar(0, 255);
   private final JLabel modeLabel = new JLabel("---");
   private final JLabel squelchLabel = new JLabel("---");
@@ -71,7 +71,14 @@ public final class Kv4pApp extends JFrame {
     setLayout(new BorderLayout(8, 8));
 
     add(buildConnectionPanel(), BorderLayout.NORTH);
-    add(buildCenterPanel(), BorderLayout.CENTER);
+
+    JPanel mainCenterContainer = new JPanel();
+    mainCenterContainer.setLayout(new BoxLayout(mainCenterContainer, BoxLayout.Y_AXIS));
+    mainCenterContainer.add(buildCenterPanel());
+    mainCenterContainer.add(Box.createVerticalStrut(10));
+    mainCenterContainer.add(buildMessagePanel());
+    add(mainCenterContainer, BorderLayout.CENTER);
+
     add(buildLogPanel(), BorderLayout.SOUTH);
 
     wireActions();
@@ -236,7 +243,11 @@ public final class Kv4pApp extends JFrame {
 
     pttButton.setFont(pttButton.getFont().deriveFont(Font.BOLD, 20f));
     pttButton.setPreferredSize(new Dimension(260, 70));
-    pttButton.setBackground(new Color(220, 220, 220));
+
+    pttButton.setOpaque(true);
+    pttButton.setContentAreaFilled(true);
+
+    pttButton.setBackground(new Color(60, 100, 150));
     panel.add(pttButton, BorderLayout.WEST);
 
     var status = new JPanel(new GridLayout(4, 2, 6, 2));
@@ -278,7 +289,7 @@ public final class Kv4pApp extends JFrame {
     logArea.setEditable(false);
     logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
     var scroll = new JScrollPane(logArea);
-    scroll.setBorder(new TitledBorder("Firmware log"));
+    scroll.setBorder(new TitledBorder("Device log"));
     return scroll;
   }
 
@@ -450,7 +461,7 @@ public final class Kv4pApp extends JFrame {
     }
 
     c.setPtt(down);
-    pttButton.setBackground(down ? new Color(255, 120, 120) : new Color(220, 220, 220));
+    pttButton.setBackground(down ? new Color(200, 50, 50) : new Color(60, 100, 150));
 
     Mixer.Info selectedTxAudio = (Mixer.Info) txAudioCombo.getSelectedItem();
     try {
