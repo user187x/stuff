@@ -246,6 +246,13 @@ augroup ShellFormatting
  \ let &l:equalprg = b:fmt_cmd |
  \ nnoremap <buffer> == mzgg=G`z|
  \ endif
+
+ " XML Formatting (xmllint)
+ autocmd FileType xml if executable('xmllint') |
+ \ let b:fmt_cmd = 'xmllint --format -' |
+ \ let &l:equalprg = b:fmt_cmd |
+ \ nnoremap <buffer> == mzgg=G`z|
+ \ endif
 augroup END
 
 " Make current file executable (chmod +x) for shell or python scripts
