@@ -1,5 +1,6 @@
 package com.kv4p.desktop.ui;
 
+import com.formdev.flatlaf.FlatDarkLaf;
 import com.fazecast.jSerialComm.SerialPort;
 import com.kv4p.desktop.Kv4pClient;
 import com.kv4p.desktop.audio.RxAudioPlayer;
@@ -494,6 +495,7 @@ public final class Kv4pApp extends JFrame {
     }
 
     public static void main(String[] args) {
+        FlatDarkLaf.setup();
         SwingUtilities.invokeLater(() -> new Kv4pApp().setVisible(true));
     }
 }
