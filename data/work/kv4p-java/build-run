@@ -1,0 +1,3 @@
+#!/bin/bash
+
+mvn clean package && java -jar target/kv4p-desktop-0.1.0.jar

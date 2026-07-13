@@ -1,0 +1,163 @@
+Sink Input #670
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 669
+	Sink: 5106
+	Sample Specification: float32le 2ch 48000Hz
+	Channel Map: front-left,front-right
+	Format: pcm, format.sample_format = "\"float32le\""  format.rate = "48000"  format.channels = "2"  format.channel_map = "\"front-left,front-right\""
+	Corked: no
+	Mute: no
+	Volume: front-left: 68812 / 105% / 1.27 dB,   front-right: 68812 / 105% / 1.27 dB
+	        balance 0.00
+	Buffer Latency: 0 usec
+	Sink Latency: 0 usec
+	Resample method: PipeWire
+	Properties:
+		client.api = "pipewire-pulse"
+		pulse.server.type = "unix"
+		pipewire.snap.id = "chromium"
+		pipewire.snap.audio.playback = "true"
+		pipewire.snap.audio.record = "true"
+		application.name = "Chromium"
+		application.process.id = "16592"
+		application.process.user = "xxx"
+		application.process.host = "xxx"
+		application.process.binary = "chrome"
+		application.language = "en_US.UTF-8"
+		window.x11.display = ":0"
+		application.process.machine_id = "30c2111f45874354a1e8fb88a3c8622e"
+		application.icon_name = "chromium-browser"
+		media.name = "Playback"
+		pulse.corked = "false"
+		node.rate = "1/48000"
+		node.latency = "512/48000"
+		stream.is-live = "true"
+		node.name = "Chromium"
+		node.want-driver = "true"
+		node.autoconnect = "true"
+		media.class = "Stream/Output/Audio"
+		port.group = "stream.0"
+		adapt.follower.spa-node = ""
+		object.register = "false"
+		factory.id = "7"
+		clock.quantum-limit = "8192"
+		node.loop.name = "data-loop.0"
+		library.name = "audioconvert/libspa-audioconvert"
+		client.id = "129"
+		object.id = "130"
+		object.serial = "670"
+		pulse.attr.maxlength = "4194304"
+		pulse.attr.tlength = "8192"
+		pulse.attr.prebuf = "6152"
+		pulse.attr.minreq = "2048"
+		node.driver-id = "90"
+		module-stream-restore.id = "sink-input-by-application-name:Chromium"
+
+Sink Input #4202
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 4201
+	Sink: 3962
+	Sample Specification: float32le 2ch 48000Hz
+	Channel Map: front-left,front-right
+	Format: pcm, format.sample_format = "\"float32le\""  format.rate = "48000"  format.channels = "2"  format.channel_map = "\"front-left,front-right\""
+	Corked: no
+	Mute: no
+	Volume: front-left: 68812 / 105% / 1.27 dB,   front-right: 68812 / 105% / 1.27 dB
+	        balance 0.00
+	Buffer Latency: 0 usec
+	Sink Latency: 0 usec
+	Resample method: PipeWire
+	Properties:
+		client.api = "pipewire-pulse"
+		pulse.server.type = "unix"
+		pipewire.snap.id = "chromium"
+		pipewire.snap.audio.playback = "true"
+		pipewire.snap.audio.record = "true"
+		application.name = "Chromium"
+		application.process.id = "16592"
+		application.process.user = "xxx"
+		application.process.host = "xxx"
+		application.process.binary = "chrome"
+		application.language = "en_US.UTF-8"
+		window.x11.display = ":0"
+		application.process.machine_id = "30c2111f45874354a1e8fb88a3c8622e"
+		application.icon_name = "chromium-browser"
+		media.name = "Playback"
+		pulse.corked = "false"
+		node.rate = "1/48000"
+		node.latency = "512/48000"
+		stream.is-live = "true"
+		node.name = "Chromium"
+		node.want-driver = "true"
+		node.autoconnect = "true"
+		media.class = "Stream/Output/Audio"
+		port.group = "stream.0"
+		adapt.follower.spa-node = ""
+		object.register = "false"
+		factory.id = "7"
+		clock.quantum-limit = "8192"
+		node.loop.name = "data-loop.0"
+		library.name = "audioconvert/libspa-audioconvert"
+		client.id = "347"
+		object.id = "86"
+		object.serial = "4202"
+		pulse.attr.maxlength = "4194304"
+		pulse.attr.tlength = "8192"
+		pulse.attr.prebuf = "6152"
+		pulse.attr.minreq = "2048"
+		node.driver-id = "185"
+		module-stream-restore.id = "sink-input-by-application-name:Chromium"
+
+Sink Input #4926
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 4919
+	Sink: 5106
+	Sample Specification: s16le 1ch 16000Hz
+	Channel Map: mono
+	Format: pcm, format.sample_format = "\"s16le\""  format.rate = "16000"  format.channels = "1"  format.channel_map = "\"mono\""
+	Corked: no
+	Mute: no
+	Volume: mono: 65536 / 100% / 0.00 dB
+	        balance 0.00
+	Buffer Latency: 0 usec
+	Sink Latency: 0 usec
+	Resample method: PipeWire
+	Properties:
+		client.api = "pipewire-pulse"
+		pulse.server.type = "unix"
+		application.name = "ALSA plug-in [java]"
+		application.process.id = "1876663"
+		application.process.user = "xxx"
+		application.process.host = "xxx"
+		application.process.binary = "java"
+		application.language = "en_US.UTF-8"
+		window.x11.display = ":0"
+		application.process.machine_id = "30c2111f45874354a1e8fb88a3c8622e"
+		media.name = "ALSA Playback"
+		pulse.corked = "false"
+		node.rate = "1/16000"
+		node.latency = "320/16000"
+		stream.is-live = "true"
+		node.name = "ALSA plug-in [java]"
+		node.want-driver = "true"
+		node.autoconnect = "true"
+		media.class = "Stream/Output/Audio"
+		port.group = "stream.0"
+		adapt.follower.spa-node = ""
+		object.register = "false"
+		factory.id = "7"
+		clock.quantum-limit = "8192"
+		node.loop.name = "data-loop.0"
+		library.name = "audioconvert/libspa-audioconvert"
+		client.id = "375"
+		object.id = "134"
+		object.serial = "4926"
+		pulse.attr.minreq = "640"
+		pulse.attr.maxlength = "4194304"
+		pulse.attr.tlength = "16000"
+		pulse.attr.prebuf = "15362"
+		node.driver-id = "90"
+		module-stream-restore.id = "sink-input-by-application-name:ALSA plug-in [java]"
