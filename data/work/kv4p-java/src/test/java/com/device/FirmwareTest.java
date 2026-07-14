@@ -20,7 +20,7 @@ import java.util.List;
  * Headless validation of the Java port against the firmware's wire format. Emulates the ESP32 side
  * using the exact packed-struct layouts from protocol.h.
  */
-public final class SelfTest {
+public final class FirmwareTest {
 
   private static int passed = 0;
   private static int failed = 0;
@@ -278,5 +278,5 @@ public final class SelfTest {
     else failed++;
   }
 
-  private SelfTest() {}
+  private FirmwareTest() {}
 }
