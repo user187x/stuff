@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.kv4p</groupId>
-  <artifactId>kv4p-desktop</artifactId>
-  <version>0.1.0</version>
+
+  <groupId>com.device</groupId>
+  <artifactId>radio</artifactId>
+  <version>1.0.0</version>
   <packaging>jar</packaging>
-  <name>kv4p HT Desktop</name>
-  <description>Java desktop host for the kv4p HT (protocol v2.2, KV4P KISS transport)</description>
+  <name>kv4p Radio</name>
+
   <properties>
-    <!-- Targets JDK 26. The sources use only features available since 21,
-             so lower this to 21 if you need to build on an older toolchain. -->
     <maven.compiler.release>26</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
@@ -19,12 +18,10 @@
       <artifactId>jSerialComm</artifactId>
       <version>2.11.0</version>
     </dependency>
-    <!-- Source: https://mvnrepository.com/artifact/com.formdev/flatlaf -->
     <dependency>
       <groupId>com.formdev</groupId>
       <artifactId>flatlaf</artifactId>
       <version>3.7.2</version>
-      <scope>compile</scope>
     </dependency>
   </dependencies>
   <build>
@@ -40,10 +37,11 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <finalName>radio</finalName>
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>com.kv4p.desktop.ui.Kv4pApp</mainClass>
+                  <mainClass>com.device.ui.App</mainClass>
                 </transformer>
               </transformers>
             </configuration>

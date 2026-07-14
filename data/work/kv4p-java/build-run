@@ -1,3 +1,50 @@
 #!/bin/bash
 
-mvn clean package && java -jar target/kv4p-desktop-0.1.0.jar
+# Default values
+CLEAN=false
+PACKAGE=false
+SCALE="2.0" # Default scale
+
+usage() {
+ echo "Usage: $0 [-c|--clean] [-p|--package] [-s|--scale <value>]"
+ exit 1
+}
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+ case $1 in
+  -c | --clean) CLEAN=true ;;
+  -p | --package) PACKAGE=true ;;
+  -s | --scale)
+   if [[ -n "$2" && "$2" != -* ]]; then
+    SCALE="$2"
+    shift
+   else
+    echo "Error: --scale requires a value."
+    exit 1
+   fi
+   ;;
+  -h | --help) usage ;;
+  *)
+   echo "Unknown parameter: $1"
+   usage
+   ;;
+ esac
+ shift
+done
+
+# Execution logic
+if [ "$CLEAN" = true ]; then
+ echo "Cleaning project..."
+ mvn clean
+fi
+
+if [ "$PACKAGE" = true ]; then
+ echo "Packaging and running with scale factor: $SCALE"
+ mvn clean package && java --enable-native-access=ALL-UNNAMED -Dsun.java2d.uiScale="$SCALE" -jar target/radio.jar
+fi
+
+# Help if no arguments provided
+if [ "$CLEAN" = false ] && [ "$PACKAGE" = false ]; then
+ usage
+fi

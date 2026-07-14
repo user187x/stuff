@@ -1,4 +1,4 @@
-package com.kv4p.desktop.audio;
+package com.device.audio;
 
 /**
  * IMA WAV ADPCM codec (mono), compatible with the firmware's

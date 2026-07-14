@@ -1,8 +1,9 @@
-package com.kv4p.desktop.protocol;
+package com.device.protocol;
 
 import java.util.Arrays;
 
-import static com.kv4p.desktop.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Kv4pProtocol.KISS_MAX_FRAME_SIZE;
+import static com.device.protocol.Kv4pProtocol.*;
 
 /**
  * Streaming KISS parser — a faithful Java port of the firmware's {@code KissParser}

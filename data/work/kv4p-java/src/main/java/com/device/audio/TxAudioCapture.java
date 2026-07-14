@@ -1,6 +1,6 @@
-package com.kv4p.desktop.audio;
+package com.device.audio;
 
-import static com.kv4p.desktop.protocol.Kv4pProtocol.AUDIO_WIRE_SAMPLE_RATE;
+import static com.device.protocol.Kv4pProtocol.AUDIO_WIRE_SAMPLE_RATE;
 
 import java.util.function.Consumer;
 import javax.sound.sampled.AudioFormat;

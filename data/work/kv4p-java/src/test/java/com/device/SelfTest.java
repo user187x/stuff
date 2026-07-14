@@ -1,14 +1,14 @@
-package com.kv4p.desktop;
+package com.device;
 
-import static com.kv4p.desktop.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Kv4pProtocol.*;
 
-import com.kv4p.desktop.audio.ImaAdpcm;
-import com.kv4p.desktop.protocol.KissDecoder;
-import com.kv4p.desktop.protocol.KissEncoder;
-import com.kv4p.desktop.protocol.Structs.DeviceState;
-import com.kv4p.desktop.protocol.Structs.Hello;
-import com.kv4p.desktop.protocol.Structs.HostDesiredState;
-import com.kv4p.desktop.protocol.Structs.Version;
+import com.device.audio.ImaAdpcm;
+import com.device.protocol.KissDecoder;
+import com.device.protocol.KissEncoder;
+import com.device.protocol.Structs.DeviceState;
+import com.device.protocol.Structs.Hello;
+import com.device.protocol.Structs.HostDesiredState;
+import com.device.protocol.Structs.Version;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

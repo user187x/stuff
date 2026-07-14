@@ -47,13 +47,13 @@ Without Maven:
 
 ```
 javac -cp lib/jSerialComm-2.11.0.jar -d target/classes $(find src -name '*.java')
-java -cp target/classes:lib/jSerialComm-2.11.0.jar com.kv4p.desktop.ui.Kv4pApp
+java -cp target/classes:lib/jSerialComm-2.11.0.jar ui.com.radio.Kv4pApp
 ```
 
 Headless self-test (no hardware needed):
 
 ```
-java -cp target/classes:lib/jSerialComm-2.11.0.jar com.kv4p.desktop.SelfTest
+java -cp target/classes:lib/jSerialComm-2.11.0.jar com.radio.SelfTest
 ```
 
 ## Using the GUI

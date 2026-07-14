@@ -1,4 +1,4 @@
-package com.kv4p.desktop.audio;
+package com.device.audio;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;

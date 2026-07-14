@@ -1,6 +1,6 @@
-package com.kv4p.desktop.serial;
+package com.device.serial;
 
-import static com.kv4p.desktop.protocol.Kv4pProtocol.SERIAL_BAUD;
+import static com.device.protocol.Kv4pProtocol.SERIAL_BAUD;
 
 import com.fazecast.jSerialComm.SerialPort;
 import java.io.IOException;
@@ -48,6 +48,17 @@ public final class SerialLink implements AutoCloseable {
 
       // Give the microcontroller a moment to boot and transmit HELLO
       Thread.sleep(100);
+
+      // Leave DTR and RTS asserted for the rest of the session, mirroring the reference
+      // Android app ("needed for better data transfer"). Boards with a native USB-CDC
+      // ESP32 (e.g. QT Py ESP32-S2 builds) discard their serial output while the host
+      // holds DTR deasserted, which silently kills HELLO/audio delivery. On classic
+      // UART-bridge boards the two auto-reset transistors cancel when both lines are
+      // asserted, so this is harmless there.
+      // Order matters: assert DTR first — raising RTS alone (RTS=1, DTR=0) would pull
+      // EN low and reset the chip again.
+      port.setDTR();
+      port.setRTS();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }

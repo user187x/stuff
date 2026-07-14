@@ -1,14 +1,14 @@
-package com.kv4p.desktop;
+package com.device.manager;
 
-import static com.kv4p.desktop.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Kv4pProtocol.*;
 
-import com.kv4p.desktop.protocol.KissDecoder;
-import com.kv4p.desktop.protocol.KissEncoder;
-import com.kv4p.desktop.protocol.Structs.DeviceState;
-import com.kv4p.desktop.protocol.Structs.Hello;
-import com.kv4p.desktop.protocol.Structs.HostDesiredState;
-import com.kv4p.desktop.protocol.Structs.WindowUpdate;
-import com.kv4p.desktop.serial.SerialLink;
+import com.device.protocol.KissDecoder;
+import com.device.protocol.KissEncoder;
+import com.device.protocol.Structs.DeviceState;
+import com.device.protocol.Structs.Hello;
+import com.device.protocol.Structs.HostDesiredState;
+import com.device.protocol.Structs.WindowUpdate;
+import com.device.serial.SerialLink;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  * sequence, bounded), honors window-based flow control for TX audio, and routes RX audio / AX.25 /
  * debug frames to listeners.
  */
-public final class Kv4pClient implements AutoCloseable, KissDecoder.Listener {
+public final class DeviceManager implements AutoCloseable, KissDecoder.Listener {
 
   public interface Listener {
     default void onHello(Hello hello) {}
@@ -73,20 +73,52 @@ public final class Kv4pClient implements AutoCloseable, KissDecoder.Listener {
   private final Object windowLock = new Object();
   private long window = Long.MAX_VALUE; // unlimited until HELLO declares one
 
-  private Kv4pClient(SerialLink link) {
+  private DeviceManager(SerialLink link) {
     this.link = link;
   }
 
-  public static Kv4pClient connect(SerialLink link) {
-    Kv4pClient client = new Kv4pClient(link);
-    link.startReader(
-        client.decoder::feed, e -> client.notifyAll(l -> l.onDisconnected(e.getMessage())));
-    link.resetDevice(); // reboot ESP32 so it emits COMMAND_HELLO for this session
-    return client;
+  /**
+   * Creates a client bound to {@code link} without starting any I/O. Register listeners with
+   * {@link #addListener}, then call {@link #start()}. Splitting construction from startup closes
+   * a race where COMMAND_HELLO (a one-shot event) arrived and was dispatched while the listener
+   * list was still empty — e.g. when HELLO bytes were already buffered by the OS, or the device
+   * booted faster than the caller could register its listener. A lost HELLO meant the UI never
+   * enabled itself and never sent HOST_STATE_RX_AUDIO_OPEN, so the firmware stayed in
+   * MODE_STOPPED and no RX audio was ever streamed.
+   */
+  public static DeviceManager connect(SerialLink link) {
+    return new DeviceManager(link);
   }
 
+  /** Starts the serial reader and reboots the ESP32 so it emits COMMAND_HELLO. Call after all
+   * listeners have been registered. */
+  public void start() {
+    link.startReader(decoder::feed, e -> notifyAll(l -> l.onDisconnected(e.getMessage())));
+    link.resetDevice(); // reboot ESP32 so it emits COMMAND_HELLO for this session
+  }
+
+  /**
+   * Registers a listener. If the HELLO handshake has already completed, it is replayed to the
+   * new listener immediately so late registration can never miss the one-shot handshake event.
+   */
   public void addListener(Listener l) {
     listeners.add(l);
+    Hello h = hello;
+    if (h != null) {
+      try {
+        l.onHello(h);
+      } catch (RuntimeException ignored) {
+        // A misbehaving listener must not break registration.
+      }
+      DeviceState d = lastDeviceState;
+      if (d != null) {
+        try {
+          l.onDeviceState(d);
+        } catch (RuntimeException ignored) {
+          // Ignored for the same reason.
+        }
+      }
+    }
   }
 
   public Hello hello() {
@@ -246,8 +278,8 @@ public final class Kv4pClient implements AutoCloseable, KissDecoder.Listener {
           int sessionFlags =
               desired.flags()
                   & (HOST_STATE_ENABLE_STATUS_REPORTS
-                      | HOST_STATE_RX_AUDIO_OPEN
-                      | HOST_STATE_PTT_REQUESTED);
+                  | HOST_STATE_RX_AUDIO_OPEN
+                  | HOST_STATE_PTT_REQUESTED);
           DeviceState d = h.deviceState();
           desired =
               new HostDesiredState(
@@ -293,10 +325,10 @@ public final class Kv4pClient implements AutoCloseable, KissDecoder.Listener {
       }
       case COMMAND_RX_AUDIO -> notifyAll(l -> l.onRxAudio(payload));
       case COMMAND_DEBUG_INFO,
-          COMMAND_DEBUG_ERROR,
-          COMMAND_DEBUG_WARN,
-          COMMAND_DEBUG_DEBUG,
-          COMMAND_DEBUG_TRACE -> {
+           COMMAND_DEBUG_ERROR,
+           COMMAND_DEBUG_WARN,
+           COMMAND_DEBUG_DEBUG,
+           COMMAND_DEBUG_TRACE -> {
         String msg = new String(payload, StandardCharsets.UTF_8);
         notifyAll(l -> l.onDebugMessage(command, msg));
       }

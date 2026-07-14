@@ -1,4 +1,4 @@
-package com.kv4p.desktop.protocol;
+package com.device.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
