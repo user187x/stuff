@@ -1,6 +1,6 @@
 package com.device;
 
-import static com.device.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Protocol.*;
 
 import com.device.audio.ImaAdpcm;
 import com.device.protocol.KissDecoder;

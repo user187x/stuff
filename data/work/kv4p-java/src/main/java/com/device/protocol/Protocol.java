@@ -10,8 +10,8 @@ the Free Software Foundation, either version 3 of the License, or
 package com.device.protocol;
 
 /** Wire-level constants. Byte-for-byte identical to the firmware's protocol.h. */
-public final class Kv4pProtocol {
-    private Kv4pProtocol() {}
+public final class Protocol {
+    private Protocol() {}
 
     // ---- KISS framing ----
     public static final int KISS_FEND  = 0xC0;

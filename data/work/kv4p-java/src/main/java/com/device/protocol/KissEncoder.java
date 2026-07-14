@@ -2,7 +2,7 @@ package com.device.protocol;
 
 import java.io.ByteArrayOutputStream;
 
-import static com.device.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Protocol.*;
 
 /**
  * Builds outgoing KISS frames — the Java counterpart of the firmware's

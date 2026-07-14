@@ -1,6 +1,6 @@
 package com.device.serial;
 
-import static com.device.protocol.Kv4pProtocol.SERIAL_BAUD;
+import static com.device.protocol.Protocol.SERIAL_BAUD;
 
 import com.fazecast.jSerialComm.SerialPort;
 import java.io.IOException;

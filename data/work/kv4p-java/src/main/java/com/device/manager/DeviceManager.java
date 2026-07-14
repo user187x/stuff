@@ -1,6 +1,6 @@
 package com.device.manager;
 
-import static com.device.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Protocol.*;
 
 import com.device.protocol.KissDecoder;
 import com.device.protocol.KissEncoder;

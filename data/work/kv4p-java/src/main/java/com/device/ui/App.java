@@ -19,7 +19,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import static com.device.protocol.Kv4pProtocol.*;
+import static com.device.protocol.Protocol.*;
 
 /**
  * kv4p HT for Desktop   Java Swing baseline mirroring the Android app's
