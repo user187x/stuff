@@ -398,13 +398,16 @@ public final class App extends JFrame {
 
    rxPlayer = new RxAudioPlayer();
    rxPlayer.start(selectedRxAudio);
-
    txCapture =
        new TxAudioCapture(
            frame -> {
             DeviceManager c = client;
             if (c != null) c.sendTxAudioFrame(frame);
            });
+
+   // RESTORED: Actually start the serial reader and trigger the hardware reset
+   // so the ESP32 boots and sends COMMAND_HELLO
+   client.start();
 
    statusLabel.setText("Waiting for device initialization " + link.portName() + "...");
    connectBtn.setText("Disconnect");
@@ -470,20 +473,23 @@ public final class App extends JFrame {
        }
       });
  }
-
  private void setPtt(boolean down) {
   DeviceManager c = client;
   if (c == null) return;
 
+  // Gate only the DOWN edge. The UP edge must always be processed: returning early on
+  // release would leave the radio keyed and the mic streaming if "Tx audio" is
+  // unchecked while PTT is held. Releasing when PTT was never engaged is harmless
+  // (clearing an already-clear flag / closing an idle capture are both no-ops).
   if (down && !txAudioCheck.isSelected()) {
-   log("PTT ignored: enable 'TX allowed' first (firmware safety flag).");
+   log("PTT ignored: enable 'Tx audio' first (firmware safety flag).");
    return;
   }
 
   c.setPtt(down);
   pttButton.setBackground(down ? new Color(200, 50, 50) : new Color(60, 100, 150));
-
   Mixer.Info selectedTxAudio = (Mixer.Info) txAudioCombo.getSelectedItem();
+
   try {
    if (down) {
     txCapture.start(selectedTxAudio);

@@ -27,12 +27,49 @@ public final class SerialLink implements AutoCloseable {
   }
 
   public static SerialLink open(SerialPort selected) throws IOException {
-    selected.setComPortParameters(SERIAL_BAUD, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY);
-    selected.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, 100, 0);
-    if (!selected.openPort()) {
-      throw new IOException("Could not open " + selected.getSystemPortName());
+    // Re-resolve a fresh handle by device path: reusing a SerialPort object from an old
+    // scan (or from a previous connect in the same session) can fail to reopen after the
+    // device re-enumerates or a prior close is still settling in the kernel.
+    SerialPort port = SerialPort.getCommPort(selected.getSystemPortPath());
+    port.setComPortParameters(SERIAL_BAUD, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY);
+    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, 100, 0);
+
+    // A busy port is often transient: ModemManager probes new USB serial adapters for a
+    // few seconds after plug-in, and a just-closed fd can take a moment to release.
+    int attempts = 5;
+    int lastError = 0;
+    for (int attempt = 1; attempt <= attempts; attempt++) {
+      if (port.openPort()) {
+        return new SerialLink(port);
+      }
+      lastError = port.getLastErrorCode();
+      try {
+        Thread.sleep(250);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      }
     }
-    return new SerialLink(selected);
+    throw new IOException(
+        "Could not open " + port.getSystemPortPath()
+            + " after " + attempts + " attempts (OS error " + lastError + ")."
+            + diagnose(lastError));
+  }
+
+  private static String diagnose(int errno) {
+    return switch (errno) {
+      case 13 -> " Permission denied: add your user to the serial group"
+          + " (usually 'dialout' or 'uucp') and log out/in, e.g."
+          + " sudo usermod -aG dialout $USER";
+      case 16, 11 -> " Port is busy: another program has it open. Check for a previous"
+          + " instance of this app still running, ModemManager probing the device"
+          + " (sudo systemctl stop ModemManager), or brltty claiming the USB adapter"
+          + " (sudo systemctl stop brltty brltty-udev; common with CH340/CP210x).";
+      case 2 -> " Device node no longer exists: the adapter re-enumerated or was"
+          + " unplugged. Click 'Refresh Devices' and reconnect.";
+      default -> " If this persists, check that no other program holds the port and"
+          + " that your user has permission to access serial devices.";
+    };
   }
 
   public void resetDevice() {
@@ -67,9 +104,14 @@ public final class SerialLink implements AutoCloseable {
   /** Start a background reader delivering raw byte chunks to {@code sink}. */
   public void startReader(Consumer<byte[]> sink, Consumer<Exception> onError) {
     running = true;
+    // Platform thread, not virtual: this loop blocks in native readBytes() calls
+    // back-to-back and never reaches a Java blocking point, so as a virtual thread it
+    // would pin a carrier permanently and starve every other virtual thread in the
+    // process (timers, retries) — observed as a hard stall on single/low-core machines.
     reader =
-        Thread.ofVirtual()
-            .name("kv4p-serial-rx")
+        Thread.ofPlatform()
+            .daemon()
+            .name("serial-rx")
             .start(
                 () -> {
                   byte[] buf = new byte[4096];
@@ -100,14 +142,34 @@ public final class SerialLink implements AutoCloseable {
 
   @Override
   public void close() {
+    // Stop the reader FIRST and let its current (<=100 ms timeout) native read finish,
+    // then close the port. Closing the fd while a native read is in flight can leave
+    // the device node busy on some platforms, making the next openPort() fail with
+    // "Could not open ..." until the JVM exits.
     running = false;
-    port.closePort();
+    if (reader != null) {
+      try {
+        reader.join(600);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    if (!port.closePort()) {
+      // One retry: a straggling native call can briefly hold the handle.
+      try {
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      port.closePort();
+    }
     if (reader != null) {
       try {
         reader.join(500);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
+      reader = null;
     }
   }
 }

@@ -9,6 +9,7 @@ import com.device.protocol.Structs.Hello;
 import com.device.protocol.Structs.HostDesiredState;
 import com.device.protocol.Structs.WindowUpdate;
 import com.device.serial.SerialLink;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -17,37 +18,29 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Desktop equivalent of the Android app's radio service. Implements protocol v2.2: waits for
- * COMMAND_HELLO, sends COMMAND_HOST_DESIRED_STATE snapshots with a monotonically increasing
- * sequence, treats DeviceState.appliedSequence as the ACK, retries unacknowledged snapshots (same
- * sequence, bounded), honors window-based flow control for TX audio, and routes RX audio / AX.25 /
- * debug frames to listeners.
- */
 public final class DeviceManager implements AutoCloseable, KissDecoder.Listener {
 
   public interface Listener {
     default void onHello(Hello hello) {}
-
     default void onDeviceState(DeviceState state) {}
-
     default void onRxAudio(byte[] adpcmPayload) {}
-
     default void onAx25Received(byte[] ax25) {}
-
     default void onDebugMessage(int level, String message) {}
-
     default void onDisconnected(String reason) {}
   }
 
   private static final int MAX_STATE_RETRIES = 3;
   private static final long STATE_RETRY_MS = 1000;
+  // HELLO arrives only after the firmware finishes booting and initializing the radio
+  // module, which can take many seconds — keep this timeout generous.
+  private static final long HELLO_TIMEOUT_MS = 15_000;
+  private static final int HELLO_MAX_ATTEMPTS = 3;
 
   private final SerialLink link;
   private final KissDecoder decoder = new KissDecoder(this);
   private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
   private final ScheduledExecutorService scheduler =
-      Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
+      Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().factory());
 
   private final Object stateLock = new Object();
   private HostDesiredState desired =
@@ -69,54 +62,83 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
   private volatile Hello hello;
   private volatile DeviceState lastDeviceState;
 
-  // Flow-control window (bytes we may still put on the wire before the next WINDOW_UPDATE).
   private final Object windowLock = new Object();
-  private long window = Long.MAX_VALUE; // unlimited until HELLO declares one
+  private long window = Long.MAX_VALUE;
+
+  // Serializes desired-state encode+write so snapshots reach the wire in sequence order.
+  // Writing outside stateLock (to avoid stalling the reader) is kept, but without this
+  // lock two threads could put seq N+1 on the wire before seq N; the firmware applies
+  // session flags from EVERY frame, so a stale trailing frame could silently clear
+  // RX_AUDIO_OPEN and stop audio. Lock order is always txLock -> stateLock -> windowLock.
+  private final Object txLock = new Object();
 
   private DeviceManager(SerialLink link) {
     this.link = link;
   }
 
-  /**
-   * Creates a client bound to {@code link} without starting any I/O. Register listeners with
-   * {@link #addListener}, then call {@link #start()}. Splitting construction from startup closes
-   * a race where COMMAND_HELLO (a one-shot event) arrived and was dispatched while the listener
-   * list was still empty — e.g. when HELLO bytes were already buffered by the OS, or the device
-   * booted faster than the caller could register its listener. A lost HELLO meant the UI never
-   * enabled itself and never sent HOST_STATE_RX_AUDIO_OPEN, so the firmware stayed in
-   * MODE_STOPPED and no RX audio was ever streamed.
-   */
   public static DeviceManager connect(SerialLink link) {
     return new DeviceManager(link);
   }
 
-  /** Starts the serial reader and reboots the ESP32 so it emits COMMAND_HELLO. Call after all
-   * listeners have been registered. */
   public void start() {
     link.startReader(decoder::feed, e -> notifyAll(l -> l.onDisconnected(e.getMessage())));
-    link.resetDevice(); // reboot ESP32 so it emits COMMAND_HELLO for this session
+    link.resetDevice();
+    scheduleHelloWatchdog(1);
   }
 
   /**
-   * Registers a listener. If the HELLO handshake has already completed, it is replayed to the
-   * new listener immediately so late registration can never miss the one-shot handshake event.
+   * The device sends COMMAND_HELLO once per boot, after its radio-module init (which can
+   * take several seconds). If it never arrives — chip was mid-boot during our reset, the
+   * frame was lost, or the reset didn't take on this adapter — reset again a bounded
+   * number of times instead of waiting forever.
    */
+  private void scheduleHelloWatchdog(int attempt) {
+    scheduler.schedule(
+        () -> {
+          if (hello != null) {
+            return; // handshake completed
+          }
+          if (attempt < HELLO_MAX_ATTEMPTS) {
+            notifyAll(
+                l ->
+                    l.onDebugMessage(
+                        COMMAND_DEBUG_WARN,
+                        "No HELLO from device after "
+                            + (HELLO_TIMEOUT_MS / 1000)
+                            + "s; resetting again (attempt "
+                            + (attempt + 1)
+                            + "/"
+                            + HELLO_MAX_ATTEMPTS
+                            + ")"));
+            link.resetDevice();
+            scheduleHelloWatchdog(attempt + 1);
+          } else {
+            notifyAll(
+                l ->
+                    l.onDebugMessage(
+                        COMMAND_DEBUG_ERROR,
+                        "Device never sent HELLO after "
+                            + HELLO_MAX_ATTEMPTS
+                            + " resets. Check the cable, firmware, and that this is the"
+                            + " right serial port, then Disconnect and Connect again."));
+          }
+        },
+        HELLO_TIMEOUT_MS,
+        TimeUnit.MILLISECONDS);
+  }
+
   public void addListener(Listener l) {
     listeners.add(l);
     Hello h = hello;
     if (h != null) {
       try {
         l.onHello(h);
-      } catch (RuntimeException ignored) {
-        // A misbehaving listener must not break registration.
-      }
+      } catch (RuntimeException ignored) {}
       DeviceState d = lastDeviceState;
       if (d != null) {
         try {
           l.onDeviceState(d);
-        } catch (RuntimeException ignored) {
-          // Ignored for the same reason.
-        }
+        } catch (RuntimeException ignored) {}
       }
     }
   }
@@ -135,16 +157,23 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     }
   }
 
-  // ---------------- Host desired state ----------------
-
-  /** Apply a mutation to the desired state and push a new snapshot (new sequence). */
   public void updateDesiredState(java.util.function.UnaryOperator<HostDesiredState> mutation) {
-    synchronized (stateLock) {
-      HostDesiredState next = mutation.apply(desired);
-      // Session + global flags travel together in one snapshot on the wire.
-      desired = next.withSequence(nextSequence++);
-      retriesLeft = MAX_STATE_RETRIES;
-      sendDesiredStateLocked();
+    synchronized (txLock) {
+      byte[] frame;
+      synchronized (stateLock) {
+        HostDesiredState next = mutation.apply(desired);
+        desired = next.withSequence(nextSequence++);
+        retriesLeft = MAX_STATE_RETRIES;
+        frame = KissEncoder.vendorFrame(COMMAND_HOST_DESIRED_STATE, desired.toBytes());
+        scheduleRetryLocked();
+      }
+      // Write outside stateLock (so the reader thread is never stalled behind a
+      // flow-control wait) but inside txLock (so frames hit the wire in sequence order).
+      try {
+        writeFlowControlled(frame);
+      } catch (IOException e) {
+        notifyAll(l -> l.onDisconnected("Serial write failed: " + e.getMessage()));
+      }
     }
   }
 
@@ -180,16 +209,6 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     setFlag(HOST_STATE_TX_ALLOWED, allowed);
   }
 
-  private void sendDesiredStateLocked() {
-    try {
-      writeFlowControlled(KissEncoder.vendorFrame(COMMAND_HOST_DESIRED_STATE, desired.toBytes()));
-    } catch (IOException e) {
-      notifyAll(l -> l.onDisconnected("Serial write failed: " + e.getMessage()));
-      return;
-    }
-    scheduleRetryLocked();
-  }
-
   private void scheduleRetryLocked() {
     if (retryTask != null) {
       retryTask.cancel(false);
@@ -198,22 +217,28 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     retryTask =
         scheduler.schedule(
             () -> {
-              synchronized (stateLock) {
-                if (lastAckedSequence >= expectedSeq || retriesLeft <= 0) {
-                  return;
+              synchronized (txLock) {
+                byte[] frame;
+                synchronized (stateLock) {
+                  if (lastAckedSequence >= expectedSeq || retriesLeft <= 0) {
+                    return;
+                  }
+                  retriesLeft--;
+                  // Retry the exact same snapshot with the same sequence (protocol rule).
+                  frame = KissEncoder.vendorFrame(COMMAND_HOST_DESIRED_STATE, desired.toBytes());
+                  scheduleRetryLocked();
                 }
-                retriesLeft--;
-                // Retry the exact same snapshot with the same sequence (protocol rule).
-                sendDesiredStateLocked();
+                try {
+                  writeFlowControlled(frame);
+                } catch (IOException e) {
+                  notifyAll(l -> l.onDisconnected("Serial write failed: " + e.getMessage()));
+                }
               }
             },
             STATE_RETRY_MS,
             TimeUnit.MILLISECONDS);
   }
 
-  // ---------------- TX paths ----------------
-
-  /** Stream one 128-byte ADPCM voice frame while PTT is requested. */
   public void sendTxAudioFrame(byte[] adpcmBlock) {
     try {
       writeFlowControlled(KissEncoder.vendorFrame(COMMAND_HOST_TX_AUDIO, adpcmBlock));
@@ -222,7 +247,6 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     }
   }
 
-  /** Transmit a raw AX.25 packet (firmware runs the AFSK modulator on-chip). */
   public void sendAx25(byte[] ax25) {
     try {
       writeFlowControlled(KissEncoder.dataFrame(ax25));
@@ -236,7 +260,7 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
       long deadline = System.currentTimeMillis() + 2000;
       while (window < frame.length) {
         long wait = deadline - System.currentTimeMillis();
-        if (wait <= 0) break; // don't wedge the UI forever on a stalled window
+        if (wait <= 0) break;
         try {
           windowLock.wait(wait);
         } catch (InterruptedException e) {
@@ -250,8 +274,6 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     }
     link.write(frame);
   }
-
-  // ---------------- KISS decoder callbacks (serial reader thread) ----------------
 
   @Override
   public void onAx25(byte[] ax25) {
@@ -269,31 +291,43 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
           window = h.version().windowSize();
           windowLock.notifyAll();
         }
-        synchronized (stateLock) {
-          // Sequence is global across transports; resync from the device.
-          lastAckedSequence = h.deviceState().appliedSequence();
-          nextSequence = lastAckedSequence + 1;
-          // Seed our desired snapshot from the firmware's restored NVS state,
-          // keeping our session flags (status reports / audio open).
-          int sessionFlags =
-              desired.flags()
-                  & (HOST_STATE_ENABLE_STATUS_REPORTS
-                  | HOST_STATE_RX_AUDIO_OPEN
-                  | HOST_STATE_PTT_REQUESTED);
-          DeviceState d = h.deviceState();
-          desired =
-              new HostDesiredState(
-                  nextSequence++,
-                  d.memoryId(),
-                  (d.flags() & 0x08FF) | sessionFlags, // keep global flags reported by device
-                  d.bw(),
-                  d.freqTx(),
-                  d.freqRx(),
-                  d.ctcssTx(),
-                  d.squelch(),
-                  d.ctcssRx());
-          retriesLeft = MAX_STATE_RETRIES;
-          sendDesiredStateLocked(); // enables status reports for this session
+
+        synchronized (txLock) {
+          byte[] frame;
+          synchronized (stateLock) {
+            // Sequence is global across transports; resync from the device.
+            lastAckedSequence = h.deviceState().appliedSequence();
+            nextSequence = lastAckedSequence + 1;
+
+            // Seed our desired snapshot from the firmware's restored NVS state,
+            // keeping our session flags (status reports / audio open).
+            int sessionFlags =
+                desired.flags()
+                    & (HOST_STATE_ENABLE_STATUS_REPORTS
+                    | HOST_STATE_RX_AUDIO_OPEN
+                    | HOST_STATE_PTT_REQUESTED);
+            DeviceState d = h.deviceState();
+            desired =
+                new HostDesiredState(
+                    nextSequence++,
+                    d.memoryId(),
+                    (d.flags() & 0x08FF) | sessionFlags,
+                    d.bw(),
+                    d.freqTx(),
+                    d.freqRx(),
+                    d.ctcssTx(),
+                    d.squelch(),
+                    d.ctcssRx());
+            retriesLeft = MAX_STATE_RETRIES;
+            frame = KissEncoder.vendorFrame(COMMAND_HOST_DESIRED_STATE, desired.toBytes());
+            scheduleRetryLocked();
+          }
+
+          try {
+            writeFlowControlled(frame);
+          } catch (IOException e) {
+            notifyAll(l -> l.onDisconnected("Serial write failed: " + e.getMessage()));
+          }
         }
         notifyAll(l -> l.onHello(h));
       }
@@ -332,9 +366,6 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
         String msg = new String(payload, StandardCharsets.UTF_8);
         notifyAll(l -> l.onDebugMessage(command, msg));
       }
-      default -> {
-        /* unknown vendor command: ignore, forward-compatible */
-      }
     }
   }
 
@@ -342,9 +373,7 @@ public final class DeviceManager implements AutoCloseable, KissDecoder.Listener 
     for (Listener l : listeners) {
       try {
         event.accept(l);
-      } catch (RuntimeException ignored) {
-        // A misbehaving listener must not kill the serial reader.
-      }
+      } catch (RuntimeException ignored) {}
     }
   }
 

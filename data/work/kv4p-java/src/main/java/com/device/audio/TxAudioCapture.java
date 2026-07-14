@@ -1,7 +1,5 @@
 package com.device.audio;
-
 import static com.device.protocol.Protocol.AUDIO_WIRE_SAMPLE_RATE;
-
 import java.util.function.Consumer;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
@@ -9,7 +7,6 @@ import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.Mixer;
 import javax.sound.sampled.TargetDataLine;
-
 /**
  * Captures the desktop microphone at 16 kHz mono, encodes 249-sample frames to 128-byte IMA ADPCM
  * blocks, and hands them to the sender (COMMAND_HOST_TX_AUDIO).
@@ -17,21 +14,17 @@ import javax.sound.sampled.TargetDataLine;
 public final class TxAudioCapture implements AutoCloseable {
   public static final AudioFormat FORMAT =
       new AudioFormat(AUDIO_WIRE_SAMPLE_RATE, 16, 1, true, false);
-
   private final Consumer<byte[]> frameSink;
   private TargetDataLine line;
   private Thread worker;
   private volatile boolean running;
-
   public TxAudioCapture(Consumer<byte[]> adpcmFrameSink) {
     this.frameSink = adpcmFrameSink;
   }
-
   public synchronized void start(Mixer.Info selectedMixerInfo) throws LineUnavailableException {
     if (running) return;
     DataLine.Info info = new DataLine.Info(TargetDataLine.class, FORMAT);
     line = null;
-
     // Use the user-selected device if provided and supported
     if (selectedMixerInfo != null) {
       Mixer mixer = AudioSystem.getMixer(selectedMixerInfo);
@@ -39,23 +32,20 @@ public final class TxAudioCapture implements AutoCloseable {
         line = (TargetDataLine) mixer.getLine(info);
       }
     }
-
     // Fallback to the default system audio line
     if (line == null) {
       line = (TargetDataLine) AudioSystem.getLine(info);
     }
-
     line.open(FORMAT, AUDIO_WIRE_SAMPLE_RATE / 2);
     line.start();
     running = true;
-    worker = Thread.ofVirtual().name("kv4p-tx-audio").start(this::captureLoop);
+    // Platform thread: line.read() blocks natively; see RxAudioPlayer for rationale.
+    worker = Thread.ofPlatform().daemon().name("tx-audio").start(this::captureLoop);
   }
-
   private void captureLoop() {
     var encoder = new ImaAdpcm.Encoder();
     byte[] raw = new byte[ImaAdpcm.BLOCK_SAMPLES * 2];
     short[] pcm = new short[ImaAdpcm.BLOCK_SAMPLES];
-
     while (running) {
       int filled = 0;
       while (running && filled < raw.length) {
@@ -70,7 +60,6 @@ public final class TxAudioCapture implements AutoCloseable {
       frameSink.accept(encoder.encodeBlock(pcm, 0));
     }
   }
-
   @Override
   public synchronized void close() {
     running = false;

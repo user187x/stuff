@@ -1,5 +1,4 @@
 package com.device.audio;
-
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import javax.sound.sampled.AudioFormat;
@@ -10,7 +9,6 @@ import javax.sound.sampled.FloatControl;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.Mixer;
 import javax.sound.sampled.SourceDataLine;
-
 /** Plays decoded RX audio, upsampled to 48 kHz mono 16-bit LE PCM. */
 public final class RxAudioPlayer implements AutoCloseable {
   public static final AudioFormat FORMAT = new AudioFormat(48000, 16, 1, true, false);
@@ -18,12 +16,10 @@ public final class RxAudioPlayer implements AutoCloseable {
   private volatile boolean open;
   private Thread worker;
   private final BlockingQueue<byte[]> audioQueue = new LinkedBlockingQueue<>(500);
-
   public synchronized void start(Mixer.Info selectedMixerInfo) throws LineUnavailableException {
     if (open) return;
     DataLine.Info info = new DataLine.Info(SourceDataLine.class, FORMAT);
     line = null;
-
     // Use the user-selected device if provided and supported
     if (selectedMixerInfo != null) {
       Mixer mixer = AudioSystem.getMixer(selectedMixerInfo);
@@ -31,14 +27,11 @@ public final class RxAudioPlayer implements AutoCloseable {
         line = (SourceDataLine) mixer.getLine(info);
       }
     }
-
     // Fallback to the default system audio line
     if (line == null) {
       line = (SourceDataLine) AudioSystem.getLine(info);
     }
-
     line.open(FORMAT, 48000 / 2);
-
     if (line.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
       FloatControl gain = (FloatControl) line.getControl(FloatControl.Type.MASTER_GAIN);
       gain.setValue(gain.getMaximum());
@@ -47,17 +40,16 @@ public final class RxAudioPlayer implements AutoCloseable {
       BooleanControl mute = (BooleanControl) line.getControl(BooleanControl.Type.MUTE);
       mute.setValue(false);
     }
-
     line.start();
     open = true;
-    worker = Thread.ofVirtual().name("kv4p-rx-audio").start(this::playbackLoop);
+    // Platform thread: JavaSound line.write() blocks in native code; a virtual
+    // thread here would pin its carrier and can starve other virtual threads.
+    worker = Thread.ofPlatform().daemon().name("rx-audio").start(this::playbackLoop);
   }
-
   public void playAdpcm(byte[] adpcmPayload) {
     if (!open || adpcmPayload.length < ImaAdpcm.BLOCK_BYTES) return;
     audioQueue.offer(adpcmPayload);
   }
-
   private void playbackLoop() {
     while (open) {
       try {
@@ -83,7 +75,6 @@ public final class RxAudioPlayer implements AutoCloseable {
       }
     }
   }
-
   @Override
   public synchronized void close() {
     open = false;
