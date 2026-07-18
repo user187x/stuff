@@ -1,176 +1,245 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# ==============================================================================
-# FUNCTION DEFINITIONS (Isolated in subshells to prevent `exit` from killing the master script)
-# ==============================================================================
+# Enforce better error handling
+set -euo pipefail
 
-enable_power_option_lid() (
- CONFIG_FILE="/etc/systemd/logind.conf"
- BACKUP_FILE="/etc/systemd/logind.conf.bak_$(date +%F_%T)"
-
- if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root (use sudo)."
-  exit 1
+tweak_enable_power_option_lid() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Shutdown on lid close (Battery)"
+  return 0
  fi
+
+ local CONFIG_FILE="/etc/systemd/logind.conf"
+ local BACKUP_FILE="/etc/systemd/logind.conf.bak_$(date +%F_%T)"
 
  echo "--- Ubuntu 24.04 Lid Close Configuration ---"
  if [ -f "$CONFIG_FILE" ]; then
-  cp "$CONFIG_FILE" "$BACKUP_FILE"
+  sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
   echo "Backup created at: $BACKUP_FILE"
  else
   echo "Error: $CONFIG_FILE not found!"
-  exit 1
+  return 1
  fi
 
- sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=poweroff/' "$CONFIG_FILE"
- echo "Set: HandleLidSwitch=poweroff (Shutdown on Battery)"
-
- sed -i 's/^#\?HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=lock/' "$CONFIG_FILE"
- echo "Set: HandleLidSwitchExternalPower=lock (Lock on AC Power)"
+ sudo sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=poweroff/' "$CONFIG_FILE"
+ sudo sed -i 's/^#\?HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=lock/' "$CONFIG_FILE"
 
  echo "Restarting systemd-logind service..."
- systemctl restart systemd-logind
- echo "Configuration complete! Note: Reboot if changes don't take effect immediately."
-)
+ sudo systemctl restart systemd-logind
+ echo "Configuration complete! (Reboot if changes don't apply immediately)"
+}
 
-enable_keyboard_expose() (
- KEY_PATH="/org/gnome/shell/keybindings/toggle-application-view"
- TARGET_VAL="['<Shift>Super_L', '<Super>Shift_L', '<Super>Shift_R']"
- CURRENT_VAL=$(dconf read "$KEY_PATH")
+tweak_enable_keyboard_expose() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Enable Keyboard Expose (Shift+Super)"
+  return 0
+ fi
+
+ local KEY_PATH="/org/gnome/shell/keybindings/toggle-application-view"
+ local TARGET_VAL="['<Shift>Super_L', '<Super>Shift_L', '<Super>Shift_R']"
+ local CURRENT_VAL
+ CURRENT_VAL=$(dconf read "$KEY_PATH" || echo "")
 
  if [[ "$CURRENT_VAL" == "$TARGET_VAL" ]]; then
   echo "The Shift+Super shortcut is ALREADY set."
  else
   echo "Setting Shift+Super shortcut..."
   dconf write "$KEY_PATH" "$TARGET_VAL"
-  echo "✅ Shortcut applied! Try pressing Shift+Super or Super+Shift now."
+  echo "✅ Shortcut applied!"
  fi
-)
+}
 
-update_os_ulimits() (
- if [ "$EUID" -ne 0 ]; then
-  echo "Error: Please run with sudo."
-  exit 1
+tweak_update_os_ulimits() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Increase OS File Descriptor limits"
+  return 0
  fi
- FILE="/etc/security/limits.conf"
- SOFT_LIMIT="* soft nofile 10000"
- HARD_LIMIT="* hard nofile 10000"
+
+ local FILE="/etc/security/limits.conf"
+ local SOFT_LIMIT="* soft nofile 10000"
+ local HARD_LIMIT="* hard nofile 10000"
 
  echo "Updating file descriptor limits in $FILE..."
- if grep -qF "$SOFT_LIMIT" "$FILE"; then echo " -> Soft limit already exists."; else echo "$SOFT_LIMIT" >>"$FILE"; fi
- if grep -qF "$HARD_LIMIT" "$FILE"; then echo " -> Hard limit already exists."; else echo "$HARD_LIMIT" >>"$FILE"; fi
+ if grep -qF "$SOFT_LIMIT" "$FILE"; then
+  echo " -> Soft limit already exists."
+ else
+  echo "$SOFT_LIMIT" | sudo tee -a "$FILE" >/dev/null
+ fi
+
+ if grep -qF "$HARD_LIMIT" "$FILE"; then
+  echo " -> Hard limit already exists."
+ else
+  echo "$HARD_LIMIT" | sudo tee -a "$FILE" >/dev/null
+ fi
  echo "Done! You must log out and log back in."
-)
+}
 
-update_os_notification_popup() {
+tweak_update_os_notification_popup() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Disable Desktop popup notification"
+  return 0
+ fi
 
- echo "Disabling desktop notification pop"
+ echo "Disabling desktop notification popup..."
  gsettings set com.ubuntu.update-notifier no-show-notifications true
 }
 
-remove_os_recent_files() (
+tweak_remove_os_recent_files() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Disable 'Recent' in File Explorer"
+  return 0
+ fi
+
  echo "Removing 'recent' from file explorer..."
  if gsettings set org.gnome.desktop.privacy remember-recent-files false >/dev/null 2>&1; then
-  echo -e "Setting complete!"
+  echo "Setting complete!"
  else
-  echo -e "Failed updating setting..."
+  echo "Failed updating setting..."
  fi
-)
+}
 
-update_os_sudoers_timeout() (
- if [[ $EUID -ne 0 ]]; then
-  echo "This script must be run as root."
-  exit 1
+tweak_update_os_sudoers_timeout() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Adjust Sudo password timeout"
+  return 0
  fi
- TIMEOUT=$(whiptail --title "Sudo Timeout" --inputbox "Enter desired timeout in minutes (0 = always prompt, 15 = default, 5256000 = never):" 10 60 15 3>&1 1>&2 2>&3)
+
+ local TIMEOUT
+ TIMEOUT=$(whiptail --title "Sudo Timeout" --inputbox "Enter desired timeout in minutes (0 = always prompt, 15 = default, 5256000 = never):" 10 60 15 3>&1 1>&2 2>&3) || return 0
 
  if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]]; then
   echo "Error: Input must be a valid positive number."
-  exit 1
+  return 1
  fi
- SUDOERS_FILE="/etc/sudoers.d/99_custom_timeout"
- echo "Defaults timestamp_timeout=$TIMEOUT" >"$SUDOERS_FILE"
- chmod 0440 "$SUDOERS_FILE"
 
- if visudo -c -q; then echo "Success! Timeout updated to $TIMEOUT minutes."; else
-  rm "$SUDOERS_FILE"
-  echo "Error: Reverting changes."
-  exit 1
+ local SUDOERS_FILE="/etc/sudoers.d/99_custom_timeout"
+ echo "Defaults timestamp_timeout=$TIMEOUT" | sudo tee "$SUDOERS_FILE" >/dev/null
+ sudo chmod 0440 "$SUDOERS_FILE"
+
+ if sudo visudo -c -q; then
+  echo "Success! Timeout updated to $TIMEOUT minutes."
+ else
+  sudo rm -f "$SUDOERS_FILE"
+  echo "Error: Reverting changes. Visudo syntax check failed."
+  return 1
  fi
-)
+}
 
-enable_inverse_fwd_search() (
- echo -e "Setting standard input mode: stty -ixon"
- stty -ixon
- export FZF_CTRL_R_OPTS="--header='⌨️ NAVIGATION: [Ctrl+R] = Backwards | [Ctrl+S] = Forward' --bind 'ctrl-r:up,ctrl-s:down'"
-)
-
-remove_os_bloatware() (
- if [ "$EUID" -eq 0 ]; then
-  echo "Error: Please run as standard user, NOT sudo."
-  exit 1
+tweak_enable_inverse_fwd_search() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Enable inverse fwd search (Terminal)"
+  return 0
  fi
+
+ echo "Setting standard input mode: stty -ixon"
+ stty -ixon 2>/dev/null || true
+
+ local EXPORT_STR="export FZF_CTRL_R_OPTS=\"--header='⌨️ NAVIGATION: [Ctrl+R] = Backwards | [Ctrl+S] = Forward' --bind 'ctrl-r:up,ctrl-s:down'\""
+
+ if ! grep -q "FZF_CTRL_R_OPTS" ~/.bashrc; then
+  echo "$EXPORT_STR" >>~/.bashrc
+  echo "Added to ~/.bashrc. Please restart terminal to take full effect."
+ else
+  echo "FZF options already configured in ~/.bashrc"
+ fi
+}
+
+tweak_remove_os_bloatware() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Remove bloatware (LibreOffice, Snap, Thunderbird)"
+  return 0
+ fi
+
  echo "Purging unwanted apps via APT..."
  touch ~/.hushlogin
  grep -q "LESSHISTFILE" ~/.bashrc || echo "export LESSHISTFILE=/dev/null" >>~/.bashrc
  gsettings set org.gnome.desktop.privacy remember-recent-files false
+
  mkdir -p ~/Templates && touch ~/Templates/Text\ File.txt
- sudo -v
+
  echo "Defaults !admin_flag" | sudo tee /etc/sudoers.d/disable_admin_file_in_home >/dev/null
  sudo chmod 440 /etc/sudoers.d/disable_admin_file_in_home
+
  sudo apt-get remove --purge -y libreoffice* uno-libs-private ure yelp libreoffice-help-* totem thunderbird*
  command -v snap >/dev/null 2>&1 && sudo snap remove thunderbird || true
- sudo rm -rf /etc/thunderbird /usr/lib/thunderbird /usr/share/thunderbird /usr/share/applications/thunderbird.desktop
- for user_home in /home/*; do
-  sudo rm -rf "$user_home/.thunderbird" "$user_home/.cache/thunderbird" 2>/dev/null
- done
- sudo rm -rf "/root/.thunderbird" 2>/dev/null
- sudo apt-get autoremove --purge -y && sudo apt-get autoclean -y
- command -v update-desktop-database >/dev/null 2>&1 && sudo update-desktop-database /usr/share/applications
- echo "Unnecessary apps removed."
-)
 
-update_os_center_windows() (
+ sudo rm -rf /etc/thunderbird /usr/lib/thunderbird /usr/share/thunderbird /usr/share/applications/thunderbird.desktop
+
+ # Clean user dirs
+ for user_home in /home/*; do
+  sudo rm -rf "$user_home/.thunderbird" "$user_home/.cache/thunderbird" 2>/dev/null || true
+ done
+ sudo rm -rf "/root/.thunderbird" 2>/dev/null || true
+
+ sudo apt-get autoremove --purge -y && sudo apt-get autoclean -y
+ command -v update-desktop-database >/dev/null 2>&1 && sudo update-desktop-database /usr/share/applications || true
+ echo "Unnecessary apps removed."
+}
+
+tweak_update_os_center_windows() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Center new windows in GNOME"
+  return 0
+ fi
+
  echo "Configuring GNOME Window settings..."
  command -v gsettings >/dev/null 2>&1 && gsettings set org.gnome.mutter center-new-windows true
  echo "Windows will now center on open."
-)
+}
 
-update_os_clock_12H() (
+tweak_update_os_clock_12H() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Set 12-Hour Clock Format"
+  return 0
+ fi
+
  echo "Setting interface to use 12 Hr format..."
  gsettings set org.gnome.desktop.interface clock-format '12h'
-)
+}
 
-remove_boot_logo() (
- TARGET_FILE="/usr/share/plymouth/ubuntu-logo.png"
- BACKUP_FILE="${TARGET_FILE}.bak"
- TRANSPARENT_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
- if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root (use sudo)."
-  exit 1
+tweak_remove_boot_logo() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Remove Boot Logo"
+  return 0
  fi
- [ ! -f "$BACKUP_FILE" ] && cp "$TARGET_FILE" "$BACKUP_FILE"
- echo "$TRANSPARENT_PNG_B64" | base64 --decode >/tmp/transparent_logo_temp.png
- mv /tmp/transparent_logo_temp.png "$TARGET_FILE"
- update-initramfs -u
- echo "Boot logo removed."
-)
 
-update_os_startup_sound() (
- AUDIO_FILE=$(whiptail --title "Startup Sound" --inputbox "Enter full path to audio file:" 10 60 3>&1 1>&2 2>&3)
+ local TARGET_FILE="/usr/share/plymouth/ubuntu-logo.png"
+ local BACKUP_FILE="${TARGET_FILE}.bak"
+ local TRANSPARENT_PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+ [ ! -f "$BACKUP_FILE" ] && sudo cp "$TARGET_FILE" "$BACKUP_FILE"
+ echo "$TRANSPARENT_PNG_B64" | base64 --decode >/tmp/transparent_logo_temp.png
+ sudo mv /tmp/transparent_logo_temp.png "$TARGET_FILE"
+ sudo update-initramfs -u
+ echo "Boot logo removed."
+}
+
+tweak_update_os_startup_sound() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Set Custom Startup Sound"
+  return 0
+ fi
+
+ local AUDIO_FILE
+ AUDIO_FILE=$(whiptail --title "Startup Sound" --inputbox "Enter full path to audio file:" 10 60 3>&1 1>&2 2>&3) || return 0
  AUDIO_FILE="${AUDIO_FILE/#\~/$HOME}"
- [ ! -f "$AUDIO_FILE" ] && {
-  echo "File not found."
-  exit 1
- }
- command -v ffmpeg >/dev/null 2>&1 || sudo apt install -y ffmpeg >/dev/null 2>&1
- SOUND_DIR="$HOME/.local/share/sounds/Yaru/stereo"
+
+ if [ ! -f "$AUDIO_FILE" ]; then
+  echo "File not found: $AUDIO_FILE"
+  return 1
+ fi
+
+ command -v ffmpeg >/dev/null 2>&1 || sudo apt-get install -y ffmpeg >/dev/null 2>&1
+ local SOUND_DIR="$HOME/.local/share/sounds/Yaru/stereo"
  mkdir -p "$SOUND_DIR"
- TARGET_FILE="$SOUND_DIR/desktop-login.ogg"
+
+ local TARGET_FILE="$SOUND_DIR/desktop-login.ogg"
  ffmpeg -y -i "$AUDIO_FILE" -c:a libvorbis "$TARGET_FILE" >/dev/null 2>&1
- command -v paplay >/dev/null 2>&1 || sudo apt install -y pulseaudio-utils >/dev/null 2>&1
- AUTOSTART_DIR="$HOME/.config/autostart"
+
+ command -v paplay >/dev/null 2>&1 || sudo apt-get install -y pulseaudio-utils >/dev/null 2>&1
+ local AUTOSTART_DIR="$HOME/.config/autostart"
  mkdir -p "$AUTOSTART_DIR"
+
  cat >"$AUTOSTART_DIR/startup-sound.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -179,42 +248,43 @@ Exec=paplay "$TARGET_FILE"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
+
  gsettings set org.gnome.desktop.sound event-sounds true
  echo "Startup sound set!"
-)
+}
 
-enable_touchpad_twofinger() (
- sudo apt install xserver-xorg-input-synaptics -y
- synclient VertTwoFingerScroll=1
+tweak_enable_touchpad_twofinger() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Enable Touchpad Two-Finger Scroll"
+  return 0
+ fi
+
+ sudo apt-get install xserver-xorg-input-synaptics -y
+ synclient VertTwoFingerScroll=1 2>/dev/null || echo "Warning: synclient failed, might be on Wayland."
  gsettings set org.gnome.desktop.peripherals.touchpad two-finger-scrolling-enabled true
-)
+ echo "Two-finger scrolling enabled."
+}
 
-update_os_alert_sound() (
- THEME_DIR="/usr/share/sounds/custom/stereo"
- THEME_FILE="/usr/share/sounds/custom/index.theme"
- SOURCE_SOUND="/usr/share/sounds/gnome/default/alerts/hum.ogg"
- sudo mkdir -p "$THEME_DIR"
- sudo tee "$THEME_FILE" >/dev/null <<EOF
-[Sound Theme]
-Name=custom
-Directories=stereo
-[stereo]
-OutputProfile=stereo
-EOF
- sudo cp "$SOURCE_SOUND" "$THEME_DIR/bell.oga"
- gsettings set org.gnome.desktop.sound theme-name custom
- echo "Alert sound updated."
-)
+tweak_remove_os_power_mode_toggle() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Disable Power-Profiles Daemon"
+  return 0
+ fi
 
-remove_os_power_mode_toggle() (
  sudo systemctl mask power-profiles-daemon.service
  echo "Power profiles disabled."
-)
+}
 
-remove_boot_splash() (
- target="/etc/default/grub"
- backup="/etc/default/grub.bak"
+tweak_remove_boot_splash() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Hide GRUB boot splash screen"
+  return 0
+ fi
+
+ local target="/etc/default/grub"
+ local backup="/etc/default/grub.bak"
  sudo cp "$target" "$backup"
+
  sudo tee "$target" <<EOF >/dev/null
 GRUB_DEFAULT=0
 GRUB_TIMEOUT_STYLE=hidden
@@ -229,125 +299,169 @@ GRUB_DISABLE_RECOVERY=true
 GRUB_RECORDFAIL_TIMEOUT=0
 EOF
  sudo update-grub
-)
+ echo "GRUB splash hidden."
+}
 
-remove_os_boot_image() (
- sudo update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth /usr/share/plymouth/themes/spinner/spinner.plymouth 100
- sudo update-alternatives --set default.plymouth /usr/share/plymouth/themes/spinner/spinner.plymouth
-)
-
-remove_os_login_logo() (
- TARGET_PATH="/usr/share/plymouth/ubuntu-logo.png"
- command -v imagemagick &>/dev/null || sudo apt install imagemagick -y &>/dev/null
- sudo convert -size 256x86 xc:transparent "$TARGET_PATH"
- echo "Login logo removed."
-)
-
-update_os_mouse_theme() (
- command -v git &>/dev/null || sudo apt-get install -y git
- TMP_DIR=$(mktemp -d) && cd "$TMP_DIR"
- git clone https://github.com/alvatip/Borealis-cursors.git
- cd Borealis-cursors && sudo ./install.sh
- gsettings set org.gnome.desktop.interface cursor-theme "Borealis-cursors"
- cd ~ && rm -rf "$TMP_DIR"
-)
-
-update_os_avatar() (
- AVATAR_FILE=$(whiptail --title "Set Avatar" --inputbox "Enter full path to profile image:" 10 60 3>&1 1>&2 2>&3)
- if [ ! -f "$AVATAR_FILE" ]; then
-  echo "Avatar file not found."
-  exit 1
+tweak_update_power_mode() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Set CPU Power Mode to Performance"
+  return 0
  fi
- if command -v dbus-send &>/dev/null; then
-  dbus-send --system --print-reply --dest=org.freedesktop.Accounts /org/freedesktop/Accounts/User$(id -u) org.freedesktop.Accounts.User.SetIconFile string:"$AVATAR_FILE" &>/dev/null
- fi
- ln -sf "$AVATAR_FILE" "$HOME/.face"
- ln -sf "$AVATAR_FILE" "$HOME/.face.icon"
- echo "Avatar updated."
-)
 
-update_os_startup_apps() (
- echo "Refer to Startup Applications GUI for manual toggling for best results."
-)
-
-update_os_icon_theme() (
- sudo apt install faenza-icon-theme numix-icon-theme-circle gnome-tweak-tool -y
-)
-
-update_os_theme_orchis() (
- ORCHIS_THEME_INSTALLER="../themes/desktop/orchis/install.sh"
- if [[ ! -f "$ORCHIS_THEME_INSTALLER" ]]; then
-  echo "Installer not found."
-  return 1
- fi
- "$ORCHIS_THEME_INSTALLER" -t grey -c dark -s compact --round 15px --libadwaita
-)
-
-function update_power_mode {
  echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
  echo "Power mode set to performance."
 }
 
-# ==============================================================================
-# MAIN EXECUTION FLOW (TUI)
-# ==============================================================================
+tweak_create_context_menu_filecreation() {
+ if [[ "${1:-}" == "--desc" ]]; then
+  echo "Create Right-Click Script Template"
+  return 0
+ fi
 
-# Ensure whiptail is installed
-if ! command -v whiptail &>/dev/null; then
- echo "Installing required dependency: whiptail..."
- sudo apt-get update && sudo apt-get install -y whiptail
-fi
+ local TEMPLATE_DIR
+ TEMPLATE_DIR=$(xdg-user-dir TEMPLATES 2>/dev/null || echo "$HOME/Templates")
+ mkdir -p "$TEMPLATE_DIR"
 
-# Display Intro Message
-whiptail \
- --title "Ubuntu Auto-Configuration" \
- --msgbox "System Configurator.\n\nUse [SPACE] to select and [ENTER] to execute them." \
- 10 60
+ cat <<'EOF' >"$TEMPLATE_DIR/Shell Script.sh"
+#!/usr/bin/env bash
+set -euo pipefail
+usage() {
+    echo "Usage: $(basename "$0") [OPTIONS]"
+    echo "Options:"
+    echo "  --script    Create executable bash script and open in vim"
+    echo "  --text      Create text file and open in gedit"
+    exit 0
+}
+if [[ "$#" -eq 0 ]]; then usage; fi
 
-# Display Multi-Select Menu
-CHOICES=$(whiptail --title "System Tweaks & Configurations" --checklist \
- "Select the configurations to apply. (Use SPACE to select/deselect)" 25 80 16 \
- "enable_power_option_lid" "Shutdown on lid close (Battery)" OFF \
- "enable_keyboard_expose" "Enable Keyboard Expose (Shift+Super)" OFF \
- "update_os_ulimits" "Increase OS File Descriptor limits" OFF \
- "remove_os_recent_files" "Disable 'Recent' in File Explorer" OFF \
- "update_os_notification_popup" "Disable Desktop popup notification" OFF \
- "update_os_sudoers_timeout" "Adjust Sudo password timeout" OFF \
- "enable_inverse_fwd_search" "Enable inverse fwd search (Terminal)" OFF \
- "remove_os_bloatware" "Remove bloatware (LibreOffice, Snap)" OFF \
- "update_os_center_windows" "Center new windows in GNOME" OFF \
- "update_os_clock_12H" "Set 12-Hour Clock Format" OFF \
- "remove_boot_logo" "Remove Boot Logo" OFF \
- "update_os_startup_sound" "Set Custom Startup Sound" OFF \
- "enable_touchpad_twofinger" "Enable Touchpad Two-Finger Scroll" OFF \
- "update_os_alert_sound" "Set Custom Alert Sound (hum)" OFF \
- "remove_os_power_mode_toggle" "Disable Power-Profiles Daemon" OFF \
- "remove_boot_splash" "Hide GRUB boot splash screen" OFF \
- "remove_os_boot_image" "Remove Plymouth Boot Image" OFF \
- "remove_os_login_logo" "Remove OS Login Logo" OFF \
- "update_os_mouse_theme" "Install Borealis Mouse Theme" OFF \
- "update_os_avatar" "Update User Avatar" OFF \
- "update_os_startup_apps" "Manage Startup Apps" OFF \
- "update_os_icon_theme" "Install Faenza/Numix Icon Themes" OFF \
- "update_os_theme_orchis" "Install Orchis GNOME Theme" OFF \
- "update_power_mode" "Set CPU Power Mode to Performance" OFF \
- 3>&1 1>&2 2>&3)
-
-if [ -z "$CHOICES" ]; then
- echo "No options selected or user cancelled. Exiting."
- exit 0
-fi
-
-clear
-
-echo "Processing system configurations"
-for CHOICE in $CHOICES; do
- FUNC=$(echo "$CHOICE" | tr -d '"')
- echo -e " → \e[92m$FUNC\e[0m"
- output=$($FUNC)
- echo -e " ✷\e[90m ${output} \e[0m"
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --script)
+            FILENAME="new_script_$(date +%s).sh"
+            echo "#!/usr/bin/env bash" > "$FILENAME"
+            chmod +x "$FILENAME"
+            vim "$FILENAME"
+            shift
+            ;;
+        --text)
+            FILENAME="new_text_$(date +%s).txt"
+            touch "$FILENAME"
+            gedit "$FILENAME" >/dev/null 2>&1 &
+            shift
+            ;;
+        *)
+            echo "Unknown parameter: $1" >&2
+            exit 1
+            ;;
+    esac
 done
+EOF
 
-echo
-echo "Completed!"
-echo
+ chmod +x "$TEMPLATE_DIR/Shell Script.sh"
+ echo "Template updated. File saved to: $TEMPLATE_DIR/Shell Script.sh"
+}
+
+# ==============================================================================
+# MAIN TUI EXECUTION
+# ==============================================================================
+
+execute_tui() {
+ if [[ "$EUID" -eq 0 ]]; then
+  echo "❌ Error: Please run this script as your standard user, NOT with sudo."
+  echo "The script will prompt for sudo access automatically when required."
+  exit 1
+ fi
+
+ if ! command -v whiptail &>/dev/null; then
+  echo "Installing required dependency: whiptail..."
+  sudo apt-get update && sudo apt-get install -y whiptail
+ fi
+
+ # Dynamically build the menu from all functions starting with 'tweak_'
+ local menu_options=()
+ local func_list
+
+ # Grab all function names that start with tweak_
+ func_list=$(compgen -A function | grep '^tweak_')
+
+ for func in $func_list; do
+  local desc
+  # Call the function with --desc to get its sub-detail
+  desc=$("$func" --desc)
+  # Whiptail needs: ID, Description, Status (ON/OFF)
+  menu_options+=("$func" "$desc" "OFF")
+ done
+
+ whiptail --title "Ubuntu Auto-Configuration" \
+  --msgbox "System Configurator.\n\nUse [SPACE] to select and [ENTER] to execute them." 10 80
+
+ # Calculate terminal dimensions with fallbacks
+ local term_cols=$(tput cols 2>/dev/null || echo 120)
+ local term_lines=$(tput lines 2>/dev/null || echo 25)
+
+ # Set whiptail dimensions with padding
+ local wt_width=$((term_cols > 140 ? 140 : term_cols - 10))
+ local wt_height=$((term_lines > 30 ? 30 : term_lines - 4))
+ local wt_list_height=$((wt_height - 8))
+
+ # Dynamically build the menu from all functions starting with 'tweak_'
+ local menu_options=()
+ local func_list
+ func_list=$(compgen -A function | grep '^tweak_')
+
+ # 1. Find the length of the longest function name for accurate math
+ local max_func_len=0
+ for func in $func_list; do
+  if ((${#func} > max_func_len)); then max_func_len=${#func}; fi
+ done
+
+ # 2. Calculate how much space to pad the description
+ local desc_pad_len=$((wt_width - max_func_len - 15))
+ ((desc_pad_len < 10)) && desc_pad_len=10 # Fallback for extremely small terminals
+
+ # 3. Build the array with space-padded descriptions
+ for func in $func_list; do
+  local desc
+  desc=$("$func" --desc)
+  desc=$(printf "%-${desc_pad_len}s" "$desc")
+  menu_options+=("$func" "$desc" "OFF")
+ done
+
+ # Display the dynamically generated list
+ local choices
+ choices=$(whiptail --title "System Tweaks & Configurations" \
+  --checklist "Select the configurations to apply:" \
+  "$wt_height" "$wt_width" "$wt_list_height" \
+  "${menu_options[@]}" 3>&1 1>&2 2>&3) || true
+
+ if [ -z "$choices" ]; then
+  echo "No options selected or user cancelled. Exiting."
+  exit 0
+ fi
+
+ clear
+ echo "Processing system configurations..."
+
+ # Remove quotes returned by whiptail
+ choices=$(echo "$choices" | tr -d '"')
+
+ for func in $choices; do
+  echo -e "\n → \e[92mExecuting: $("$func" --desc)\e[0m"
+  # Execute the function
+  if "$func"; then
+   echo -e " \e[90m[OK] Completed successfully\e[0m"
+  else
+   echo -e " \e[31m[FAILED] Error during execution\e[0m"
+  fi
+ done
+
+ echo -e "\n🎉 All selected tasks have been processed!"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+ # Script is being executed (e.g., ./script.sh)
+ execute_tui "$@"
+else
+ # Script is being sourced (e.g., source script.sh)
+ execute_tui "$@"
+fi
