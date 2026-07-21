@@ -322,13 +322,13 @@ tweak_create_context_menu_filecreation() {
  TEMPLATE_DIR=$(xdg-user-dir TEMPLATES 2>/dev/null || echo "$HOME/Templates")
  mkdir -p "$TEMPLATE_DIR"
 
- cat <<'EOF' >"$TEMPLATE_DIR/Shell Script.sh"
+ cat <<'EOF' >"$TEMPLATE_DIR/Shell Script"
 #!/usr/bin/env bash
 set -euo pipefail
 usage() {
     echo "Usage: $(basename "$0") [OPTIONS]"
     echo "Options:"
-    echo "  --script    Create executable bash script and open in vim"
+    echo "  --script    Create executable bash script"
     echo "  --text      Create text file and open in gedit"
     exit 0
 }
@@ -337,14 +337,14 @@ if [[ "$#" -eq 0 ]]; then usage; fi
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --script)
-            FILENAME="new_script_$(date +%s).sh"
+            FILENAME="new_script_$(date +%s)"
             echo "#!/usr/bin/env bash" > "$FILENAME"
             chmod +x "$FILENAME"
-            vim "$FILENAME"
+            gedti "$FILENAME"
             shift
             ;;
         --text)
-            FILENAME="new_text_$(date +%s).txt"
+            FILENAME="text-$(date +%s).txt"
             touch "$FILENAME"
             gedit "$FILENAME" >/dev/null 2>&1 &
             shift
