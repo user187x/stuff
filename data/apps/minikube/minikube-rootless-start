@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Temporary fix for the current session:
+export MINIKUBE_ROOTLESS=false
+
+# Run Minikube again:
+minikube start --cpus=6 --memory=10G --driver=docker -p rootless-cluster
