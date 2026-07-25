@@ -1,0 +1,3 @@
+#!/bin/bash
+
+kubectl port-forward service/keycloack-keycloak-http 8080:80 -n keycloak

@@ -857,11 +857,52 @@ module "coder-login" {
 # Dev Containers: with Docker available, Coder can detect a devcontainer.json in
 # the workspace and run the project inside it, with its own agent and its own
 # IDE buttons. Requires Coder >= 2.22.
-module "devcontainers-cli" {
-  count    = local.docker_enabled ? data.coder_workspace.me.start_count : 0
-  source   = "registry.coder.com/coder/devcontainers-cli/coder"
-  version  = "~> 1.0"
-  agent_id = coder_agent.main.id
+#
+# NOTE: this deliberately does NOT use the registry's devcontainers-cli module.
+# That module installs via npm and hard-fails with
+#   "ERROR: No supported package manager (npm, pnpm, yarn) is installed"
+# on any image without Node - which includes codercom/enterprise-base:ubuntu.
+# The standalone installer below ships its own Node runtime, so it works on any
+# image, and no-ops entirely once the bundled Dockerfile provides the CLI.
+resource "coder_script" "devcontainers_cli" {
+  count              = local.docker_enabled ? data.coder_workspace.me.start_count : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Dev Containers CLI"
+  icon               = "/icon/docker.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/usr/bin/env bash
+    set -uo pipefail
+
+    if command -v devcontainer >/dev/null 2>&1; then
+      echo "devcontainer already present: $(devcontainer --version 2>/dev/null)"
+      exit 0
+    fi
+
+    INSTALLER="https://raw.githubusercontent.com/devcontainers/cli/main/scripts/install.sh"
+
+    # Prefer /usr/local so the CLI is on PATH for the agent itself, not just for
+    # interactive shells - the agent is what shells out to `devcontainer` when it
+    # starts a coder_devcontainer resource.
+    if sudo -n true 2>/dev/null; then
+      echo "Installing the Dev Containers CLI to /usr/local ..."
+      curl -fsSL "$INSTALLER" | sudo sh -s -- --prefix /usr/local
+    else
+      echo "No passwordless sudo; installing to ~/.local instead."
+      mkdir -p "$HOME/.local"
+      curl -fsSL "$INSTALLER" | sh -s -- --prefix "$HOME/.local"
+    fi
+
+    export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+    if command -v devcontainer >/dev/null 2>&1; then
+      echo "Installed: $(devcontainer --version 2>/dev/null)"
+    else
+      echo "Install reported success but 'devcontainer' is not on PATH."
+      echo "Bake it into the image instead - see the bundled Dockerfile."
+      exit 1
+    fi
+  EOT
 }
 
 resource "coder_devcontainer" "project" {

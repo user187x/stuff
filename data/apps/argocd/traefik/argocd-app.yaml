@@ -1,0 +1,53 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  project: default
+  source:
+    repoURL: 'https://traefik.github.io/charts'
+    chart: traefik
+    targetRevision: '*'
+    helm:
+      values: |
+        providers:
+          kubernetesGateway:
+            enabled: true
+          kubernetesIngress:
+            enabled: false
+
+        gatewayClass:
+          enabled: true
+          name: traefik
+
+        gateway:
+          enabled: true
+          name: traefik-gateway
+          listeners:
+            web:
+              port: 8000
+              protocol: HTTP
+              namespacePolicy:
+                from: All
+
+            websecure:
+              port: 8443
+              protocol: HTTPS
+              namespacePolicy:
+                from: All
+              certificateRefs:
+                - kind: Secret
+                  name: wildcard-tls
+
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
