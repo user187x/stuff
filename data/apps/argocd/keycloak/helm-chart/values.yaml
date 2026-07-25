@@ -1,0 +1,27 @@
+keycloak:
+  name: keycloak
+  image: quay.io/keycloak/keycloak:26.7.0
+  replicas: 2
+  adminUsername: admin
+  adminPassword: admin
+  proxyHeaders: xforwarded
+  httpEnabled: "true"
+  hostnameStrict: "false"
+  healthEnabled: "true"
+  cache: ispn
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1700Mi
+    limits:
+      cpu: 2000m
+      memory: 2000Mi
+
+postgres:
+  name: postgres
+  image: mirror.gcr.io/postgres:17
+  replicas: 1
+  dbName: keycloak
+  dbUser: keycloak
+  dbPassword: keycloak
+  logStatement: all

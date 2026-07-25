@@ -1,0 +1,6 @@
+apiVersion: v2
+name: keycloak-stack
+description: A Helm chart to deploy Keycloak and PostgreSQL
+type: application
+version: 0.1.0
+appVersion: "26.7.0"
