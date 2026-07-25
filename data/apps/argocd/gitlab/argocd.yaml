@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://charts.gitlab.io/'
+    targetRevision: 10.2.0
+    chart: gitlab
+    helm:
+      values: |
+        global:
+          hosts:
+            domain: xxx.local
+            https: false
+          ingress:
+            enabled: false
+            configureCertmanager: false
+            # Prevent fallback self-signed certificate generation
+            tls:
+              enabled: false
+
+        nginx-ingress:
+          enabled: false
+
+        installCertmanager: false
+
+        # Satisfy the chart's strict template validation (value is ignored)
+        certmanager-issuer:
+          email: "admin@xxx.local"
+
+  destination:
+    namespace: gitlab
+    server: 'https://kubernetes.default.svc'
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
