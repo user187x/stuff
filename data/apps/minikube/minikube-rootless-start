@@ -1,7 +1,28 @@
 #!/bin/bash
 
+# Install the prerequisites (since you are on Ubuntu):
+sudo apt-get update
+sudo apt-get install -y uidmap dbus-user-session
+
+# Run the rootless script
+dockerd-rootless-setuptool.sh install
+
+# Set the context
+docker context use rootless
+
 # Temporary fix for the current session:
 export MINIKUBE_ROOTLESS=false
 
 # Run Minikube again:
 minikube start --cpus=6 --memory=10G --driver=docker -p rootless-cluster
+
+echo
+echo "To switch docker context back to default..."
+echo -e "\e[92m docker context use default\e[0m"
+
+echo "Turn off the Minikube rootless flag"
+echo -e "\[92m export MINIKUBE_ROOTLESS=false\e[0m"
+
+echo "Start Minikube"
+echo -e "\e[92m minikube start --cpus=6 --memory=10G --driver=docker -p coder-shroder\e[0m"
+echo
