@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudbeaver
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://avistotelecom.github.io/charts/
+    targetRevision: 1.1.7
+    chart: cloudbeaver
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudbeaver
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

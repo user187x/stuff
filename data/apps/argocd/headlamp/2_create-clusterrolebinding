@@ -1,0 +1,3 @@
+#!/bin/bash
+
+kubectl create clusterrolebinding headlamp-admin --serviceaccount=kube-system:headlamp-admin --clusterrole=cluster-admin
