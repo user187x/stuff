@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  resource.customizations.health.elasticsearch.k8s.elastic.co_Elasticsearch: |
+    hs = {}
+    if obj.status ~= nil then
+      if obj.status.health == "green" then
+        hs.status = "Healthy"
+        hs.message = "Elasticsearch cluster is green"
+      elseif obj.status.health == "yellow" then
+        hs.status = "Healthy"
+        hs.message = "Elasticsearch cluster is yellow (replicas may be unassigned)"
+      elseif obj.status.health == "red" then
+        hs.status = "Degraded"
+        hs.message = "Elasticsearch cluster is red"
+      elseif obj.status.phase == "ApplyingChanges" then
+        hs.status = "Progressing"
+        hs.message = "Elasticsearch is applying changes"
+      else
+        hs.status = "Progressing"
+        hs.message = "Elasticsearch phase: " .. (obj.status.phase or "Unknown")
+      end
+    else
+      hs.status = "Progressing"
+      hs.message = "Waiting for Elasticsearch status"
+    end
+    return hs
+
+  resource.customizations.health.kibana.k8s.elastic.co_Kibana: |
+    hs = {}
+    if obj.status ~= nil then
+      if obj.status.health == "green" then
+        hs.status = "Healthy"
+        hs.message = "Kibana is healthy"
+      elseif obj.status.health == "red" then
+        hs.status = "Degraded"
+        hs.message = "Kibana is unhealthy"
+      else
+        hs.status = "Progressing"
+        hs.message = "Kibana is starting"
+      end
+    else
+      hs.status = "Progressing"
+      hs.message = "Waiting for Kibana status"
+    end
+    return hs

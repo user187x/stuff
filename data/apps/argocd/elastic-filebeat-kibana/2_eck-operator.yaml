@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: elastic-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.elastic.co
+    chart: eck-operator
+    targetRevision: 2.11.1
+    helm:
+      values: |
+        # Do not install CRDs via Helm
+        installCRDs: false
+        createClusterScopedResources: true
+
+        # Manage all namespaces
+        managedNamespaces: []
+
+        # Operator resources
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+
+        # Webhook configuration
+        webhook:
+          enabled: true
+
+        # Telemetry
+        telemetry:
+          disabled: true
+
+        # Log verbosity
+        config:
+          logVerbosity: 0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: elastic-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

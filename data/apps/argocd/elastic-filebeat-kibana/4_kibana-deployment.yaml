@@ -1,0 +1,34 @@
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: production
+  namespace: elastic
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  version: 8.12.0
+  count: 2
+  elasticsearchRef:
+    name: production
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: false
+    service:
+      spec:
+        type: ClusterIP
+  config:
+    # Server settings
+    server.publicBaseUrl: "https://kibana.xxx.local"
+    # Monitoring
+    monitoring.ui.ccs.enabled: false
