@@ -17,7 +17,7 @@ function handle_existing_tunnel {
    echo -e "Terminating Minikube Tunnel -> PID: \e[92m${EXISTING_PID}\e[0m"
    kill "${EXISTING_PID}" 2>/dev/null
    rm -f "${PID_FILE}"
-   echo -e "Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[90m${EXISTING_PID}\e[0m"
+   echo -e "Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[91m${EXISTING_PID}\e[0m"
    return 0
 
   else
@@ -45,9 +45,9 @@ function minikube-tunnel-foreground {
   stty echoctl
 
   if kill -0 $TUNNEL_PID 2>/dev/null; then
-   echo -e "\r\033[K Minikube Tunnel [\e[90mterminating\e[0m] -> PID: \e[92m${TUNNEL_PID}\e[0m"
+   echo -e "\r\033[K Minikube Tunnel [\e[1;31mKILLING\e[0m] -> PID: \e[92m${TUNNEL_PID}\e[0m"
    kill $TUNNEL_PID
-   echo -e " Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[90m${TUNNEL_PID}\e[0m"
+   echo -e " Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[91m${TUNNEL_PID}\e[0m"
   fi
   rm -f "${PID_FILE}"
   exit 0 # CRITICAL: Forces the script to stop here instead of returning to the loop
@@ -62,14 +62,24 @@ function minikube-tunnel-foreground {
  tput civis
 
  spinner=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+ dots=(
+  ""
+  "\e[94m.\e[0m"
+  "\e[94m.\e[95m.\e[0m"
+  "\e[94m.\e[95m.\e[96m.\e[0m"
+ )
 
  while kill -0 $TUNNEL_PID 2>/dev/null; do
   for frame in "${spinner[@]}"; do
-   # Instantly break out of both loops if the background process crashes
+
    kill -0 $TUNNEL_PID 2>/dev/null || break 2
 
-   printf "\r\033[K\e[32m%s\e[0m Minikube Tunnel [\e[92mACTIVE\e[0m] (Press Ctrl+C to stop)..." "$frame"
+   dot_frame="${dots[(i / 4) % 4]}"
+   printf "\r\033[K\e[32m%s\e[0m Minikube Tunnel [\e[92mACTIVE\e[0m] (Press Ctrl+C to stop)%b" "$frame" "$dot_frame"
+
    sleep 0.1
+   ((i++))
+
   done
  done
 
