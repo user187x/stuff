@@ -1,0 +1,32 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_NAME="affinity-installer.py"
+
+echo
+echo "Downloading installation python script..."
+
+curl -sSL https://raw.githubusercontent.com/ryzendew/AffinityOnLinux/refs/heads/main/AffinityScripts/AffinityLinuxInstaller.py > "${SCRIPT_NAME}"
+
+echo
+echo "Download complete!"
+
+echo
+echo "Setting execute permissions on script..."
+chmod +x "${SCRIPT_NAME}"
+echo
+
+echo -e "To install run: \e[1;27mpython3\e[0m \e[92m${SCRIPT_NAME}\e[0m"
+
+read -rp "Run installation now? (y/n) ? " answer
+
+if [[ "$answer" == "y" ]]; then
+ python3 "${SCRIPT_NAME}"
+else
+ echo
+ echo -e "\e[92mScript complete!\e[0m"
+ echo
+fi
+
+

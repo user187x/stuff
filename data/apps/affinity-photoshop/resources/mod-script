@@ -1,0 +1,78 @@
+#!/bin/bash
+
+TARGET_FILE="affinity-installer.py"
+BACKUP_FILE="${TARGET_FILE}.bak"
+
+# 1. Verification & Backup
+if [ ! -f "$TARGET_FILE" ]; then
+    echo "❌ Error: $TARGET_FILE not found in the current directory."
+    exit 1
+fi
+
+echo "📦 Creating backup: $BACKUP_FILE"
+cp "$TARGET_FILE" "$BACKUP_FILE"
+
+# 2. Embedded Python Patcher
+echo "🔧 Applying security and stability patches..."
+
+python3 - << 'EOF'
+import os
+import re
+
+target = "affinity-installer.py"
+
+with open(target, "r") as f:
+    content = f.read()
+
+# --- PATCH 1: XDG Base Directory Specification ---
+print("   -> Patching XDG Base Directory paths...")
+old_xdg = 'self.directory = str(Path.home() / ".AffinityLinux")'
+new_xdg = '''xdg_data_home = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+        self.directory = str(Path(xdg_data_home) / "AffinityLinux")'''
+content = content.replace(old_xdg, new_xdg)
+
+# --- PATCH 2: Disable pip --break-system-packages ---
+print("   -> Patching pip system package break flag...")
+old_pip = 'pip_flags.append("--break-system-packages")'
+# Added 'pass' to prevent IndentationError if this is the only line in the if-block
+new_pip = 'pass  # pip_flags.append("--break-system-packages")  # Disabled for system stability.'
+content = content.replace(old_pip, new_pip)
+
+# --- PATCH 3: Route sudo through pkexec (Polkit) ---
+print("   -> Patching sudo to pkexec for secure privilege escalation...")
+old_sudo_check = 'if is_sudo:\n                # Get password if needed'
+new_sudo_check = '''if is_sudo:
+                command[0] = "pkexec"
+                # Bypass custom password dialog for Polkit native handling
+                self.sudo_password_validated = True
+                password = "pkexec_handles_this"
+
+                # Get password if needed'''
+content = content.replace(old_sudo_check, new_sudo_check)
+
+# Disable the -S appending since pkexec doesn't use it
+# Added 'pass' to prevent IndentationErrors in the if/else blocks
+content = content.replace('command.insert(1, "-S")', 'pass  # command.insert(1, "-S") # Removed for pkexec')
+content = content.replace('command.append("-S")', 'pass  # command.append("-S") # Removed for pkexec')
+
+# Do the same for run_command_interactive
+old_interactive_check = 'if is_sudo:\n                # Get password if needed'
+content = content.replace(old_interactive_check, new_sudo_check)
+
+# --- PATCH 4: Log swallowed exceptions instead of silent 'pass' ---
+print("   -> Patching silent exceptions for better debugging...")
+content = re.sub(
+    r'except Exception:\n(\s+)pass',
+    r'except Exception as e:\n\1self.log(f"Ignored non-critical error: {e}", "warning")',
+    content
+)
+
+# Write the patched content back to the file
+with open(target, "w") as f:
+    f.write(content)
+
+print("✅ Python patching complete.")
+EOF
+
+echo "🎉 Patching finished successfully! Please review the changes in $TARGET_FILE."
+echo "   (If anything broke, your original file is saved as $BACKUP_FILE)"

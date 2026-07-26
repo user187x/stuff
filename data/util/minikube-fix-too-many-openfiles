@@ -1,0 +1,12 @@
+#!/bin/bash
+
+(
+ echo "Adding to the system..."
+ echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf
+ echo "fs.inotify.max_user_instances=8192" | sudo tee -a /etc/sysctl.conf
+)
+
+minikube ssh
+
+sudo sysctl fs.inotify.max_user_watches=524288
+sudo sysctl fs.inotify.max_user_instances=8192

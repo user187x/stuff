@@ -1,0 +1,847 @@
+F401 `PyQt6.QtWidgets.QGroupBox` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> affinity-installer.py:156:17
+    |
+154 |                 QFrame,
+155 |                 QProgressBar,
+156 |                 QGroupBox,
+    |                 ^^^^^^^^^
+157 |                 QScrollArea,
+158 |                 QDialog,
+    |
+help: Remove unused import
+
+F401 `PyQt6.QtWidgets.QDialogButtonBox` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> affinity-installer.py:159:17
+    |
+157 |                 QScrollArea,
+158 |                 QDialog,
+159 |                 QDialogButtonBox,
+    |                 ^^^^^^^^^^^^^^^^
+160 |                 QButtonGroup,
+161 |                 QRadioButton,
+    |
+help: Remove unused import
+
+F401 `PyQt6.QtCore.QThread` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> affinity-installer.py:167:42
+    |
+165 |                 QSizePolicy,
+166 |             )
+167 |             from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
+    |                                          ^^^^^^^
+168 |             from PyQt6.QtGui import (
+169 |                 QFont,
+    |
+help: Remove unused import: `PyQt6.QtCore.QThread`
+
+F401 `PyQt6.QtGui.QPalette` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> affinity-installer.py:171:17
+    |
+169 |                 QFont,
+170 |                 QColor,
+171 |                 QPalette,
+    |                 ^^^^^^^^
+172 |                 QIcon,
+173 |                 QPixmap,
+    |
+help: Remove unused import
+
+F401 `PyQt6.QtGui.QWheelEvent` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> affinity-installer.py:176:17
+    |
+174 |                 QShortcut,
+175 |                 QKeySequence,
+176 |                 QWheelEvent,
+    |                 ^^^^^^^^^^^
+177 |                 QPainter,
+178 |                 QPen,
+    |
+help: Remove unused import
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:447:41
+    |
+445 |             if self.log_file:
+446 |                 try:
+447 |                     self.log_file.write(f"\nSystem Specifications:\n")
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+448 |                     for spec in system_specs:
+449 |                         self.log_file.write(f"  {spec}\n")
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `deps_installed` is assigned to but never used
+   --> affinity-installer.py:616:17
+    |
+614 |             else:
+615 |                 self.log(f"  {dep}: ✗ Not installed", "error")
+616 |                 deps_installed = False
+    |                 ^^^^^^^^^^^^^^
+617 |
+618 |         if self.check_command("unzstd") or self.check_command("zstd"):
+    |
+help: Remove assignment to unused variable `deps_installed`
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:619:22
+    |
+618 |         if self.check_command("unzstd") or self.check_command("zstd"):
+619 |             self.log(f"  zstd: ✓ Installed", "success")
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+620 |         else:
+621 |             self.log(f"  zstd: ✗ Not installed (optional)", "warning")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:621:22
+    |
+619 |             self.log(f"  zstd: ✓ Installed", "success")
+620 |         else:
+621 |             self.log(f"  zstd: ✗ Not installed (optional)", "warning")
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+622 |
+623 |         if self.check_command("xz") or self.check_command("unxz"):
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:624:22
+    |
+623 |         if self.check_command("xz") or self.check_command("unxz"):
+624 |             self.log(f"  xz: ✓ Installed", "success")
+    |                      ^^^^^^^^^^^^^^^^^^^^
+625 |         else:
+626 |             self.log(
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:627:17
+    |
+625 |         else:
+626 |             self.log(
+627 |                 f"  xz: ✗ Not installed (optional - Python lzma will be used)",
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+628 |                 "warning",
+629 |             )
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:632:22
+    |
+631 |         if self.check_dotnet_sdk():
+632 |             self.log(f"  .NET SDK: ✓ Installed", "success")
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+633 |         else:
+634 |             self.log(f"  .NET SDK: ✗ Not installed", "error")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:634:22
+    |
+632 |             self.log(f"  .NET SDK: ✓ Installed", "success")
+633 |         else:
+634 |             self.log(f"  .NET SDK: ✗ Not installed", "error")
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+635 |
+636 |         if wine_exists:
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:692:34
+    |
+691 |                     if vulkan_set:
+692 |                         self.log(f"  Vulkan Renderer: ✓ Configured", "success")
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+693 |                     else:
+694 |                         self.log(f"  Vulkan Renderer: ⚠ Not configured", "warning")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:694:34
+    |
+692 |                         self.log(f"  Vulkan Renderer: ✓ Configured", "success")
+693 |                     else:
+694 |                         self.log(f"  Vulkan Renderer: ⚠ Not configured", "warning")
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+695 |                 else:
+696 |                     self.log(f"  Vulkan Renderer: ✗ Not configured", "error")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:696:30
+    |
+694 |                         self.log(f"  Vulkan Renderer: ⚠ Not configured", "warning")
+695 |                 else:
+696 |                     self.log(f"  Vulkan Renderer: ✗ Not configured", "error")
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+697 |             except Exception:
+698 |                 self.log(f"  Vulkan Renderer: ✗ Not configured", "error")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:698:26
+    |
+696 |                     self.log(f"  Vulkan Renderer: ✗ Not configured", "error")
+697 |             except Exception:
+698 |                 self.log(f"  Vulkan Renderer: ✗ Not configured", "error")
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+699 |
+700 |             self.log("WebView2 Runtime:", "info")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:702:26
+    |
+700 |             self.log("WebView2 Runtime:", "info")
+701 |             if self.check_webview2_installed():
+702 |                 self.log(f"  Microsoft Edge WebView2 Runtime: ✓ Installed", "success")
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+703 |             else:
+704 |                 self.log(f"  Microsoft Edge WebView2 Runtime: ✗ Not installed", "error")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> affinity-installer.py:704:26
+    |
+702 |                 self.log(f"  Microsoft Edge WebView2 Runtime: ✓ Installed", "success")
+703 |             else:
+704 |                 self.log(f"  Microsoft Edge WebView2 Runtime: ✗ Not installed", "error")
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+705 |
+706 |         self.log("", "info")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:2749:27
+     |
+2747 |             self.log_file = open(self.log_file_path, "a", encoding="utf-8")
+2748 |             log_header = f"\n{'=' * 80}\n"
+2749 |             log_header += f"Affinity Linux Installer - Session Started\n"
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2750 |             log_header += f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+2751 |             log_header += f"{'=' * 80}\n"
+     |
+help: Remove extraneous `f` prefix
+
+F841 [*] Local variable `e` is assigned to but never used
+    --> affinity-installer.py:2754:29
+     |
+2752 |             self.log_file.write(log_header)
+2753 |             self.log_file.flush()
+2754 |         except Exception as e:
+     |                             ^
+2755 |             self.log_file = None
+     |
+help: Remove assignment to unused variable `e`
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:3946:22
+     |
+3944 |             return direct_path
+3945 |         else:
+3946 |             self.log(f"DEBUG: ✗ Direct path does not exist", "info")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3947 |
+3948 |         # Check if it's in a subdirectory (like wine-10.19-staging-amd64/bin/wine)
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:3949:18
+     |
+3948 |         # Check if it's in a subdirectory (like wine-10.19-staging-amd64/bin/wine)
+3949 |         self.log(f"DEBUG: Checking subdirectories...", "info")
+     |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3950 |         try:
+3951 |             subdirs = list(wine_tkg_dir.iterdir())
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4177:30
+     |
+4175 |             sys.stderr.write(f"\nERROR: {error_msg}\n")
+4176 |             sys.stderr.write("Possible causes:\n")
+4177 |             sys.stderr.write(f"  - Network connectivity issues\n")
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4178 |             sys.stderr.write(f"  - URL may be invalid or changed: {wine_tkg_url}\n")
+4179 |             sys.stderr.write(f"  - Insufficient disk space\n")
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4179:30
+     |
+4177 |             sys.stderr.write(f"  - Network connectivity issues\n")
+4178 |             sys.stderr.write(f"  - URL may be invalid or changed: {wine_tkg_url}\n")
+4179 |             sys.stderr.write(f"  - Insufficient disk space\n")
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4180 |             sys.stderr.write(
+4181 |                 f"  - Permission denied writing to: {wine_tkg_file.parent}\n"
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4190:22
+     |
+4188 |             sys.stderr.flush()
+4189 |             self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4190 |             self.log(f"DEBUG: Possible causes:", "error")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+4191 |             self.log(f"DEBUG:   - Network connectivity issues", "error")
+4192 |             self.log(
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4191:22
+     |
+4189 |             self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4190 |             self.log(f"DEBUG: Possible causes:", "error")
+4191 |             self.log(f"DEBUG:   - Network connectivity issues", "error")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4192 |             self.log(
+4193 |                 f"DEBUG:   - URL may be invalid or changed: {wine_tkg_url}", "error"
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4195:22
+     |
+4193 |                 f"DEBUG:   - URL may be invalid or changed: {wine_tkg_url}", "error"
+4194 |             )
+4195 |             self.log(f"DEBUG:   - Insufficient disk space", "error")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4196 |             self.log(
+4197 |                 f"DEBUG:   - Permission denied writing to: {wine_tkg_file.parent}",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4218:21
+     |
+4216 |                 self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4217 |                 self.log(
+4218 |                     f"DEBUG: Cause: Download completed but file has 0 bytes", "error"
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4219 |                 )
+4220 |                 return False
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4324:21
+     |
+4322 |                 self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4323 |                 self.log(
+4324 |                     f"DEBUG: Cause: Required for extracting .tar.xz files when Python lzma module is unavailable",
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4325 |                     "error",
+4326 |                 )
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4328:21
+     |
+4326 |                 )
+4327 |                 self.log(
+4328 |                     f"DEBUG: Solution: Install xz package (e.g., 'sudo pacman -S xz' or 'sudo apt install xz-utils')",
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4329 |                     "error",
+4330 |                 )
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4353:21
+     |
+4351 |                 self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4352 |                 self.log(
+4353 |                     f"DEBUG: Cause: xz command failed to decompress the archive",
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4354 |                     "error",
+4355 |                 )
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4420:22
+     |
+4418 |             sys.stderr.flush()
+4419 |             self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4420 |             self.log(f"DEBUG: Cause: All extraction methods failed", "error")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4421 |             return False
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4513:21
+     |
+4511 |                 self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4512 |                 self.log(
+4513 |                     f"DEBUG: Cause: Path was returned but file does not exist", "error"
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4514 |                 )
+4515 |         else:
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4521:22
+     |
+4519 |             sys.stderr.flush()
+4520 |             self.log(f"DEBUG: ✗ ERROR: {error_msg}", "error")
+4521 |             self.log(f"DEBUG: Cause: get_wine_tkg_path() returned None", "error")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4522 |
+4523 |         # Detailed search for debugging
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4525:26
+     |
+4523 |         # Detailed search for debugging
+4524 |         sys.stderr.write("\nPerforming detailed search for wine binary...\n")
+4525 |         sys.stderr.write(f"Expected locations:\n")
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^
+4526 |         sys.stderr.write(f"  1. {wine_tkg_dir / 'bin' / 'wine'}\n")
+4527 |         sys.stderr.write(f"  2. {wine_tkg_dir}/*/bin/wine (subdirectory)\n")
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4530:18
+     |
+4528 |         sys.stderr.flush()
+4529 |         self.log("DEBUG: Performing detailed search for wine binary...", "info")
+4530 |         self.log(f"DEBUG: Expected locations:", "info")
+     |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4531 |         self.log(f"DEBUG:   1. {wine_tkg_dir / 'bin' / 'wine'}", "info")
+4532 |         self.log(f"DEBUG:   2. {wine_tkg_dir}/*/bin/wine (subdirectory)", "info")
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:4561:22
+     |
+4559 |                 f"DEBUG: Found {len(wine_files_found)} wine-related files total", "info"
+4560 |             )
+4561 |             self.log(f"DEBUG: Most likely candidates:", "info")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4562 |             for candidate in wine_files_found[:5]:
+4563 |                 if candidate.name == "wine" or candidate.name.startswith("wine"):
+     |
+help: Remove extraneous `f` prefix
+
+F401 [*] `sys` imported but unused
+    --> affinity-installer.py:5472:28
+     |
+5470 |                 try:
+5471 |                     # Use select to check if data is available (Unix-like systems)
+5472 |                     import sys
+     |                            ^^^
+5473 |
+5474 |                     if hasattr(select, "select"):
+     |
+help: Remove unused import: `sys`
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:7926:21
+     |
+7924 | …     # Download the installer in background, then install
+7925 | …     self.log(
+7926 | …         f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7927 | …     )
+7928 | …     self.log(f"Downloading {display_name} Installer", "info")
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:7951:21
+     |
+7949 | …     # Open file dialog to select .exe
+7950 | …     self.log(
+7951 | …         f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7952 | …     )
+7953 | …     self.log(f"Custom Installer for {display_name}", "info")
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:8234:18
+     |
+8232 |         self.log("⚠️  WARNING: UNSUPPORTED DISTRIBUTION", "error")
+8233 |         self.log("=" * 80, "warning")
+8234 |         self.log(f"\nYOU ARE ON YOUR OWN!", "error")
+     |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+8235 |         self.log(
+8236 |             f"\nThe distribution ({self.format_distro_name()}) is OUT OF DATE",
+     |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:8584:17
+     |
+8582 |                 try:
+8583 |                     _os.unlink(tmp_key_path)
+8584 |                 except:
+     |                 ^^^^^^
+8585 |                     pass
+8586 |             self.log(f"Failed to add GPG key: {str(e)}", "error")
+     |
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:8614:13
+     |
+8612 |         codename = "forky"  # Debian testing
+8613 |         self.log(
+8614 |             f"Using Debian testing (forky) repository for latest WineHQ packages",
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8615 |             "info",
+8616 |         )
+     |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:8833:17
+     |
+8831 |                 try:
+8832 |                     os.unlink(tmp_key_path)
+8833 |                 except:
+     |                 ^^^^^^
+8834 |                     pass
+8835 |             self.log(f"Failed to add GPG key: {str(e)}", "error")
+     |
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:8995:13
+     |
+8993 |                         if line.startswith("DEBIAN_CODENAME="):
+8994 |                             detected_debian_codename = line.split("=")[1].strip()
+8995 |             except:
+     |             ^^^^^^
+8996 |                 pass
+     |
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:9027:13
+     |
+9025 |                         if line.startswith("DEBIAN_CODENAME="):
+9026 |                             detected_debian_codename = line.split("=")[1].strip()
+9027 |             except:
+     |             ^^^^^^
+9028 |                 pass
+     |
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:9054:13
+     |
+9052 |                     if "CODENAME" in line or "VERSION_ID" in line:
+9053 |                         self.log(f"DEBUG: {line}", "info")
+9054 |             except:
+     |             ^^^^^^
+9055 |                 pass
+     |
+
+E722 Do not use bare `except`
+    --> affinity-installer.py:9287:17
+     |
+9285 |                 try:
+9286 |                     os.unlink(tmp_key_path)
+9287 |                 except:
+     |                 ^^^^^^
+9288 |                     pass
+9289 |             self.log(f"Failed to add GPG key: {str(e)}", "error")
+     |
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:9307:22
+     |
+9305 |             return False
+9306 |         else:
+9307 |             self.log(f"Added i386 architecture successfully", "success")
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+9308 |
+9309 |         # Add repository
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:9347:26
+     |
+9345 |             tmp_file = Path(f"/tmp/winehq-{codename}.sources")
+9346 |             if tmp_file.exists():
+9347 |                 self.log(f"Downloaded to /tmp successfully", "success")
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+9348 |
+9349 |                 # Now move to /etc/apt with sudo
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> affinity-installer.py:9359:30
+     |
+9357 |                 )
+9358 |                 if success2:
+9359 |                     self.log(f"Moved file to sources.list.d", "success")
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+9360 |                 else:
+9361 |                     self.log(
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:12023:22
+      |
+12021 |             self.update_progress(0.7)
+12022 |             target_dir.parent.mkdir(parents=True, exist_ok=True)
+12023 |             self.log(f"Copying settings from repository to Wine prefix...", "info")
+      |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12024 |             self.log(f"  From: {settings_source}", "info")
+12025 |             self.log(f"  To: {target_dir}", "info")
+      |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:12081:13
+      |
+12079 |                 shutil.rmtree(temp_dir)
+12080 |                 repo_zip.unlink(missing_ok=True)
+12081 |             except:
+      |             ^^^^^^
+12082 |                 pass
+      |
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:12493:13
+      |
+12491 |             try:
+12492 |                 self.run_command([str(wine_cfg), "-v", "win11"], check=False, env=env)
+12493 |             except:
+      |             ^^^^^^
+12494 |                 pass
+12495 |             return False
+      |
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:12773:26
+      |
+12771 |                 self.update_progress(0.7)
+12772 |                 target_dir.parent.mkdir(parents=True, exist_ok=True)
+12773 |                 self.log(f"Copying settings from repository to Wine prefix...", "info")
+      |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12774 |                 self.log(f"  From: {settings_source}", "info")
+12775 |                 self.log(f"  To: {target_dir}", "info")
+      |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:12842:13
+      |
+12840 |                 shutil.rmtree(temp_dir)
+12841 |                 repo_zip.unlink(missing_ok=True)
+12842 |             except:
+      |             ^^^^^^
+12843 |                 pass
+      |
+
+F841 Local variable `wine` is assigned to but never used
+     --> affinity-installer.py:12967:13
+      |
+12965 |             # Use regular Wine for all installations (wine-tkg is only for winetricks)
+12966 |             wine_cfg = self.get_wine_path("winecfg")
+12967 |             wine = self.get_wine_path("wine")
+      |             ^^^^
+12968 |
+12969 |             env = os.environ.copy()
+      |
+help: Remove assignment to unused variable `wine`
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:13205:13
+      |
+13204 | …     self.log(
+13205 | …         f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13206 | …     )
+13207 | …     self.log(f"Update {display_name}", "info")
+      |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `is_affinity_v3` is assigned to but never used
+     --> affinity-installer.py:13492:13
+      |
+13490 |             # Check if this is Affinity v3 or v2
+13491 |             installer_name = installer_file.name.lower()
+13492 |             is_affinity_v3 = (
+      |             ^^^^^^^^^^^^^^
+13493 |                 app_name == "Add" or app_name == "Affinity (Unified)"
+13494 |             ) or (
+      |
+help: Remove assignment to unused variable `is_affinity_v3`
+
+F841 Local variable `wine` is assigned to but never used
+     --> affinity-installer.py:13505:13
+      |
+13503 |             # Use regular Wine for all installations (wine-tkg is only for winetricks)
+13504 |             wine_cfg = self.get_wine_path("winecfg")
+13505 |             wine = self.get_wine_path("wine")
+      |             ^^^^
+13506 |
+13507 |             env = os.environ.copy()
+      |
+help: Remove assignment to unused variable `wine`
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:14762:29
+      |
+14760 | …                     try:
+14761 | …                         shutil.rmtree(returncolors_dest)
+14762 | …                     except:
+      |                       ^^^^^^
+14763 | …                         pass
+      |
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:14806:37
+      |
+14804 | …                     try:
+14805 | …                         shutil.rmtree(temp_extract)
+14806 | …                     except:
+      |                       ^^^^^^
+14807 | …                         pass
+      |
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:15017:21
+      |
+15015 |             if not returncolors_dir.exists():
+15016 |                 self.log(
+15017 |                     f"ReturnColors directory still not found after download attempt",
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15018 |                     "error",
+15019 |                 )
+      |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:15315:26
+      |
+15313 |                 download_url, str(save_path_obj), "Affinity installer"
+15314 |             ):
+15315 |                 self.log(f"\n✓ Download completed successfully!", "success")
+      |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15316 |                 self.log(f"Installer saved to: {save_path_obj}", "success")
+15317 |                 self.show_message(
+      |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:15888:22
+      |
+15886 |         else:
+15887 |             # Fallback to winetricks if direct registry setting fails
+15888 |             self.log(f"Registry method failed, trying winetricks...", "info")
+      |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15889 |             success, stdout, stderr = self.run_command(
+15890 |                 [
+      |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:16034:26
+      |
+16032 |                             )
+16033 |             else:
+16034 |                 self.log(f"⚠ Warning: Could not read renderer from registry", "warning")
+      |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16035 |         except Exception as e:
+16036 |             self.log(f"⚠ Warning: Error verifying renderer: {e}", "warning")
+      |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+     --> affinity-installer.py:16540:9
+      |
+16538 |                         if dec_match:
+16539 |                             current_dpi = int(dec_match.group(1))
+16540 |         except:
+      |         ^^^^^^
+16541 |             pass  # Use default if reading fails
+      |
+
+F841 Local variable `process` is assigned to but never used
+     --> affinity-installer.py:17052:13
+      |
+17050 |         try:
+17051 |             # Launch in background (non-blocking)
+17052 |             process = subprocess.Popen(
+      |             ^^^^^^^
+17053 |                 wine_start_cmd,
+17054 |                 env=env,
+      |
+help: Remove assignment to unused variable `process`
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:17261:30
+      |
+17259 |                 d2d1_path = install_dir / "apl" / "d2d1.dll"
+17260 |                 if d2d1_path.exists():
+17261 |                     self.log(f"  ✓ apl/d2d1.dll verified", "success")
+      |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17262 |                 else:
+17263 |                     self.log(
+      |
+help: Remove extraneous `f` prefix
+
+F811 Redefinition of unused `install_affinity_plugin_loader` from line 17113
+     --> affinity-installer.py:17428:9
+      |
+17426 |             self.log(f"✗ Failed to patch Affinity.desktop: {e}", "error")
+17427 |
+17428 |     def install_affinity_plugin_loader(self):
+      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `install_affinity_plugin_loader` redefined here
+17429 |         """Download and install the latest AffinityPluginLoader + WineFix from GitHub"""
+17430 |         self.log(
+      |
+     ::: affinity-installer.py:17113:9
+      |
+17111 |         pass
+17112 |
+17113 |     def install_affinity_plugin_loader(self):
+      |         ------------------------------ previous definition of `install_affinity_plugin_loader` here
+17114 |         """Download and install the latest AffinityPluginLoader + WineFix into the Affinity install dir,
+17115 |         then update Affinity.desktop to launch via AffinityHook.exe."""
+      |
+help: Remove definition: `install_affinity_plugin_loader`
+
+F541 [*] f-string without any placeholders
+     --> affinity-installer.py:17838:11
+      |
+17836 |     print(f"[Startup Timing] Window init: {window_init_time:.3f}s")
+17837 |     print(f"[Startup Timing] Total startup: {total_init_time:.3f}s")
+17838 |     print(f"[Startup Timing] Window shown immediately - background tasks running...\n")
+      |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17839 |
+17840 |     sys.exit(app.exec())
+      |
+help: Remove extraneous `f` prefix
+
+Found 72 errors.
+[*] 49 fixable with the `--fix` option (5 hidden fixes can be enabled with the `--unsafe-fixes` option).
