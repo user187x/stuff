@@ -6,37 +6,86 @@ metadata:
 spec:
   project: default
   source:
+    repoURL: 'https://charts.gitlab.io/'
+    targetRevision: '10.2.0'
     chart: gitlab
-    repoURL: https://charts.gitlab.io/
-    targetRevision: '*'
     helm:
       values: |
         global:
+          edition: ce
           hosts:
             domain: gitlab.xxx.local
+            externalIP: gitlab.xxx.local
+            gitlab:
+              name: gitlab.xxx.local
+          externalUrl: "http://gitlab.xxx.local"
           ingress:
-            enabled: false
+            class: traefik
             configureCertmanager: false
+            tls:
+              enabled: false
+
+          # --- CloudNativePG Database Connection ---
+          psql:
+            # Point to the primary read-write service created by CNPG
+            host: gitlab-db-rw.cnpg-system.svc.cluster.local
+            port: 5432
+            # Match the owner/app username defined in your CNPG Cluster spec
+            username: gitlab
+            # Match the database name defined in your CNPG Cluster spec
+            database: gitlab
+            password:
+              # CNPG automatically generates this '-app' secret with the password
+              secret: cnpg-system
+              key: password
+
+          # Redis
+          redis:
+            host: gitlab-redis.gitlab.svc.cluster.local
+            auth:
+              enabled: false
+
+          # App Object Storage
+          appConfig:
+            object_store:
+              enabled: true
+              connection:
+                secret: gitlab-object-storage
+                key: connection
+            backups:
+              bucket: gitlab-backups
+              tmpBucket: tmp
+
+        registry:
+          enabled: false
+          storage:
+            secret: gitlab-registry-storage
+            key: config
+
+        gitlab:
+          toolbox:
+            backups:
+              objectStorage:
+                backend: s3
+                config:
+                  secret: gitlab-backup-storage
+                  key: config
+
+        certmanager-issuer:
+          email: admin@xxx.local
+
+        installCertmanager: false
 
         nginx-ingress:
           enabled: false
 
-        # This is the ONLY place cert-manager should be referenced
-        installCertmanager: false
-
         prometheus:
           install: false
 
-        registry:
-          enabled: false
-        gitlab:
-          toolbox:
-            enabled: false
-            backups:
-              cron:
-                enabled: false
+        gitlab-runner:
+          install: false
   destination:
-    server: https://kubernetes.default.svc
+    server: 'https://kubernetes.default.svc'
     namespace: gitlab
   syncPolicy:
     automated:
