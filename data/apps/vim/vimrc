@@ -76,10 +76,45 @@ set lazyredraw
 " Allow backspacing over auto-indentation, line breaks, and start of insert
 set backspace=indent,eol,start
 
-" Setting Spacebar to Map Leader ---
-let mapleader = " "
+" --- BEGIN LEADER KEY SECTION ---
+" Create a custom highlight group for Yellow text (removed the background)
+highlight LeaderActiveVisual ctermfg=green ctermbg=yellow guifg=green guibg=yellow
 
-inoremap jj <Esc>
+" Turn OFF showcmd. This is mandatory!
+set noshowcmd
+
+" Set the REAL mapleader to a hidden, non-typable placeholder key
+let mapleader = "\<Plug>(MyLeader)"
+
+" Give yourself 3000ms (3 seconds) to complete sequences
+set timeoutlen=3000
+
+" Map the Spacebar to trigger our function, THEN emit the hidden leader key
+nmap <Space> :call ShowLeaderCue()<CR><Plug>(MyLeader)
+vmap <Space> :<C-U>call ShowLeaderCue()<CR>gv<Plug>(MyLeader)
+
+function! ShowLeaderCue()
+  let l:msg = "LEADER KEY ACTIVE"
+
+  " Calculate how many spaces are needed to center the text
+  let l:padding = (&columns - strdisplaywidth(l:msg)) / 2
+  if l:padding < 0 | let l:padding = 0 | endif
+
+  " Print the blank spaces first to push the text to the middle
+  echo repeat(' ', l:padding)
+
+  " Switch to yellow text, append the message without a newline (echon), then turn off the color
+  echohl LeaderActiveVisual
+  echon l:msg
+  echohl None
+
+  " Automatically clear the message once the cursor moves or you do something else
+  augroup ClearLeaderCue
+    autocmd!
+    autocmd CursorMoved,InsertEnter,CursorHold * ++once echo ""
+  augroup END
+endfunction
+" --- END LEADER KEY SECTION ---
 
 " Shortcut for writing as SUDO while in VIM
 cnoremap w!! execute 'silent! write !sudo tee % >/dev/null' <bar> edit!
@@ -119,7 +154,6 @@ endfunction
 
 " Map bare '#' in visual mode to trigger the SmartComment function
 vnoremap # :call <SID>SmartComment()<CR>
-" -------------------------------
 
 " Stops highlighting momentary when no longer needed
 nnoremap <leader><space> :nohlsearch<CR>
