@@ -1,10 +1,11 @@
 #!/bin/bash
 
+DOMAIN="xxx.local"
+
 CERT_DIR="certs"
 WILDCARD_CRT="${CERT_DIR}/server-wildcard.crt"
 WILDCARD_KEY="${CERT_DIR}/server-wildcard.key"
 CA_CRT="${CERT_DIR}/ca.crt"
-DOMAIN="xxx.local"
 
 # 1. Create namespace
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
@@ -25,21 +26,15 @@ helm repo update
 
 # 4. Install/Upgrade Argo CD via Helm
 # This automatically handles CRDs (including ApplicationSet) and standard resources.
-helm upgrade argocd argo/argo-cd -n argocd \
- --install \
+helm --install upgrade argocd argo/argo-cd \
+ --create-namespace \
+ --namespace argocd \
  --set crds.install=true \
  --set crds.keep=true \
  --set applicationSet.enabled=true \
- --set server.extraArgs="{--insecure}" # Optional: Prevents internal TLS routing issues when using custom edge certs
+ --set configs.params."server\.insecure"=true \
+ -f values.yaml
 
 # 5. Restart deployments to ensure they pick up the custom injected secrets
 kubectl rollout restart deployment argocd-server -n argocd
 kubectl rollout restart deployment argocd-repo-server -n argocd
-
-# 6. Output Login Info
-echo -e "\nWait a few moments for the pods to become ready, then use the following for argocd cli login:"
-echo -e "\e[92mminikube service argocd-server -n argocd --url\e[0m"
-
-echo -e "\nOpening the browser for the UI..."
-echo -e "\e[92mminikube service argocd-server -n argocd\e[0m"
-minikube service argocd-server -n argocd

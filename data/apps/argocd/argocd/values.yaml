@@ -1,0 +1,23 @@
+global:
+  domain: argocd.xxx.local
+
+configs:
+  params:
+    server.insecure: true
+
+crds:
+  install: true
+  keep: true
+
+applicationSet:
+  enabled: true
+
+server:
+  httproute:
+    enabled: true
+    parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+        sectionName: websecure
+    hostnames:
+      - argocd.xxx.local

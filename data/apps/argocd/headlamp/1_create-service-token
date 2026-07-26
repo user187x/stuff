@@ -1,4 +1,0 @@
-#!/bin/bash
-
-kubectl -n kube-system create serviceaccount headlamp-admin
-

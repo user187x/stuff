@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# 1. Create the service account
+echo
+echo -e "Creating service-account: \e[92mheadlamp-admin\e[0m for namespace: \e[92mheadlamp\e[0m"
+kubectl create serviceaccount headlamp-admin --namespace headlamp 2> /dev/null
+
+# 2. Bind the service account to the built-in cluster-admin role
+echo
+echo -e "Creating cluster-role-binding to built-in \e[92mcluster-admin\e[0m"
+kubectl create clusterrolebinding headlamp-admin \
+ --serviceaccount=headlamp:headlamp-admin \
+ --clusterrole=cluster-admin 2> /dev/null
+
+echo
+echo -e "Creating \e[93m24-hour\e[0m access token for namespace: \e[92mheadlamp\e[0m"
+token=$(kubectl create token headlamp-admin -n headlamp --duration=24h)
+
+echo
+echo "Token:"
+echo -e "\e[92m${token}\e[0m"
+echo

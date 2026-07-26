@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://headlamp-k8s.github.io/headlamp'
+    targetRevision: '0.24.0'
+    chart: headlamp
+    helm:
+      values: |
+        config:
+          baseURL: "https://headlamp.xxx.local"
+          oidc:
+            clientID: "headlamp"
+            clientSecret: "xxxxxxxxxxxxxxxxx"
+            issuerURL: "https://keycloak.xxx.local/realms/your-realm"
+            scopes: "openid,profile,email,groups"
+        # Disable the default Ingress to use Gateway API instead
+        ingress:
+          enabled: false
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: headlamp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=true
