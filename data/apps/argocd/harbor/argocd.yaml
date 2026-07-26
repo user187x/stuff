@@ -1,0 +1,60 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.goharbor.io
+    targetRevision: 1.15.0
+    chart: harbor
+    helm:
+      values: |
+        expose:
+          type: httproute
+          tls:
+            enabled: false # TLS is terminated at the Traefik Gateway
+          route:
+            hosts:
+              - harbor.xxx.local
+            parentRefs:
+              - name: traefik-gateway
+                namespace: traefik
+                sectionName: websecure
+
+        externalURL: https://harbor.xxx.local
+
+        trivy:
+          enabled: true
+        notary:
+          enabled: true
+        chartmuseum:
+          enabled: true
+
+        persistence:
+          persistentVolumeClaim:
+            registry:
+              size: 50Gi
+            chartmuseum:
+              size: 10Gi
+            jobservice:
+              size: 5Gi
+            database:
+              size: 10Gi
+            redis:
+              size: 5Gi
+            trivy:
+              size: 10Gi
+
+        harborAdminPassword: "ChangeIt123!"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harbor
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -4,23 +4,33 @@ metadata:
   name: harbor-route
   namespace: harbor
 spec:
-  parentRefs:
-    - name: traefik-gateway
-      namespace: traefik
   hostnames:
-    - "harbor.xxx.local"
+    - harbor.xxx.local
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: traefik-gateway
+      namespace: traefik
   rules:
+    # 1. Route Docker CLI & API V2 Traffic to the Registry
+    - matches:
+        - path: { type: PathPrefix, value: /v2/ }
+      backendRefs:
+        - name: harbor-registry
+          port: 5000
+
+    # 2. Route APIs, Auth, and Framework paths to Core Backend
     - matches:
         - path: { type: PathPrefix, value: /api/ }
         - path: { type: PathPrefix, value: /c/ }
-        - path: { type: PathPrefix, value: /chartrepo/ }
         - path: { type: PathPrefix, value: /service/ }
         - path: { type: PathPrefix, value: /v1/ }
-        - path: { type: PathPrefix, value: /v2/ }
+        - path: { type: PathPrefix, value: /chartrepo/ }
       backendRefs:
         - name: harbor-core
           port: 80
 
+    # 3. Catch-all: Route everything else (HTML, JS, CSS) to the Portal Frontend
     - matches:
         - path: { type: PathPrefix, value: / }
       backendRefs:

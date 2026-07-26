@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DOMAIN_SUFFIX="xxx.local"
+
+HOSTS_FILE="/etc/hosts"
+MARKER_START="# --- BEGIN DEVELOPMENT TESTING ---"
+MARKER_END="# --- END DEVELOPMENT TESTING ---"
+
+echo "Querying cluster for LoadBalancer IPs..."
+
+# Get all LoadBalancer services: namespace, name, and IP
+LB_SERVICES=$(kubectl get svc -A --field-selector spec.type=LoadBalancer -o jsonpath='{range .items[?(@.status.loadBalancer.ingress)]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.loadBalancer.ingress[0].ip}{"\n"}{end}')
+
+if [[ -z "$LB_SERVICES" ]]; then
+ echo "No LoadBalancer IPs found. Ensure 'minikube tunnel' is running."
+ exit 1
+fi
+
+# Build the new hosts block in a temporary file
+TMP_BLOCK=$(mktemp)
+echo "$MARKER_START" >"$TMP_BLOCK"
+
+while read -r ns svc ip; do
+ # Skip any services still waiting on an IP
+ if [[ -z "$ip" || "$ip" == "<pending>" ]]; then
+  continue
+ fi
+
+ # Default mapping: service-name.xxx.local
+ ALIASES="$svc.$DOMAIN_SUFFIX"
+
+ # If the service is Traefik, dynamically fetch all Gateway API HTTPRoute hostnames
+ # and map them to Traefik's external LoadBalancer IP
+ if [[ "$svc" == "traefik" ]]; then
+  ROUTES=$(kubectl get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{" "}{end}{end}' 2>/dev/null || true)
+  if [[ -n "$ROUTES" ]]; then
+   ALIASES="$ALIASES $ROUTES"
+  fi
+ fi
+
+ echo "$ip $ALIASES" >>"$TMP_BLOCK"
+done <<<"$LB_SERVICES"
+
+echo "$MARKER_END" >>"$TMP_BLOCK"
+
+echo "Requesting sudo permissions to update $HOSTS_FILE..."
+# Delete the existing block if it exists
+sudo sed -i "/^$MARKER_START$/,/^$MARKER_END$/d" "$HOSTS_FILE"
+
+# Append the new block
+cat "$TMP_BLOCK" | sudo tee -a "$HOSTS_FILE" >/dev/null
+
+echo "Cleaning up..."
+rm "$TMP_BLOCK"
+
+echo "Success! Inserted the following block into $HOSTS_FILE:"
+grep -A 20 "$MARKER_START" "$HOSTS_FILE"

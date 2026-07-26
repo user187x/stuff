@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Target directory (defaults to current directory if not provided)
+TARGET_DIR="${1:-.}"
+
+echo "Cleaning Kubernetes YAMLs in: $TARGET_DIR"
+
+# Define the exact paths to strip out so we don't repeat them
+FIELDS_TO_DELETE=".status, .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp, .metadata.generation, .metadata.managedFields, .metadata.selfLink, .metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\""
+
+# Find and process all .yaml and .yml files
+find "$TARGET_DIR" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
+ echo "Processing: $file"
+
+ # Use -y (output YAML) alongside -i (in-place)
+ # The jq syntax updates .items[] if it's a List, otherwise it cleans the root object
+ yq -y -i "
+      if .kind == \"List\" then
+        .items |= map(del($FIELDS_TO_DELETE))
+      else
+        del($FIELDS_TO_DELETE)
+      end
+    " "$file"
+done
+
+echo "Cleanup complete!"
