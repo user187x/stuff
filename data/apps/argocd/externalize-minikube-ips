@@ -1,0 +1,108 @@
+#!/bin/bash
+
+PID_FILE="./.minikube-tunnel.pid"
+
+function handle_existing_tunnel {
+
+ local EXISTING_PID
+ EXISTING_PID=$(ps aux | grep "[m]inikube tunnel" | awk '{print $2}' | head -n 1)
+
+ if [[ -n "${EXISTING_PID}" ]]; then
+
+  echo -e "Minikube Tunnel [\e[92mACTIVE\e[0m] -> PID: \e[92m${EXISTING_PID}\e[0m"
+  read -rp "Terminate existing tunnel? (y/n) : " KILL_RESPONSE
+
+  if [[ "${KILL_RESPONSE,,}" == "y" ]]; then
+
+   echo -e "Terminating Minikube Tunnel -> PID: \e[92m${EXISTING_PID}\e[0m"
+   kill "${EXISTING_PID}" 2>/dev/null
+   rm -f "${PID_FILE}"
+   echo -e "Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[90m${EXISTING_PID}\e[0m"
+   return 0
+
+  else
+   echo -e "Minikube Tunnel remains [\e[92mACTIVE\e[0m] -> PID: \e[92m${EXISTING_PID}\e[0m"
+   echo "${EXISTING_PID}" >"${PID_FILE}"
+   return 1
+
+  fi
+ fi
+
+ if [[ -f "${PID_FILE}" ]]; then
+  rm -f "${PID_FILE}"
+ fi
+
+ return 0
+}
+
+function minikube-tunnel-foreground {
+
+ function cleanup {
+
+  tput cnorm
+
+  if kill -0 $TUNNEL_PID 2>/dev/null; then
+   echo -e "Minikube Tunnel [\e[90mterminating\e[0m] -> PID: \e[92m${TUNNEL_PID}\e[0m"
+   kill $TUNNEL_PID
+   echo
+  else
+   echo
+   echo -e "Minikube Tunnel [\e[91mTERMINATED\e[0m] -> PID: \e[90m${TUNNEL_PID}\e[0m"
+   echo
+  fi
+
+  rm -f "${PID_FILE}"
+ }
+
+ trap cleanup EXIT SIGINT
+
+ minikube tunnel >/dev/null 2>&1 &
+ TUNNEL_PID=$!
+
+ echo $TUNNEL_PID >"${PID_FILE}"
+ tput civis
+
+ spinner=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+
+ while kill -0 $TUNNEL_PID 2>/dev/null; do
+  for frame in "${spinner[@]}"; do
+   printf "\r\033[K\e[32m%s\e[0m Minikube Tunnel [\e[92mACTIVE\e[0m] (Press Ctrl+C to stop)..." "$frame"
+   sleep 0.1
+  done
+ done
+
+ echo
+ echo -e "  \e[90mMinikube Tunnel terminating...\e[0m"
+ rm -f "${PID_FILE}"
+}
+
+function minikube-tunnel {
+
+ if ! handle_existing_tunnel; then
+  return 0
+ fi
+
+ # 2. Prompt user for mode
+ read -rp "Foreground or Background? (f/b) : " RESPONSE
+
+ echo
+ echo -e "\e[90m System escalation required to initiate tunnel\e[0m"
+ sudo -v
+ echo -e "\e[90m System escalation [\e[92mGRANTED\e[90m]\e[0m"
+ echo
+
+ if [[ "${RESPONSE,,}" == "b" ]]; then
+
+  minikube tunnel >/dev/null 2>&1 &
+  echo $! >"${PID_FILE}"
+  PID=$(cat "${PID_FILE}")
+  echo -e "Minikube Tunnel [\e[92mACTIVE\e[0m] -> PID: \e[92m$PID\e[0m"
+
+ else
+
+  minikube-tunnel-foreground
+
+ fi
+}
+
+minikube-tunnel "$@"
