@@ -1,0 +1,11 @@
+#!/bin/bash
+
+echo "Backing up original Gateway..."
+kubectl get gateway traefik-gateway -n traefik -o yaml > traefik-gateway-backup.yaml
+
+echo "Patching Gateway with annoationation: "
+kubectl patch gateway traefik-gateway -n traefik --type=merge -p '{"metadata":{"annotations":{"traefik.io/tls-options":"traefik/require-mtls"}}}'
+
+echo "Verifying patch applied..."
+kubectl get gateway traefik-gateway -n traefik -o jsonpath='{.metadata.annotations}'
+

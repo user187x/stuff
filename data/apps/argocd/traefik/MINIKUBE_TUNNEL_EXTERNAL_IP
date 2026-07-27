@@ -1,7 +1,0 @@
-#!/bin/bash
-
-echo "Running Minikube tunnel so the Gateway provides an external IP"
-echo
-echo "Minikube Tunnel Running..."
-minikube tunnel
-echo "Minikube Tunnel Terminated"

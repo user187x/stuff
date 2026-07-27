@@ -44,6 +44,18 @@ spec:
                 key: password
           - name: JAVA_OPTS_APPEND
             value: "-Dkc.db.password=$(REAL_CNPG_PASSWORD)"
+          # ---------------------------------------------------------
+          # X.509 Proxy Header Configuration
+          # Instructs Keycloak to read the client cert from Traefik
+          # ---------------------------------------------------------
+          - name: KC_SPI_X509CERT_LOOKUP_PROVIDER
+            value: "nginx"
+          - name: KC_SPI_X509CERT_LOOKUP_NGINX_SSL_CLIENT_CERT
+            value: "X-Forwarded-Tls-Client-Cert"
+          - name: KC_SPI_X509CERT_LOOKUP_NGINX_SSL_CERT_CHAIN_PREFIX
+            value: "X-Forwarded-Tls-Client-Cert-Chain"
+          - name: KC_SPI_X509CERT_LOOKUP_NGINX_CERT_CHAIN_LENGTH
+            value: "1"
 
         replicaCount: 2
         podDisruptionBudget:

@@ -15,8 +15,8 @@ spec:
           baseURL: "https://headlamp.xxx.local"
           oidc:
             clientID: "headlamp"
-            clientSecret: "xxxxxxxxxxxxxxxxx"
-            issuerURL: "https://keycloak.xxx.local/realms/your-realm"
+            clientSecret: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
+            issuerURL: "https://keycloak.xxx.local/realms/master"
             scopes: "openid,profile,email,groups"
         # Disable the default Ingress to use Gateway API instead
         ingress:

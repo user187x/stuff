@@ -1,0 +1,100 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/headlamp/
+    targetRevision: 0.43.0
+    chart: headlamp
+    helm:
+      values: |
+        ingress:
+          enabled: false
+
+        config:
+          inCluster: true
+          oidc:
+            secret:
+              create: false
+            externalSecret:
+              enabled: true
+              name: "headlamp-oidc-secret"
+              hasScopes: true
+
+        # ---------------------------------------------------------
+        # Injects the OIDC Secret, RBAC, and Gateway API HTTPRoute
+        # Formatted as raw strings (|) to pass chart schema validation
+        # ---------------------------------------------------------
+        extraManifests:
+          - |
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: headlamp-oidc-secret
+              namespace: headlamp
+              annotations:
+                argocd.argoproj.io/sync-wave: "-1"
+            type: Opaque
+            stringData:
+              OIDC_CLIENT_ID: "headlamp"
+              OIDC_CLIENT_SECRET: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
+              OIDC_ISSUER_URL: "http://keycloak.xxx.local/realms/master"
+              OIDC_SCOPES: "openid profile email groups"
+
+          - |
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: headlamp-keycloak-admin
+              annotations:
+                argocd.argoproj.io/sync-wave: "1"
+            subjects:
+              - kind: Group
+                # Maps directly to the "groups" claim in your token
+                name: "headlamp-admin"
+                apiGroup: rbac.authorization.k8s.io
+            roleRef:
+              kind: ClusterRole
+              name: cluster-admin
+              apiGroup: rbac.authorization.k8s.io
+
+          - |
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: headlamp-route
+              namespace: headlamp
+              annotations:
+                argocd.argoproj.io/sync-wave: "1"
+            spec:
+              parentRefs:
+                - name: traefik-gateway
+                  namespace: traefik
+              hostnames:
+                - "headlamp.xxx.local"
+              rules:
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    - name: headlamp
+                      port: 80
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

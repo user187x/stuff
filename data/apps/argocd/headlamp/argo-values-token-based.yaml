@@ -1,0 +1,13 @@
+
+helm:
+      valuesObject:
+        config:
+          # Bypasses the token prompt by authenticating as the Pod's ServiceAccount
+          unsafeUseServiceAccountToken: true
+
+        clusterRoleBinding:
+          create: true
+          # Newer chart versions default to 'view'.
+          # Set to 'cluster-admin' if you need full read/write access in the UI.
+          clusterRoleName: cluster-admin
+          namespace: headlamp

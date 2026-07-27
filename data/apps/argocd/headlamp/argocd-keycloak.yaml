@@ -1,0 +1,86 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/headlamp/
+    targetRevision: 0.43.0
+    chart: headlamp
+    helm:
+      values: |
+        ingress:
+          enabled: false
+
+        config:
+          inCluster: true
+          oidc:
+            # Tell the chart NOT to create a secret on its own
+            secret:
+              create: false
+            # Instruct Headlamp to use the secret we injected via extraManifests below
+            externalSecret:
+              enabled: true
+              name: "headlamp-oidc-secret"
+              # Required so Headlamp knows to look for the OIDC_SCOPES key in the secret
+              hasScopes: true
+
+        # ---------------------------------------------------------
+        # Injects the OIDC Secret and the Gateway API HTTPRoute
+        # ---------------------------------------------------------
+        extraManifests:
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: headlamp-oidc-secret
+              namespace: headlamp
+              annotations:
+                # Create the secret before Headlamp starts up
+                argocd.argoproj.io/sync-wave: "-1"
+            type: Opaque
+            stringData:
+              OIDC_CLIENT_ID: "headlamp"
+              OIDC_CLIENT_SECRET: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
+              OIDC_ISSUER_URL: "https://keycloak.xxx.local/realms/master"
+              OIDC_SCOPES: "openid profile email groups"
+
+          - apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: headlamp-route
+              namespace: headlamp
+              annotations:
+                # Create route after deployment
+                argocd.argoproj.io/sync-wave: "1"
+            spec:
+              parentRefs:
+                - name: traefik-gateway
+                  namespace: traefik
+              hostnames:
+                - "headlamp.xxx.local"
+              rules:
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    # The Headlamp chart creates a service named after the release by default
+                    - name: headlamp
+                      port: 80
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
