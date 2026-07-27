@@ -21,4 +21,17 @@ if bluetoothctl -- remove "${mac}"; then
  echo "Removed success!"
 else
  echo "Remove failed!"
+ read -r -p "Force remove ? (y/n) : " answer
+ if [[ "answer" == "y" ]];then 
+  
+  sudo systemctl stop bluetooth
+  sudo rm -rf /var/lib/bluetooth/*/$mac
+  sudo systemctl start bluetooth
+
+  if bluetoothctl -- remove "${mac}"; then 
+   echo "${mac} finally removed!"
+  else
+   echo "We tried everytyhing. Throw the computer away"
+  fi
+ fi
 fi

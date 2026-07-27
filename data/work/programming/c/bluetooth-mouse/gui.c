@@ -5,32 +5,32 @@
  * (e.g. an infotainment unit) pairs with it and receives mouse reports.
  * The daemon (main.c) already exposes two IPC endpoints:
  *
- *     /tmp/btmouse.fifo     - a world-writable command pipe. One command
- *                             per line, the same protocol as its stdin:
- *                               m <dx> <dy>   move pointer (relative)
- *                               s <w>         scroll wheel
- *                               d <l|r|m>     button down
- *                               u <l|r|m>     button up
- *                               c <l|r|m>     click (down+up)
- *     /tmp/btmouse.status   - "WAITING" or "CONNECTED"
+ * /tmp/btmouse.fifo     - a world-writable command pipe. One command
+ * per line, the same protocol as its stdin:
+ * m <dx> <dy>   move pointer (relative)
+ * s <w>         scroll wheel
+ * d <l|r|m>     button down
+ * u <l|r|m>     button up
+ * c <l|r|m>     click (down+up)
+ * /tmp/btmouse.status   - "WAITING" or "CONNECTED"
  *
  * This program is a thin GTK4 client that drives those endpoints, so it runs
  * as the normal user and never needs root or Bluetooth privileges itself.
  * Start the daemon (`sudo ./btmouse`) first, then launch this GUI.
  *
  * It offers:
- *   - a large trackpad-style surface: press-drag to move the pointer,
- *     tap to left-click, flick-to-accelerate feel, with live touch feedback;
- *   - dedicated Left / Middle / Right buttons that use press+release, so a
- *     tap is a click and press-hold-then-drag-on-the-pad is a click-drag;
- *   - a scroll strip on the right edge (drag up/down) plus mouse-wheel
- *     scrolling over the pad;
- *   - a pointer-speed slider, a natural-scroll toggle, and a drag-lock
- *     toggle (holds the left button down for the next pad drag);
- *   - a live connection indicator driven by the status file.
+ * - a large trackpad-style surface: press-drag to move the pointer,
+ * tap to left-click, flick-to-accelerate feel, with live touch feedback;
+ * - dedicated Left / Middle / Right buttons that use press+release, so a
+ * tap is a click and press-hold-then-drag-on-the-pad is a click-drag;
+ * - a scroll strip on the right edge (drag up/down) plus mouse-wheel
+ * scrolling over the pad;
+ * - a pointer-speed slider, a natural-scroll toggle, and a drag-lock
+ * toggle (holds the left button down for the next pad drag);
+ * - a live connection indicator driven by the status file.
  *
  * Build:  gcc -O2 -Wall gui.c -o btmouse-gui `pkg-config --cflags --libs gtk4`
- *         (or `make gui`)
+ * (or `make gui`)
  */
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
@@ -46,7 +46,7 @@
 #include <unistd.h>
 
 /* ------------------------------------------------------------------ *
- *  IPC endpoints exposed by the btmouse daemon.
+ * IPC endpoints exposed by the btmouse daemon.
  * ------------------------------------------------------------------ */
 #define FIFO_PATH   "/tmp/btmouse.fifo"
 #define STATUS_PATH "/tmp/btmouse.status"
@@ -55,7 +55,7 @@
 #define HID_DELTA_MAX 127
 
 /* ------------------------------------------------------------------ *
- *  Application state
+ * Application state
  * ------------------------------------------------------------------ */
 typedef struct {
     /* IPC */
@@ -118,7 +118,7 @@ typedef struct {
 #define M_SUPER 0x08
 
 /* ================================================================== *
- *  IPC: write commands to the daemon's FIFO (reconnect on demand).
+ * IPC: write commands to the daemon's FIFO (reconnect on demand).
  * ================================================================== */
 
 /* Open the FIFO write end if we don't already hold it. The daemon keeps the
@@ -225,7 +225,7 @@ static void send_type(AppState *st, const char *text)
 }
 
 /* ================================================================== *
- *  Trackpad surface
+ * Trackpad surface
  * ================================================================== */
 
 /* Draw the pad: rounded slate background, a faint dot grid, a centre
@@ -376,7 +376,7 @@ static gboolean pad_scroll(GtkEventControllerScroll *c,
 }
 
 /* ================================================================== *
- *  Scroll strip (right edge): drag up/down to scroll.
+ * Scroll strip (right edge): drag up/down to scroll.
  * ================================================================== */
 static void strip_draw(GtkDrawingArea *area, cairo_t *cr,
                        int width, int height, gpointer ud)
@@ -435,7 +435,7 @@ static void strip_drag_update(GtkGestureDrag *g, double ox, double oy, gpointer 
 }
 
 /* ================================================================== *
- *  Click buttons: press+release semantics (tap = click, hold = drag).
+ * Click buttons: press+release semantics (tap = click, hold = drag).
  * ================================================================== */
 typedef struct { AppState *st; char btn; } BtnCtx;
 
@@ -485,7 +485,7 @@ static GtkWidget *make_click_button(AppState *st, const char *label,
 }
 
 /* ================================================================== *
- *  Option controls
+ * Option controls
  * ================================================================== */
 static void on_sensitivity(GtkRange *r, gpointer ud)
 {
@@ -501,7 +501,7 @@ static void on_draglock(GtkCheckButton *c, gpointer ud)
 }
 
 /* ================================================================== *
- *  Keyboard tab
+ * Keyboard tab
  * ================================================================== */
 typedef struct { AppState *st; int usage; }           KeyCtx;
 typedef struct { AppState *st; int mods; int usage; } ComboCtx;
@@ -674,7 +674,7 @@ static gboolean on_audio(GtkSwitch *sw, gboolean state, gpointer ud)
 
 
 /* ================================================================== *
- *  Connection status poller (reads the daemon's status file).
+ * Connection status poller (reads the daemon's status file).
  * ================================================================== */
 static gboolean poll_status(gpointer ud)
 {
@@ -711,7 +711,7 @@ static gboolean poll_status(gpointer ud)
 }
 
 /* ================================================================== *
- *  Styling
+ * Styling
  * ================================================================== */
 static void load_css(void)
 {
@@ -756,7 +756,7 @@ static void load_css(void)
 }
 
 /* ================================================================== *
- *  Window construction
+ * Window construction
  * ================================================================== */
 static void on_activate(GtkApplication *app, gpointer ud)
 {
@@ -788,13 +788,13 @@ static void on_activate(GtkApplication *app, gpointer ud)
     st->status_label = gtk_label_new("\u2026");
     gtk_widget_add_css_class(st->status_label, "status");
 
-    /* audio-to-host toggle */
-    GtkWidget *alabel = gtk_label_new("Audio\u2192host");
+    /* audio-from-device toggle */
+    GtkWidget *alabel = gtk_label_new("Audio\u2192laptop");
     gtk_widget_add_css_class(alabel, "subtle");
     GtkWidget *aswitch = gtk_switch_new();
     gtk_widget_set_valign(aswitch, GTK_ALIGN_CENTER);
     gtk_widget_set_tooltip_text(aswitch,
-        "Redirect this machine's audio to the connected host (A2DP).");
+        "Play audio from the connected device on this laptop (A2DP).");
     g_signal_connect(aswitch, "state-set", G_CALLBACK(on_audio), st);
 
     gtk_box_append(GTK_BOX(header), title);

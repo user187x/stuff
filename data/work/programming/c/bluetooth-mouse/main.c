@@ -97,16 +97,16 @@
  * Because there are now two input reports, each is tagged with a Report ID
  * (the first byte of every report on the wire):
  *
- *   Report ID 1 (mouse, 4 payload bytes):
- *     byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
- *     byte1: dX    (-127..127, relative)
- *     byte2: dY    (-127..127, relative)
- *     byte3: wheel (-127..127, relative)
+ * Report ID 1 (mouse, 4 payload bytes):
+ * byte0: bit0=left bit1=right bit2=middle (bits3-7 padding)
+ * byte1: dX    (-127..127, relative)
+ * byte2: dY    (-127..127, relative)
+ * byte3: wheel (-127..127, relative)
  *
- *   Report ID 2 (keyboard, 8 payload bytes - the standard boot layout):
- *     byte0: modifier bitmap (LCtrl .. RGui)
- *     byte1: reserved (0)
- *     byte2..7: up to six pressed key usage codes (HID Keyboard/Keypad page)
+ * Report ID 2 (keyboard, 8 payload bytes - the standard boot layout):
+ * byte0: modifier bitmap (LCtrl .. RGui)
+ * byte1: reserved (0)
+ * byte2..7: up to six pressed key usage codes (HID Keyboard/Keypad page)
  * ------------------------------------------------------------------ */
 #define REPORT_ID_MOUSE  0x01
 #define REPORT_ID_KBD    0x02
@@ -117,29 +117,29 @@ static const uint8_t hid_report_descriptor[] = {
     0x09, 0x02,   /* Usage (Mouse)                       */
     0xA1, 0x01,   /* Collection (Application)            */
     0x85, REPORT_ID_MOUSE, /* Report ID (1)              */
-    0x09, 0x01,   /*   Usage (Pointer)                 */
-    0xA1, 0x00,   /*   Collection (Physical)           */
-    0x05, 0x09,   /*     Usage Page (Buttons)        */
-    0x19, 0x01,   /*     Usage Minimum (1)           */
-    0x29, 0x03,   /*     Usage Maximum (3)           */
-    0x15, 0x00,   /*     Logical Minimum (0)         */
-    0x25, 0x01,   /*     Logical Maximum (1)         */
-    0x95, 0x03,   /*     Report Count (3)            */
-    0x75, 0x01,   /*     Report Size (1)             */
-    0x81, 0x02,   /*     Input (Data,Var,Abs) 3 btns */
-    0x95, 0x01,   /*     Report Count (1)            */
-    0x75, 0x05,   /*     Report Size (5)             */
-    0x81, 0x03,   /*     Input (Const)     padding   */
-    0x05, 0x01,   /*     Usage Page (Generic Desktop)*/
-    0x09, 0x30,   /*     Usage (X)                   */
-    0x09, 0x31,   /*     Usage (Y)                   */
-    0x09, 0x38,   /*     Usage (Wheel)               */
-    0x15, 0x81,   /*     Logical Minimum (-127)      */
-    0x25, 0x7F,   /*     Logical Maximum (127)       */
-    0x75, 0x08,   /*     Report Size (8)             */
-    0x95, 0x03,   /*     Report Count (3)            */
-    0x81, 0x06,   /*     Input (Data,Var,Rel)        */
-    0xC0,         /*   End Collection                  */
+    0x09, 0x01,   /* Usage (Pointer)                 */
+    0xA1, 0x00,   /* Collection (Physical)           */
+    0x05, 0x09,   /* Usage Page (Buttons)        */
+    0x19, 0x01,   /* Usage Minimum (1)           */
+    0x29, 0x03,   /* Usage Maximum (3)           */
+    0x15, 0x00,   /* Logical Minimum (0)         */
+    0x25, 0x01,   /* Logical Maximum (1)         */
+    0x95, 0x03,   /* Report Count (3)            */
+    0x75, 0x01,   /* Report Size (1)             */
+    0x81, 0x02,   /* Input (Data,Var,Abs) 3 btns */
+    0x95, 0x01,   /* Report Count (1)            */
+    0x75, 0x05,   /* Report Size (5)             */
+    0x81, 0x03,   /* Input (Const)     padding   */
+    0x05, 0x01,   /* Usage Page (Generic Desktop)*/
+    0x09, 0x30,   /* Usage (X)                   */
+    0x09, 0x31,   /* Usage (Y)                   */
+    0x09, 0x38,   /* Usage (Wheel)               */
+    0x15, 0x81,   /* Logical Minimum (-127)      */
+    0x25, 0x7F,   /* Logical Maximum (127)       */
+    0x75, 0x08,   /* Report Size (8)             */
+    0x95, 0x03,   /* Report Count (3)            */
+    0x81, 0x06,   /* Input (Data,Var,Rel)        */
+    0xC0,         /* End Collection                  */
     0xC0,         /* End Collection                    */
 
     /* ---- Keyboard (Report ID 2) ---- */
@@ -147,25 +147,25 @@ static const uint8_t hid_report_descriptor[] = {
     0x09, 0x06,   /* Usage (Keyboard)                    */
     0xA1, 0x01,   /* Collection (Application)            */
     0x85, REPORT_ID_KBD, /* Report ID (2)                */
-    0x05, 0x07,   /*   Usage Page (Keyboard/Keypad)    */
-    0x19, 0xE0,   /*   Usage Minimum (LeftControl)     */
-    0x29, 0xE7,   /*   Usage Maximum (Right GUI)       */
-    0x15, 0x00,   /*   Logical Minimum (0)             */
-    0x25, 0x01,   /*   Logical Maximum (1)             */
-    0x75, 0x01,   /*   Report Size (1)                 */
-    0x95, 0x08,   /*   Report Count (8)                */
-    0x81, 0x02,   /*   Input (Data,Var,Abs) modifiers  */
-    0x95, 0x01,   /*   Report Count (1)                */
-    0x75, 0x08,   /*   Report Size (8)                 */
-    0x81, 0x03,   /*   Input (Const) reserved byte     */
-    0x95, 0x06,   /*   Report Count (6)                */
-    0x75, 0x08,   /*   Report Size (8)                 */
-    0x15, 0x00,   /*   Logical Minimum (0)             */
-    0x25, 0xFF,   /*   Logical Maximum (255)           */
-    0x05, 0x07,   /*   Usage Page (Keyboard/Keypad)    */
-    0x19, 0x00,   /*   Usage Minimum (0)               */
-    0x29, 0xFF,   /*   Usage Maximum (255)             */
-    0x81, 0x00,   /*   Input (Data,Array) 6-key rollover*/
+    0x05, 0x07,   /* Usage Page (Keyboard/Keypad)    */
+    0x19, 0xE0,   /* Usage Minimum (LeftControl)     */
+    0x29, 0xE7,   /* Usage Maximum (Right GUI)       */
+    0x15, 0x00,   /* Logical Minimum (0)             */
+    0x25, 0x01,   /* Logical Maximum (1)             */
+    0x75, 0x01,   /* Report Size (1)                 */
+    0x95, 0x08,   /* Report Count (8)                */
+    0x81, 0x02,   /* Input (Data,Var,Abs) modifiers  */
+    0x95, 0x01,   /* Report Count (1)                */
+    0x75, 0x08,   /* Report Size (8)                 */
+    0x81, 0x03,   /* Input (Const) reserved byte     */
+    0x95, 0x06,   /* Report Count (6)                */
+    0x75, 0x08,   /* Report Size (8)                 */
+    0x15, 0x00,   /* Logical Minimum (0)             */
+    0x25, 0xFF,   /* Logical Maximum (255)           */
+    0x05, 0x07,   /* Usage Page (Keyboard/Keypad)    */
+    0x19, 0x00,   /* Usage Minimum (0)               */
+    0x29, 0xFF,   /* Usage Maximum (255)             */
+    0x81, 0x00,   /* Input (Data,Array) 6-key rollover*/
     0xC0          /* End Collection                      */
 };
 
@@ -224,12 +224,6 @@ static void install_signal_handlers(void)
     sigaction(SIGPIPE, &ign, NULL);
 }
 
-/* ------------------------------------------------------------------ *
- * Set the local adapter's Class of Device so it looks like a mouse.
- * 0x002580 = Peripheral (major) + Pointing device (minor).
- * Best-effort: failure is non-fatal (you can also set it with
- * `sudo hciconfig hci0 class 0x002580`).
- * ------------------------------------------------------------------ */
 static void set_class_of_device(int dev_id)
 {
     int dd = hci_open_dev(dev_id);
@@ -238,13 +232,16 @@ static void set_class_of_device(int dev_id)
                 dev_id, strerror(errno));
         return;
     }
-    uint32_t cod = 0x0025C0;   /* Peripheral + keyboard & pointing device */
+
+    /* 0x200000 (Audio Service) | 0x0500 (Peripheral) | 0x00C0 (Kbd/Mouse) */
+    uint32_t cod = 0x2025C0;
+
     if (hci_write_class_of_dev(dd, cod, 2000) < 0)
         fprintf(stderr, "warn: hci_write_class_of_dev failed: %s "
-                "(try: sudo hciconfig hci%d class 0x0025C0)\n",
+                "(try: sudo hciconfig hci%d class 0x2025C0)\n",
                 strerror(errno), dev_id);
     else
-        printf("Class of device set to 0x%06x (pointing device)\n", cod);
+        printf("Class of device set to 0x%06x (Audio + Pointing device)\n", cod);
     hci_close_dev(dd);
 }
 
@@ -741,7 +738,7 @@ static void usage_hint(void)
 "  k m <byte>    set modifier bitmap     (LCtrl1 LShift2 LAlt4 LGui8 ...)\n"
 "  k x           release all keys+mods\n"
 "  type <text>   type an ASCII string    (e.g.  type Hello, world!)\n"
-"  audio on|off  redirect this device's audio to the connected host\n"
+"  audio on|off  play audio from the connected device on this laptop\n"
 "  q             quit\n\n");
 }
 
@@ -824,8 +821,8 @@ int main(int argc, char **argv)
                    "  hciN      adapter to use (default hci0)\n"
                    "  --reset   remove all stored pairings before starting,\n"
                    "            for when a host reports a bad key/PIN\n"
-                   "  --audio   redirect this device's audio to the host\n"
-                   "            (A2DP source; can also be toggled from the GUI)\n",
+                   "  --audio   play audio from the connected device on this laptop\n"
+                   "            (A2DP sink; can also be toggled from the GUI)\n",
                    argv[0]);
             return 0;
         } else {

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+systemctl --user restart wireplumber pipewire pipewire-pulse
+
+make rebuild
+
+sudo ./btmouse --reset --audio

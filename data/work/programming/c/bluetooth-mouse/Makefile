@@ -106,7 +106,7 @@ uninstall:
 # Rebuild from scratch by cleaning first, then running make
 rebuild:
 	$(MAKE) clean
-	$(MAKE)
+	$(MAKE) both
 
 # Remove local build artifacts
 clean:

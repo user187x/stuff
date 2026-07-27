@@ -1,5 +1,5 @@
 /*
- * bt_audio.c  -  Implementation of the audio-to-host redirector.
+ * bt_audio.c  -  Implementation of the audio-from-device redirector.
  * See bt_audio.h. Target OS: Ubuntu 26 (BlueZ + PipeWire). Style mirrors
  * bt_setup.c: small helpers that shell out to the system tools.
  */
@@ -15,18 +15,21 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <pwd.h>
+#include <pthread.h>
 
-/* Saved so bt_audio_stop() can put the user's default sink back. */
-static char g_prev_sink[256] = "";
-static char g_bt_sink[256]   = "";
+/* Saved so bt_audio_stop() can unload the loopback module later. */
+static char g_loopback_id[32] = "";
+static char g_bt_source[256]  = "";
+
+static pthread_t g_audio_thread;
+static volatile int g_audio_thread_running = 0;
+
+struct audio_ctx {
+    char host_mac[32];
+};
 
 /* ------------------------------------------------------------------ *
- *  Reaching the user's audio session from a root process.
- *
- *  PipeWire/PulseAudio live in the invoking user's session, not root's.
- *  We resolve that user (via $SUDO_USER) and run audio tools as them with
- *  XDG_RUNTIME_DIR pointed at their runtime dir, so pactl talks to the
- *  right session bus.
+ * Reaching the user's audio session from a root process.
  * ------------------------------------------------------------------ */
 static const char *audio_user(void)
 {
@@ -100,21 +103,6 @@ static int user_pactl_capture(char *out, size_t outlen, const char *fmt, ...)
     return out[0] ? 0 : -1;
 }
 
-/* Run a system-bus bluetoothctl command (runs fine as root). */
-static void btctl(const char *fmt, ...)
-{
-    char args[256];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(args, sizeof(args), fmt, ap);
-    va_end(ap);
-
-    char cmd[400];
-    snprintf(cmd, sizeof(cmd), "bluetoothctl -- %s >/dev/null 2>&1", args);
-    int rc = system(cmd);
-    (void)rc;
-}
-
 /* Turn "AA:BB:CC:DD:EE:FF" into "AA_BB_CC_DD_EE_FF" for sink-name matching. */
 static void mac_underscored(const char *mac, char *out, size_t n)
 {
@@ -124,8 +112,97 @@ static void mac_underscored(const char *mac, char *out, size_t n)
     out[j] = '\0';
 }
 
+/* Bring up the A2DP link to the peer so BlueZ establishes the audio
+ * transport and PipeWire/PulseAudio creates the corresponding source node.
+ * The device is already bonded and auto-trusted by bt_agent, so this needs
+ * no user interaction. bluetoothctl talks to the system bus, so it runs fine
+ * as root (no session prefix needed). Returns the command's exit status. */
+static int connect_a2dp(const char *mac)
+{
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd),
+             "bluetoothctl -- connect %s >/dev/null 2>&1", mac);
+    int rc = system(cmd);
+    return (rc == -1) ? -1 : WEXITSTATUS(rc);
+}
+
 /* ------------------------------------------------------------------ *
- *  Public API
+ * Audio Thread Worker
+ * ------------------------------------------------------------------ */
+static void *audio_thread_func(void *arg)
+{
+    struct audio_ctx *ctx = arg;
+
+    printf("[audio] Waiting for Android to initialize A2DP audio stream...\n");
+
+    char macu[32];
+    mac_underscored(ctx->host_mac, macu, sizeof(macu));
+
+    /* Step 1: connect the A2DP profile over the already-paired link. Without
+     * this, BlueZ never brings up the audio transport, so no source node is
+     * ever created and the poll below would just time out. Retry a few times
+     * in case the link setup races with the just-completed HID connection. */
+    for (int i = 0; i < 5 && g_audio_thread_running; i++) {
+        if (connect_a2dp(ctx->host_mac) == 0) break;
+        usleep(500 * 1000);
+    }
+
+    /* Poll for the Bluetooth input source to appear. (PipeWire names it
+     * bluez_input.<MAC>.*; PulseAudio uses bluez_source.<MAC>.*) */
+    char find[256];
+    snprintf(find, sizeof(find),
+             "list short sources | awk '/bluez_(input|source)\\.%s/{print $2; exit}'",
+             macu);
+
+    g_bt_source[0] = '\0';
+    for (int i = 0; i < 40 && g_audio_thread_running; i++) { /* up to ~8s */
+        if (user_pactl_capture(g_bt_source, sizeof(g_bt_source), "%s", find) == 0
+            && g_bt_source[0])
+            break;
+        /* Re-issue the connect periodically; the first attempt can land
+         * before the peer is ready to accept the A2DP stream. */
+        if (i == 15 || i == 30) connect_a2dp(ctx->host_mac);
+        usleep(200 * 1000);
+    }
+
+    if (!g_bt_source[0]) {
+        if (g_audio_thread_running) {
+            fprintf(stderr,
+                "[audio] No Bluetooth audio source appeared for %s.\n"
+                "[audio]   - Ensure media audio is enabled in the phone's Bluetooth settings.\n",
+                ctx->host_mac);
+        }
+        free(ctx);
+        g_audio_thread_running = 0;
+        return NULL;
+    }
+
+    if (g_audio_thread_running) {
+        /* Route incoming audio to the laptop's speakers via loopback. */
+        if (user_pactl_capture(g_loopback_id, sizeof(g_loopback_id),
+                               "load-module module-loopback source=\"%s\"", g_bt_source) != 0) {
+            fprintf(stderr, "[audio] Failed to load module-loopback.\n");
+        } else {
+            printf("[audio] Audio from '%s' now playing on this laptop.\n", g_bt_source);
+            
+            /* Race condition guard: if stop was requested while pactl was blocking */
+            if (!g_audio_thread_running) {
+                user_pactl("unload-module %s", g_loopback_id);
+                g_loopback_id[0] = '\0';
+                g_bt_source[0] = '\0';
+            }
+        }
+    }
+
+    free(ctx);
+    if (g_audio_thread_running) {
+        g_audio_thread_running = 0;
+    }
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ *
+ * Public API
  * ------------------------------------------------------------------ */
 int bt_audio_available(void)
 {
@@ -137,80 +214,44 @@ int bt_audio_start(const char *host_mac)
     if (!host_mac || !*host_mac) return -1;
 
     if (!audio_user()) {
-        fprintf(stderr, "[audio] no user session found ($SUDO_USER unset); "
-                        "cannot route audio.\n");
+        fprintf(stderr, "[audio] no user session found ($SUDO_USER unset); cannot route audio.\n");
         return -1;
     }
     if (!have_cmd("pactl")) {
-        fprintf(stderr, "[audio] 'pactl' not found. Install pipewire-pulse "
-                        "(or pulseaudio) plus the bluez5 audio module.\n");
+        fprintf(stderr, "[audio] 'pactl' not found. Install pipewire-pulse (or pulseaudio) plus the bluez5 audio module.\n");
         return -1;
     }
 
-    printf("[audio] Connecting A2DP audio to %s...\n", host_mac);
-    /* Ask BlueZ to bring up the audio profile on the already-paired link.
-     * (The HID channels are unaffected; this just adds A2DP.) */
-    btctl("connect %s", host_mac);
+    if (g_audio_thread_running) return 0; /* Already starting/running */
 
-    char macu[32];
-    mac_underscored(host_mac, macu, sizeof(macu));
+    /* Stop any existing loopback route first if called multiple times */
+    if (g_loopback_id[0]) bt_audio_stop();
 
-    /* Poll for the Bluetooth output sink to appear (PipeWire names it
-     * bluez_output.<MAC>.*; PulseAudio uses bluez_sink.<MAC>.*). */
-    char find[256];
-    snprintf(find, sizeof(find),
-             "list short sinks | awk '/bluez_(output|sink)\\.%s/{print $2; exit}'",
-             macu);
+    struct audio_ctx *ctx = malloc(sizeof(*ctx));
+    if (!ctx) return -1;
+    strncpy(ctx->host_mac, host_mac, sizeof(ctx->host_mac) - 1);
+    ctx->host_mac[sizeof(ctx->host_mac) - 1] = '\0';
 
-    g_bt_sink[0] = '\0';
-    for (int i = 0; i < 40; i++) {                 /* up to ~8s */
-        if (user_pactl_capture(g_bt_sink, sizeof(g_bt_sink), "%s", find) == 0
-            && g_bt_sink[0])
-            break;
-        usleep(200 * 1000);
-    }
+    g_audio_thread_running = 1;
+    
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&g_audio_thread, &attr, audio_thread_func, ctx);
+    pthread_attr_destroy(&attr);
 
-    if (!g_bt_sink[0]) {
-        fprintf(stderr,
-            "[audio] No Bluetooth audio sink appeared for %s.\n"
-            "[audio]   - Does the host accept the A2DP sink role?\n"
-            "[audio]   - Are pipewire + wireplumber + libspa-0.2-bluez5 "
-            "running in your session?\n", host_mac);
-        return -1;
-    }
-
-    /* Remember the current default so we can restore it later. */
-    user_pactl_capture(g_prev_sink, sizeof(g_prev_sink), "get-default-sink");
-
-    /* Route audio to the host: make it default and move active streams. */
-    user_pactl("set-default-sink %s", g_bt_sink);
-
-    char pre[256];
-    if (user_prefix(pre, sizeof(pre)) == 0) {
-        char cmd[700];
-        snprintf(cmd, sizeof(cmd),
-            "%s pactl list short sink-inputs 2>/dev/null | while read id rest; "
-            "do %s pactl move-sink-input \"$id\" %s >/dev/null 2>&1; done",
-            pre, pre, g_bt_sink);
-        int rc = system(cmd);
-        (void)rc;
-    }
-
-    printf("[audio] Audio now routed to host via sink '%s'.\n", g_bt_sink);
     return 0;
 }
 
 void bt_audio_stop(void)
 {
-    if (!g_bt_sink[0]) return;        /* nothing was routed */
+    g_audio_thread_running = 0; /* Signals the worker thread to stop polling/loading */
 
-    if (g_prev_sink[0]) {
-        user_pactl("set-default-sink %s", g_prev_sink);
-        printf("[audio] Restored default sink '%s'.\n", g_prev_sink);
-    }
-    /* Deliberately do NOT disconnect the BT link: that would also drop the
-     * HID mouse/keyboard channels. The audio profile idles until the host
-     * disconnects. */
-    g_bt_sink[0]   = '\0';
-    g_prev_sink[0] = '\0';
+    if (!g_loopback_id[0]) return; /* nothing was routed */
+
+    user_pactl("unload-module %s", g_loopback_id);
+    printf("[audio] Stopped playing Bluetooth audio (unloaded loopback %s).\n", g_loopback_id);
+    
+    g_loopback_id[0] = '\0';
+    g_bt_source[0]   = '\0';
 }
