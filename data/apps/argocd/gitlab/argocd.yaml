@@ -10,80 +10,74 @@ spec:
     targetRevision: '10.2.0'
     chart: gitlab
     helm:
-      values: |
+      valuesObject:
         global:
-          edition: ce
           hosts:
-            domain: gitlab.xxx.local
-            externalIP: gitlab.xxx.local
-            gitlab:
-              name: gitlab.xxx.local
-          externalUrl: "http://gitlab.xxx.local"
+            domain: xxx.com
+            https: true
           ingress:
-            class: traefik
+            enabled: false
             configureCertmanager: false
-            tls:
-              enabled: false
-
-          # --- CloudNativePG Database Connection ---
+          gatewayApi:
+            enabled: true
+            installEnvoy: false
           psql:
-            # Point to the primary read-write service created by CNPG
-            host: gitlab-db-rw.cnpg-system.svc.cluster.local
-            port: 5432
-            # Match the owner/app username defined in your CNPG Cluster spec
-            username: gitlab
-            # Match the database name defined in your CNPG Cluster spec
+            host: gitlab-db-rw.gitlab.svc.cluster.local
             database: gitlab
+            username: gitlab
             password:
-              # CNPG automatically generates this '-app' secret with the password
-              secret: cnpg-system
+              secret: gitlab-db-app
               key: password
-
-          # Redis
           redis:
-            host: gitlab-redis.gitlab.svc.cluster.local
-            auth:
+            host: redis.redis.svc.cluster.local
+
+          # Disable features that strictly require S3 Object Storage
+          appConfig:
+            lfs:
+              enabled: false
+            artifacts:
+              enabled: false
+            uploads:
+              enabled: false
+            packages:
               enabled: false
 
-          # App Object Storage
-          appConfig:
-            object_store:
-              enabled: true
-              connection:
-                secret: gitlab-object-storage
-                key: connection
-            backups:
-              bucket: gitlab-backups
-              tmpBucket: tmp
-
+        # Disable the Container Registry (Root level, not global)
         registry:
           enabled: false
-          storage:
-            secret: gitlab-registry-storage
-            key: config
 
         gitlab:
           toolbox:
             backups:
+              cron:
+                enabled: false
               objectStorage:
-                backend: s3
                 config:
-                  secret: gitlab-backup-storage
-                  key: config
-
-        certmanager-issuer:
-          email: admin@xxx.local
+                  secret: "bypass-helm-check"
+          gitaly:
+            persistence:
+              storageClass: standard
 
         installCertmanager: false
+        certmanager-issuer:
+          email: admin@xxx.com
 
         nginx-ingress:
           enabled: false
+        postgresql:
+          install: false
+        redis:
+          install: false
 
         prometheus:
-          install: false
+          server:
+            persistentVolume:
+              storageClass: standard
 
-        gitlab-runner:
-          install: false
+        gatewayApiResources:
+          class:
+            name: traefik
+            controllerName: traefik.io/gateway-controller
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: gitlab
@@ -93,4 +87,3 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true

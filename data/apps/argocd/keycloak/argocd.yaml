@@ -1,0 +1,133 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak
+  # ArgoCD applications are typically deployed in the argocd namespace
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://repo.helmforge.dev
+    targetRevision: 3.0.7
+    chart: keycloak
+    helm:
+      values: |
+        mode: production
+        fullnameOverride: "keycloak"
+        nameOverride: "keycloak"
+
+        hostname:
+          hostname: "keycloak.xxx.local"
+          strict: true
+
+        database:
+          external:
+            vendor: postgres
+            host: "keycloak-db-rw"
+            port: 5432
+            name: "keycloak"
+            username: "keycloak"
+            existingSecret: "keycloak-auth-secret"
+
+        env:
+          - name: KC_PROXY_HEADERS
+            value: "xforwarded"
+          - name: KC_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: keycloak-db-app
+                key: password
+          - name: REAL_CNPG_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: keycloak-db-app
+                key: password
+          - name: JAVA_OPTS_APPEND
+            value: "-Dkc.db.password=$(REAL_CNPG_PASSWORD)"
+
+        replicaCount: 2
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+
+        ingress:
+          enabled: false
+
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+
+        # ---------------------------------------------------------
+        # Injects the CNPG Cluster directly into the deployment
+        # ---------------------------------------------------------
+        extraManifests:
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: keycloak-auth-secret
+              namespace: keycloak
+              annotations:
+                argocd.argoproj.io/sync-wave: "-2"
+            type: Opaque
+            stringData:
+              username: keycloak
+              password: "ChooseAStrongPassword123!"
+              db-password: "ChooseAStrongPassword123!"
+          - apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: keycloak-db
+              namespace: keycloak
+              annotations:
+                argocd.argoproj.io/sync-wave: "-1"
+            spec:
+              instances: 2
+              imageName: ghcr.io/cloudnative-pg/postgresql:16
+              primaryUpdateStrategy: unsupervised
+              storage:
+                size: 10Gi
+              bootstrap:
+                initdb:
+                  database: keycloak
+                  owner: keycloak
+                  secret:
+                    name: keycloak-auth-secret
+          - apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: keycloak-route
+              namespace: keycloak
+              annotations:
+                argocd.argoproj.io/sync-wave: "1"
+            spec:
+              parentRefs:
+                - name: traefik-gateway
+                  namespace: traefik
+              hostnames:
+                - "keycloak.xxx.local"
+              rules:
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    - name: keycloak
+                      port: 8080
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keycloak
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
