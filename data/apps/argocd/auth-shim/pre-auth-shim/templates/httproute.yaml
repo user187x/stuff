@@ -3,6 +3,9 @@ kind: HTTPRoute
 metadata:
   name: protected-app-route
   namespace: {{ .Values.namespace }}
+  annotations:
+    # Explicitly enforce the mTLS TLSOption on this specific route
+    traefik.io/tls-options: traefik-require-mtls@kubernetescrd`
 spec:
   parentRefs:
     - name: traefik-gateway
@@ -15,6 +18,11 @@ spec:
             type: PathPrefix
             value: /
       filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: transfer-tls
         - type: ExtensionRef
           extensionRef:
             group: traefik.io

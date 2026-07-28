@@ -7,3 +7,11 @@ spec:
   forwardAuth:
     address: {{ .Values.middleware.spec.forwardAuth.address }}
     trustForwardHeader: true
+    # Instructs ForwardAuth to pass these headers to your pre-auth-shim
+    authRequestHeaders:
+      - "X-Forwarded-Tls-Client-Cert-Info"
+      - "X-Forwarded-Tls-Client-Cert"
+      - "X-Forwarded-Client-Cert-Subject"
+      - "X-Forwarded-Dn"
+      - "X-Forwarded-Uri"
+      - "X-Forwarded-For"

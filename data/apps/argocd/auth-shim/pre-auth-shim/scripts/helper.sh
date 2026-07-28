@@ -62,8 +62,14 @@ clean-chart() {
 }
 
 deploy-chart() {
- remove-chart && package-chart && install-chart && clean-chart
- echo "Chart deployed"
+
+ echo "Fully redeploying Chart..."
+
+ remove-chart >/dev/null 2>&1
+ package-chart && install-chart
+ clean-chart
+
+ echo "Deployment complete!"
 }
 
 case "$1" in

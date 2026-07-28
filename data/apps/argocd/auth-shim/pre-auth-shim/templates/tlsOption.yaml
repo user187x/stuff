@@ -1,0 +1,11 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: require-mtls
+  namespace: traefik
+spec:
+  clientAuth:
+    secretNames:
+      - tls-ca
+    clientAuthType: RequireAndVerifyClientCert

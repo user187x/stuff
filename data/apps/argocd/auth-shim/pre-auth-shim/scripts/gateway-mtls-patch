@@ -1,0 +1,13 @@
+#!/bin/bash
+
+NAMESPACE="traefik"
+TLSOPTION_NAME="require-mtls"
+
+TLS_OPTION="${NAMESPACE}-${TLSOPTION_NAME}@kubernetescrd"
+GATEWAY_NAME="traefik-gateway"
+
+echo "Patching Gateway with annotation: "
+kubectl patch gateway "${GATEWAY_NAME}" \
+ --namespace "${NAMESPACE}" \
+ --type=merge \
+ -p '{"metadata":{"annotations":{"traefik.io/tls-options":"'"${TLS_OPTION}"'"}}}'

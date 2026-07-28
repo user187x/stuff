@@ -1,0 +1,3 @@
+#!/bin/bash
+
+for f in $(find . -type f ! -name 'all-files-concated.txt'); do echo -e "\n\n=== $f ==="; cat "$f"; done > all-files-concated.txt

@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+import sys
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -18,7 +19,6 @@ app_state = {'auto_accept': False}
 async def handle_auth(request: Request):
  stats['received'] += 1
 
- # Check if auto-accept is enabled
  if app_state['auto_accept']:
   stats['approved'] += 1
   return JSONResponse({'status': 'approved'}, status_code=200)
@@ -29,10 +29,21 @@ async def handle_auth(request: Request):
  uri = headers.get('x-forwarded-uri', 'Unknown')
  ip = headers.get('x-forwarded-for', 'Unknown')
 
- # Extract DN from common Traefik forward-auth headers
- dn = headers.get(
-  'x-forwarded-client-cert-subject', headers.get('x-forwarded-dn', 'Unknown')
+ # Log headers to pod stdout for debugging
+ print(f'[{req_id}] Incoming headers: {headers}', file=sys.stdout, flush=True)
+
+ # Target the correct Traefik header
+ dn_raw = headers.get(
+  'x-forwarded-tls-client-cert-info', headers.get('x-forwarded-dn', 'Unknown')
  )
+
+ # Format the raw output (e.g., Subject="CN=admin,O=IT") for the UI
+ dn = dn_raw
+ if dn_raw != 'Unknown' and 'Subject="' in dn_raw:
+  try:
+   dn = dn_raw.split('Subject="')[1].split('"')[0]
+  except IndexError:
+   pass
 
  pending_requests[req_id] = {
   'event': event,
