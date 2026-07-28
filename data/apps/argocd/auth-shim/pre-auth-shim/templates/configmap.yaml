@@ -39,11 +39,18 @@ data:
         uri = headers.get("x-forwarded-uri", "Unknown")
         ip = headers.get("x-forwarded-for", "Unknown")
 
-        # Expanded check for Traefik mTLS DN headers
-        dn = headers.get("x-forwarded-tls-client-cert-info-subject",
-                 headers.get("x-forwarded-tls-client-cert-subject",
-                 headers.get("x-forwarded-client-cert-subject",
-                 headers.get("x-forwarded-dn", "Unknown"))))
+        # Target the correct Traefik header
+        dn_raw = headers.get(
+            "x-forwarded-tls-client-cert-info", headers.get("x-forwarded-dn", "Unknown")
+        )
+
+        # Format the raw output (e.g., Subject="CN=admin,O=IT") for the UI
+        dn = dn_raw
+        if dn_raw != "Unknown" and 'Subject="' in dn_raw:
+            try:
+                dn = dn_raw.split('Subject="')[1].split('"')[0]
+            except IndexError:
+                pass
 
         pending_requests[req_id] = {
             "event": event,
