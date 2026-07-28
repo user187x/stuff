@@ -1,0 +1,6 @@
+#!/bin/bash
+
+kubectl exec deploy/argocd-server \
+ --namespace argocd \
+ -- argocd admin export \
+ > cluster-backup.yaml

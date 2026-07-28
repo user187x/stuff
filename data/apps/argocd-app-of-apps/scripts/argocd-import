@@ -1,0 +1,7 @@
+#!/bin/bash
+
+kubectl exec -i deploy/argocd-server \
+  --namespace argocd \
+  -- argocd admin import - \
+  < cluster-restore.yaml
+
