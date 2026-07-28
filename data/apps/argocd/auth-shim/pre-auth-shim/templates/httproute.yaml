@@ -6,7 +6,7 @@ metadata:
 spec:
   parentRefs:
     - name: traefik-gateway
-      namespace: {{ .Values.namespace }}
+      namespace: traefik
   hostnames:
     - {{ .Values.httproute.spec.hostname | quote }}
   rules:
@@ -17,9 +17,11 @@ spec:
       filters:
         - type: ExtensionRef
           extensionRef:
-            group: traefik.containo.us
+            group: traefik.io
             kind: Middleware
             name: pre-auth-gate
       backendRefs:
         - name: {{ .Values.backendService.name }}
+          namespace: {{ .Values.backendService.namespace }}
           port: {{ .Values.backendService.port }}
+

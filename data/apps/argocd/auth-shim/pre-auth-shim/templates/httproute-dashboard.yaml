@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pre-auth-shim-dashboard
+  namespace: {{ .Values.namespace }}
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - {{ .Values.dashboard.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ui
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        # This routes dashboard traffic directly to the shim pod
+        - name: pre-auth-shim-svc
+          port: 80

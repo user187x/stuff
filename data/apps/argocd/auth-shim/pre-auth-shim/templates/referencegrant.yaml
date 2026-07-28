@@ -1,0 +1,17 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-pre-auth-shim-httproutes
+  # The ReferenceGrant MUST live in the namespace of the target resource (headlamp)
+  namespace: {{ .Values.backendService.namespace }}
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    # The namespace where your HTTPRoute lives
+    namespace: {{ .Values.namespace }}
+  to:
+  - group: ""
+    kind: Service
+    # The name of the target service
+    name: {{ .Values.backendService.name }}

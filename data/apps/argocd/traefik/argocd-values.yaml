@@ -10,6 +10,8 @@ ports:
 providers:
   kubernetesGateway:
     enabled: true
+  kubernetesCRD:
+    allowCrossNamespace: true
   kubernetesIngress:
     enabled: false
 
