@@ -1,0 +1,17 @@
+# Default values for pre-auth-shim
+
+namespace: preauth-shim
+
+# A single source of truth for the service being protected
+backendService:
+  name: headlamp
+  port: 80
+
+middleware:
+  spec:
+    forwardAuth:
+      address: http://pre-auth-shim-svc.preauth-shim.svc.cluster.local/auth
+
+httproute:
+  spec:
+    hostname: protected.xxx.local

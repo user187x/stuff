@@ -1,0 +1,28 @@
+======================================================================
+SUCCESSFULLY INSTALLED: {{ .Chart.Name }}
+======================================================================
+
+Thank you for installing the manual Traefik forward-auth shim.
+Below are helpful commands for managing this deployment.
+
+CHART PACKAGING
+----------------------------------------------------------------------
+To build the chart directory into a deployable tarball:
+
+  $ helm package ./{{ .Chart.Name }}
+
+
+INSTALLATION
+----------------------------------------------------------------------
+To install the newly packaged chart from the tarball:
+
+  $ helm install {{ .Release.Name }} ./{{ .Chart.Name }}-{{ .Chart.Version }}.tgz
+
+
+UNINSTALLATION
+----------------------------------------------------------------------
+To delete this chart and remove the auth shim from your cluster:
+
+  $ helm uninstall {{ .Release.Name }}
+
+======================================================================

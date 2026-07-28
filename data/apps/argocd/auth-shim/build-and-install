@@ -1,0 +1,7 @@
+#!/bin/bash
+
+echo "Building the chart..."
+helm package ./preauth-shim-chart
+
+echo "Installing the chart..."
+helm install pre-auth-shim ./pre-auth-shim-0.1.0.tgz

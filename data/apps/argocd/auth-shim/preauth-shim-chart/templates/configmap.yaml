@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pre-auth-shim-code
+  namespace: {{ .Values.namespace }}
+data:
+  app.py: |
+    import asyncio
+    import uuid
+    from fastapi import FastAPI, Request, HTTPException
+    from fastapi.responses import HTMLResponse, JSONResponse
+
+    app = FastAPI()
+    pending_requests = {}
+
+    @app.get("/auth")
+    @app.get("/verify")
+    async def handle_auth(request: Request):
+        req_id = str(uuid.uuid4())
+        event = asyncio.Event()
+        headers = dict(request.headers)
+        uri = headers.get("x-forwarded-uri", "Unknown")
+        ip = headers.get("x-forwarded-for", "Unknown")
+
+        pending_requests[req_id] = {
+            "event": event,
+            "decision": None,
+            "uri": uri,
+            "ip": ip,
+            "id": req_id
+        }
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=60.0)
+        except asyncio.TimeoutError:
+            pending_requests.pop(req_id, None)
+            raise HTTPException(status_code=403, detail="Timeout waiting for admin approval")
+
+        decision = pending_requests.pop(req_id, {}).get("decision")
+        if decision == "approve":
+            return JSONResponse({"status": "approved"}, status_code=200)
+        else:
+            raise HTTPException(status_code=403, detail="Denied by admin UI")
+
+    @app.get("/ui", response_class=HTMLResponse)
+    async def ui():
+        return """
+        <html>
+        <head>
+            <title>Auth Shim UI</title>
+            <style>
+                body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+                .req { border: 1px solid #333; padding: 15px; margin-bottom: 10px; background: #252526; }
+                button { padding: 8px 15px; margin-right: 10px; cursor: pointer; border: none; font-weight: bold; }
+                .approve { background: #4CAF50; color: white; }
+                .deny { background: #f44336; color: white; }
+            </style>
+        </head>
+        <body>
+            <h2>Pending Traefik Requests</h2>
+            <div id="requests"></div>
+            <script>
+                async function fetchRequests() {
+                    let res = await fetch('/api/requests');
+                    let data = await res.json();
+                    let div = document.getElementById('requests');
+                    div.innerHTML = '';
+                    for (let id in data) {
+                        let req = data[id];
+                        div.innerHTML += `<div class="req">
+                            <strong>IP:</strong> ${req.ip} <br>
+                            <strong>URI:</strong> ${req.uri} <br><br>
+                            <button class="approve" onclick="decide('${id}', 'approve')">Approve</button>
+                            <button class="deny" onclick="decide('${id}', 'deny')">Deny</button>
+                        </div>`;
+                    }
+                }
+                async function decide(id, action) {
+                    await fetch(`/api/decide/${id}/${action}`, {method: 'POST'});
+                    fetchRequests();
+                }
+                setInterval(fetchRequests, 2000);
+                fetchRequests();
+            </script>
+        </body>
+        </html>
+        """
+
+    @app.get("/api/requests")
+    async def get_requests():
+        return {k: {"id": v["id"], "uri": v["uri"], "ip": v["ip"]} for k, v in pending_requests.items()}
+
+    @app.post("/api/decide/{req_id}/{action}")
+    async def decide_request(req_id: str, action: str):
+        if req_id in pending_requests and action in ["approve", "deny"]:
+            pending_requests[req_id]["decision"] = action
+            pending_requests[req_id]["event"].set()
+            return {"status": "ok"}
+        raise HTTPException(status_code=404, detail="Request not found or already processed")

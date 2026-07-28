@@ -1,0 +1,110 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: traefik:gateway.networking.k8s.io/Gateway:traefik/traefik-gateway
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{"argocd.argoproj.io/tracking-id":"traefik:gateway.networking.k8s.io/Gateway:traefik/traefik-gateway"},"labels":{"app.kubernetes.io/instance":"traefik-traefik","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"traefik","helm.sh/chart":"traefik-41.0.2"},"name":"traefik-gateway","namespace":"traefik"},"spec":{"gatewayClassName":"traefik","listeners":[{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"web","port":8000,"protocol":"HTTP"},{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"websecure","port":8443,"protocol":"HTTPS","tls":{"certificateRefs":[{"kind":"Secret","name":"wildcard-tls"}]}}]}}
+    traefik.io/tls-options: traefik/require-mtls
+  creationTimestamp: "2026-07-25T05:41:00Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/instance: traefik-traefik
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: traefik
+    helm.sh/chart: traefik-41.0.2
+  name: traefik-gateway
+  namespace: traefik
+  resourceVersion: "775343"
+  uid: b7aba081-886d-4ebb-bde6-e6c05112f5c2
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: web
+    port: 8000
+    protocol: HTTP
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: websecure
+    port: 8443
+    protocol: HTTPS
+    tls:
+      certificateRefs:
+      - group: ""
+        kind: Secret
+        name: wildcard-tls
+      mode: Terminate
+status:
+  addresses:
+  - type: IPAddress
+    value: 10.106.6.111
+  conditions:
+  - lastTransitionTime: "2026-07-27T05:46:42Z"
+    message: Gateway successfully scheduled
+    observedGeneration: 1
+    reason: Accepted
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-07-27T05:46:42Z"
+    message: Gateway successfully scheduled
+    observedGeneration: 1
+    reason: Programmed
+    status: "True"
+    type: Programmed
+  listeners:
+  - attachedRoutes: 7
+    conditions:
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    name: web
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+  - attachedRoutes: 8
+    conditions:
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    - lastTransitionTime: "2026-07-27T05:46:42Z"
+      message: No error found
+      observedGeneration: 1
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    name: websecure
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
