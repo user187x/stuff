@@ -1,0 +1,26 @@
+#!/bin/bash
+
+PYTHON_SCRIPT="app.py"
+
+kubectl create configmap pre-auth-shim-code \
+ --namespace pre-auth-shim \
+ --from-file="${PYTHON_SCRIPT}"="${PYTHON_SCRIPT}" \
+ --dry-run=client -o yaml | kubectl apply --namespace pre-auth-shim -f -
+
+if [[ "$?" == 0 ]]; then
+ echo
+ echo "Restarting deployment with new code..."
+ echo
+
+ echo "Displaying the updated code for inspection...."
+ sleep 1.5
+
+ bat "${PYTHON_SCRIPT}"
+
+ read -rp "Deploy it now ? (y/n) : " ANSWER
+ if [[ "${ANSWER,,}" == "y" ]]; then
+  kubectl rollout restart deployment/pre-auth-shim -n pre-auth-shim
+ else
+  echo "Aborting deployment restart"
+ fi
+fi
