@@ -9,6 +9,7 @@ function usage {
  echo "  -r, --uninstall  Uninstall the chart"
  echo "  -u, --upgrade    Upgrade the chart"
  echo "  -p, --package    Package the chart into a tarball"
+ echo "  -d, --redeploy   Removes existing, re-packages,re-installs, and cleans up tarball"
  echo "  -c, --clean      Removes the chart tarball"
 
  echo
@@ -26,6 +27,11 @@ function usage {
  echo "To delete the chart:"
  echo -e "\e[92m helm uninstall pre-auth-shim -n pre-auth-shim e\[0m"
  echo
+
+ echo "To view auth-shim dashboard"
+ echo "https://auth.xxx.local/ui"
+ echo
+
 }
 
 package-chart() {
