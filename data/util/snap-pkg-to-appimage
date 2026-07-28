@@ -1,0 +1,180 @@
+#!/bin/bash
+
+# --- COLOR DEFINITIONS ---
+RESET='\033[0m'
+BOLD='\033[1m'
+WHITE='\033[1;27m'
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+MAGENTA='\033[1;35m'
+
+# --- SPINNER FUNCTION ---
+execute_with_spinner() {
+ local msg="$1"
+ shift
+ echo -ne "${CYAN}[*]${RESET} ${msg}... "
+
+ # Run the command in the background and log output in case of failure
+ "$@" >.cmd.log 2>&1 &
+ local pid=$!
+
+ # Use an array to safely handle multi-byte UTF-8 Braille characters
+ local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+ local delay=0.07
+
+ tput civis # Hide the cursor
+ while kill -0 "$pid" 2>/dev/null; do
+  for frame in "${frames[@]}"; do
+   if ! kill -0 "$pid" 2>/dev/null; then break; fi
+   printf "${MAGENTA}%s${RESET}\b" "$frame"
+   sleep $delay
+  done
+ done
+ printf " \b" # Clear the final spinner character
+ tput cnorm   # Show the cursor
+
+ wait "$pid"
+ local exit_code=$?
+
+ if [ $exit_code -eq 0 ]; then
+  echo -e "${GREEN}Done!${RESET}"
+  rm -f .cmd.log
+ else
+  echo -e "${RED}Failed!${RESET}"
+  echo -e "${YELLOW}Check tmp/.cmd.log for error details.${RESET}"
+  exit $exit_code
+ fi
+}
+
+echo
+if ! command -v fzf &>/dev/null; then
+ echo -e "${RED}[!] 'fzf' is not installed. Please install it (e.g., 'sudo apt install fzf').${RESET}"
+ exit 1
+fi
+if ! command -v snap &>/dev/null; then
+ echo -e "${RED}[!] 'snap' is not installed. Cannot load local package list.${RESET}"
+ exit 1
+fi
+
+# INTERACTIVE FZF SNAP SELECTION
+echo -e "${CYAN}[*]${RESET} Loading installed snap packages into fzf..."
+
+# Use fzf to select the package.
+# --header-lines=1 keeps the snap list header fixed at the top
+# --preview runs 'snap info' on the highlighted package name (column 1)
+APP_INPUT=$(snap list | fzf \
+ --prompt="Select a Snap to Convert > " \
+ --header-lines=1 \
+ --layout=reverse \
+ --border \
+ --preview='snap info {1}' \
+ --preview-window=right:60%:wrap |
+ awk '{print $1}')
+
+if [ -z "$APP_INPUT" ]; then
+ echo -e "\n${YELLOW}Operation cancelled by user.${RESET}"
+ exit 0
+fi
+
+APP="$APP_INPUT"
+APPNAME="$(echo "$APP" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+
+echo -e "\n[${WHITE}i${RESET}] Selected: ${BOLD}${GREEN}$APP${RESET}"
+echo -ne "Verifying '${BOLD}$APP${RESET}' availability in the public Snap store... "
+
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H 'Snap-Device-Series: 16' "https://api.snapcraft.io/v2/snaps/info/$APP")
+
+if [ "$HTTP_STATUS" -eq 200 ]; then
+ echo -e "\n[${GREEN}✔${RESET}] Found!\n"
+else
+ echo -e "[${RED}✗${RESET}] Not found in public API"
+ echo -e "${YELLOW}This package might be installed locally from a file or is a private snap. Cannot download.${RESET}"
+ exit 1
+fi
+
+# TEMPORARY DIRECTORY
+mkdir -p tmp
+cd ./tmp || exit 1
+
+# Clean up previous snaps and extracts to avoid conflicts
+rm -f ./*.snap
+rm -Rf ./squashfs-root ./"$APP".AppDir
+
+# WGET VERSION USAGE
+_wget_version_usage() {
+ if wget --version | head -1 | grep -q ' 1.'; then
+  wget -q --show-progress "$@"
+ else
+  wget "$@"
+ fi
+}
+
+# DOWNLOAD APPIMAGETOOL
+if ! test -f ./appimagetool; then
+ echo -e "${WHITE}[i]${RESET} Downloading appimagetool..."
+ _wget_version_usage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+ chmod a+x ./appimagetool
+ echo ""
+fi
+
+# DOWNLOAD THE SNAP PACKAGE
+echo -e "${WHITE}[i]${RESET} Downloading ${BOLD}$APP${RESET} snap package..."
+_wget_version_usage "$(curl -H 'Snap-Device-Series: 16' http://api.snapcraft.io/v2/snaps/info/"$APP" --silent | sed 's/[()",{} ]/\n/g' | grep "^http" | head -1)"
+echo ""
+
+# EXTRACT THE SNAP PACKAGE
+if ! test -d ./squashfs-root; then
+ execute_with_spinner "Extracting snap package" unsquashfs -f ./*.snap
+fi
+
+# FIND PACKAGE VERSION
+VERSION=$(grep "^version:" ./squashfs-root/meta/snap.yaml 2>/dev/null | head -1 | awk '{print $2}' | sed 's/"//g; s/'\''//g')
+if [ -z "$VERSION" ]; then
+ VERSION="unknown"
+fi
+echo -e "${WHITE}[i]${RESET} Detected version: ${BOLD}$VERSION${RESET}"
+
+# CREATE THE APPDIR
+execute_with_spinner "Preparing AppDir structure" bash -c "
+mkdir -p '$APP.AppDir' && \
+rm -Rf './$APP.AppDir/*' && \
+DESKTOP_FILE=\$(find ./squashfs-root -name '*.desktop' | head -1) && \
+if [ -n \"\$DESKTOP_FILE\" ]; then
+    cp -r \"\$DESKTOP_FILE\" \"./$APP.AppDir/\"
+    sed -i 's/^Icon=.*/Icon=$APP/g' \"./$APP.AppDir/\"*.desktop
+fi && \
+cp -r \$(find ./squashfs-root -name '*.png' | grep -i '$APP' | sort -r | head -1) './$APP.AppDir/$APP.png' 2>/dev/null || true && \
+cp -r \$(find ./squashfs-root -name '*.svg' | grep -i '$APP' | sort -r | head -1) './$APP.AppDir/$APP.svg' 2>/dev/null || true && \
+if test -d ./squashfs-root/etc; then cp -r ./squashfs-root/etc \"./$APP.AppDir/\"; fi && \
+if test -d ./squashfs-root/lib; then cp -r ./squashfs-root/lib* \"./$APP.AppDir/\"; fi && \
+if test -d ./squashfs-root/usr; then cp -r ./squashfs-root/usr \"./$APP.AppDir/\"; fi
+"
+
+# APPRUN
+cat >>./"$APP".AppDir/AppRun <<'EOF'
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "${0}")")"
+export UNION_PRELOAD=/:"${HERE}"
+export LD_LIBRARY_PATH="${HERE}"/usr/lib/:"${HERE}"/usr/lib/i386-linux-gnu/:"${HERE}"/usr/lib/x86_64-linux-gnu/:"${HERE}"/lib/:"${HERE}"/lib/i386-linux-gnu/:"${HERE}"/lib/x86_64-linux-gnu/:"${LD_LIBRARY_PATH}"
+export PATH="${HERE}"/usr/bin/:"${HERE}"/usr/sbin/:"${HERE}"/usr/games/:"${HERE}"/bin/:"${HERE}"/sbin/:"${PATH}"
+export PYTHONPATH="${HERE}"/usr/share/pyshared/:"${HERE}"/usr/lib/python*/:"${PYTHONPATH}"
+export PYTHONHOME="${HERE}"/usr/:"${HERE}"/usr/lib/python*/
+export XDG_DATA_DIRS="${HERE}"/usr/share/:"${XDG_DATA_DIRS}"
+export PERLLIB="${HERE}"/usr/share/perl5/:"${HERE}"/usr/lib/perl5/:"${PERLLIB}"
+export GSETTINGS_SCHEMA_DIR="${HERE}"/usr/share/glib-2.0/schemas/:"${GSETTINGS_SCHEMA_DIR}"
+export QT_PLUGIN_PATH="${HERE}"/usr/lib/qt4/plugins/:"${HERE}"/usr/lib/i386-linux-gnu/qt4/plugins/:"${HERE}"/usr/lib/x86_64-linux-gnu/qt4/plugins/:"${HERE}"/usr/lib32/qt4/plugins/:"${HERE}"/usr/lib64/qt4/plugins/:"${HERE}"/usr/lib/qt5/plugins/:"${HERE}"/usr/lib/i386-linux-gnu/qt5/plugins/:"${HERE}"/usr/lib/x86_64-linux-gnu/qt5/plugins/:"${HERE}"/usr/lib32/qt5/plugins/:"${HERE}"/usr/lib64/qt5/plugins/:"${QT_PLUGIN_PATH}"
+EXEC=$(grep -e '^Exec=.*' "${HERE}"/*.desktop | head -n 1 | cut -d "=" -f 2- | sed -e 's|%.||g')
+exec ${EXEC} "$@"
+EOF
+chmod a+x ./"$APP".AppDir/AppRun
+
+# CONVERT THE APPDIR INTO AN APPIMAGE
+execute_with_spinner "Compiling AppImage" env ARCH=x86_64 ./appimagetool --comp zstd --mksquashfs-opt -Xcompression-level --mksquashfs-opt 20 ./"$APP".AppDir
+
+cd ..
+mv ./tmp/*.AppImage ./"$APPNAME"-"$VERSION"-x86_64.AppImage
+echo -e "\n${BOLD}[${GREEN}✔${RESET}] Success! Saved as ${BOLD}${BLUE}$APPNAME-$VERSION-x86_64.AppImage${RESET}\n"
+echo
