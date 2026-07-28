@@ -1,19 +1,17 @@
 #!/bin/bash
 
-echo "Installing krew"
-install-krew
-kubectl krew install neat
-echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+KREW_INSTALL=1
+
+if ! ((KREW_INSTALL)); then
+ echo "Installing krew"
+ install-krew
+ kubectl krew install neat
+ echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"' >>~/.bashrc
+ source ~/.bashrc
+fi
 
 echo "Gathering argocd resources..."
-RESOURCES=$(kubectl api-resources --namespaced=true --verbs=list -o name | grep -E -v 'applications.argoproj.io|events|endpoints|pods|replicasets' | paste -sd, -)
+RESOURCES=$(kubectl api-resources --namespaced=true --verbs=list -o name | grep -E -v 'applications.argoproj.io|events|endpoints|pods|replicasets|controllerrevisions|leases' | paste -sd, -)
 
 echo "Dumping argocd resources to file..."
-kubectl get $RESOURCES -n argocd -o yaml > argocd-raw.yaml
-
-echo "Minimizing argocd export..."
-kubectl neat -f argocd-raw.yaml > argocd-export.yaml
-
-echo "Cleaning up raw export..."
-rm argocd-raw.yaml
+kubectl get $RESOURCES -n argocd -o yaml | kubectl neat | yq -y '.items[]' > ../argocd-management/argocd-export.yaml
