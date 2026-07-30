@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "blender.fullname" . }}-blender
+  labels:
+  {{- include "blender.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.blender.type }}
+  selector:
+    app: blender
+    {{- include "blender.selectorLabels" . | nindent 4 }}
+  ports:
+  {{- .Values.blender.ports | toYaml | nindent 2 }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "blender.fullname" . }}-blender
+  labels:
+  {{- include "blender.labels" . | nindent 4 }}
+spec:
+  hostnames:
+  - blender.xxx.local
+  parentRefs:
+  - name: traefik-gateway
+    namespace: traefik
+  rules:
+  - backendRefs:
+    - name: blender
+      port: 3000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /

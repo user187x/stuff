@@ -1,0 +1,24 @@
+blender:
+  blender:
+    env:
+      pgid: "1000"
+      pixelfluxWayland: "true"
+      puid: "1000"
+      tz: Etc/UTC
+    image:
+      repository: lscr.io/linuxserver/blender
+      tag: latest
+    imagePullPolicy: IfNotPresent
+  nodeSelector: {}
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+  replicas: 1
+  tolerations: []
+  topologySpreadConstraints: []
+  type: ClusterIP
+kubernetesClusterDomain: cluster.local
+pvc:
+  config:
+    storageRequest: 5Gi

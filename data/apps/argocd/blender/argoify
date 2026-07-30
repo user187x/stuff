@@ -1,0 +1,109 @@
+#!/bin/bash
+
+# fail & bail
+set -euo pipefail
+
+# --- Configuration Variables ---
+CHART_PATH="blender"
+CHART_NAME="blender"
+NAMESPACE="blender"
+CLUSTER="https://kubernetes.default.svc"
+ARGOCD_SERVER="argocd.xxx.local"
+ARGOCD_USER="admin"
+
+# Global state variables populated at runtime
+HOST_IP=""
+STUB_REPO=""
+
+cleanup() {
+ echo "=> Cleaning up generated artifacts and processes..."
+ pkill git-daemon || true
+ rm -rf .git
+ rm -rf "${CHART_PATH}"
+ echo "=> Cleanup complete."
+}
+
+authenticate_argocd() {
+ echo "=> Checking ArgoCD authentication..."
+ if ! argocd account get --server "${ARGOCD_SERVER}" --grpc-web &>/dev/null; then
+  echo "=> Fetching ArgoCD admin password from cluster secret..."
+  local argocd_pass
+  argocd_pass=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode)
+
+  echo "=> Authenticating with ArgoCD server..."
+  argocd login "${ARGOCD_SERVER}" \
+   --username "${ARGOCD_USER}" \
+   --password "${argocd_pass}" \
+   --insecure \
+   --grpc-web
+ else
+  echo "=> Already authenticated."
+ fi
+}
+
+generate_helm_chart() {
+ echo "=> Generating Helm chart from manifest.yaml..."
+ cat manifest.yaml | helmify "${CHART_PATH}"
+}
+
+setup_local_git() {
+ echo "=> Setting up local Git tracking..."
+ if [ ! -d ".git" ]; then
+  git init
+  git branch -m main
+ fi
+
+ git add .
+ git commit -m "Auto-commit for local ArgoCD sync" || true
+}
+
+start_git_daemon() {
+ echo "=> Starting git daemon..."
+ # Ensure no lingering daemons are holding port 9418
+ pkill git-daemon || true
+ git daemon --base-path=. --export-all --reuseaddr --detach
+}
+
+configure_networking() {
+ HOST_IP=$(hostname -I | awk '{print $1}')
+ STUB_REPO="git://${HOST_IP}/"
+
+ echo "=> Detected Host IP: ${HOST_IP}"
+ echo "=> Spoofed Repo URL: ${STUB_REPO}"
+}
+
+deploy_argocd_app() {
+ echo "=> Imperatively creating ArgoCD application..."
+ argocd app create "${CHART_NAME}" \
+  --repo "${STUB_REPO}" \
+  --path "${CHART_PATH}" \
+  --revision "main" \
+  --dest-server "${CLUSTER}" \
+  --dest-namespace "${NAMESPACE}" \
+  --sync-option CreateNamespace=true \
+  --upsert \
+  --grpc-web \
+  --validate=false
+
+ echo "=> Triggering immediate ArgoCD sync..."
+ if argocd app sync "${CHART_NAME}" --server "${ARGOCD_SERVER}" --grpc-web; then
+  echo "=> Zero-to-hero deployment complete!"
+ else
+  echo "=> Sync failed. Check ArgoCD logs."
+  exit 1
+ fi
+}
+
+main() {
+ # Register the cleanup trap immediately
+ trap cleanup EXIT
+
+ authenticate_argocd
+ generate_helm_chart
+ setup_local_git
+ start_git_daemon
+ configure_networking
+ deploy_argocd_app
+}
+
+main "$@"

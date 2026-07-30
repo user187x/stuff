@@ -1,0 +1,94 @@
+#!/bin/bash
+# Stop execution if any command fails
+set -e
+
+echo "============================================================"
+echo "   Pinta Webtop Airgap Builder - Interactive Wizard"
+echo "============================================================"
+echo "This script will create a custom Docker image with Pinta"
+echo "installed and package it for an offline (airgapped) system."
+echo ""
+echo "⚠️  REQUIREMENT: This machine MUST have an internet connection."
+echo "============================================================"
+read -p "Press [Enter] to begin the setup or [Ctrl+C] to cancel..."
+
+# Define variables
+WORKSPACE_DIR="pinta-webtop-project"
+SUPPORT_DIR="$WORKSPACE_DIR/support"
+BASE_IMAGE="lscr.io/linuxserver/webtop:ubuntu-xfce"
+FINAL_IMAGE="my-pinta-webtop"
+
+echo ""
+echo "-> Creating workspace and configuration files..."
+mkdir -p "$SUPPORT_DIR"
+
+cat <<'EOF' >"$WORKSPACE_DIR/Dockerfile"
+FROM lscr.io/linuxserver/webtop:ubuntu-xfce
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y pinta && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY autostart /root/defaults/autostart
+RUN chmod +x /root/defaults/autostart
+EOF
+
+cat <<'EOF' >"$WORKSPACE_DIR/autostart"
+pinta
+EOF
+
+sleep 1
+
+echo ""
+echo "-> Downloading the base Ubuntu Webtop image from Docker Hub."
+echo "-> This will take a moment depending on your connection."
+read -p "Press [Enter] to start the download..."
+docker pull "$BASE_IMAGE"
+
+echo ""
+echo "-> Saving the base image for offline use..."
+docker save -o "$SUPPORT_DIR/webtop-ubuntu-xfce.tar" "$BASE_IMAGE"
+
+echo ""
+echo "-> Now building the custom Pinta image."
+echo "-> (This uses the internet to install Pinta inside the image)."
+read -p "Press [Enter] to start the build..."
+cd "$WORKSPACE_DIR"
+docker build -t "$FINAL_IMAGE" .
+
+echo ""
+echo "-> Saving the final custom Pinta image to the support folder..."
+docker save -o "support/my-pinta-webtop.tar" "$FINAL_IMAGE"
+
+echo ""
+echo "-> Generating an automated install script for your airgapped machine..."
+# We create a script inside the workspace so the user doesn't have to remember commands
+cat <<'EOF' >"load-on-airgap.sh"
+#!/bin/bash
+set -e
+echo "Loading base image into Docker..."
+docker load -i support/webtop-ubuntu-xfce.tar
+
+echo "Loading custom Pinta image into Docker..."
+docker load -i support/my-pinta-webtop.tar
+
+echo "============================================================"
+echo "✅ Images loaded successfully!"
+echo "You can now start the container using your run command."
+echo "============================================================"
+EOF
+chmod +x "load-on-airgap.sh"
+# Move back to original directory
+cd ..
+
+echo ""
+echo "============================================================"
+echo "✅ SUCCESS! Your project is packaged and ready for transfer."
+echo "============================================================"
+echo "Follow these exact steps for your airgapped machine:"
+echo ""
+echo "1. Copy the entire '$WORKSPACE_DIR' folder to a USB drive."
+echo "2. Transfer the folder to your offline machine."
+echo "3. Open a terminal, navigate into the folder, and execute:"
+echo "   ./load-on-airgap.sh"
+echo "============================================================"

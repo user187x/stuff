@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "blender.fullname" . }}
+  labels:
+    app: blender
+  {{- include "blender.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.blender.replicas }}
+  selector:
+    matchLabels:
+      app: blender
+    {{- include "blender.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: blender
+      {{- include "blender.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - env:
+        - name: PUID
+          value: {{ quote .Values.blender.blender.env.puid }}
+        - name: PGID
+          value: {{ quote .Values.blender.blender.env.pgid }}
+        - name: TZ
+          value: {{ quote .Values.blender.blender.env.tz }}
+        - name: PIXELFLUX_WAYLAND
+          value: {{ quote .Values.blender.blender.env.pixelfluxWayland }}
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.blender.blender.image.repository }}:{{ .Values.blender.blender.image.tag
+          | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.blender.blender.imagePullPolicy }}
+        name: blender
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 3001
+          name: https
+        resources: {}
+        volumeMounts:
+        - mountPath: /config
+          name: config
+        - mountPath: /dev/shm
+          name: dshm
+      nodeSelector: {{- toYaml .Values.blender.nodeSelector | nindent 8 }}
+      serviceAccountName: {{ include "blender.serviceAccountName" . }}
+      tolerations: {{- toYaml .Values.blender.tolerations | nindent 8 }}
+      topologySpreadConstraints: {{- toYaml .Values.blender.topologySpreadConstraints |
+        nindent 8 }}
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: {{ include "blender.fullname" . }}-config
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+        name: dshm
