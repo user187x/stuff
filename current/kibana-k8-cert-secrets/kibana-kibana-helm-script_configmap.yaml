@@ -1,6 +1,0 @@
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kibana-kibana-helm-scripts
-  namespace: kibana

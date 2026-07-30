@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Uncomment to show list of running vms
+#VBoxManage list runningvms
+
+readarray -t vms < <(VBoxManage list runningvms)
+
+echo
+for vm in "${vms[@]}"; do
+  # 1. Corrected the command substitution syntax using $(...)
+  # 2. Used cut -d '"' -f 2 to perfectly extract whatever is inside the quotes, 
+  #    which handles VM names with spaces perfectly.
+  vm_name=$(echo "$vm" | cut -d '"' -f 2)
+  
+  echo "Checking VM: $vm_name"
+  
+  # Fetch the IP address
+  VBoxManage guestproperty get "$vm_name" "/VirtualBox/GuestInfo/Net/0/V4/IP"
+  echo "----------------------------------------"
+done
+
+#ping -c 3 192.168.56.110

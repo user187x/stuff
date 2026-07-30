@@ -1,0 +1,9 @@
+dependencies:
+- name: cloudnative-pg
+  repository: https://cloudnative-pg.github.io/charts
+  version: 0.28.0
+- name: coder
+  repository: https://helm.coder.com/v2
+  version: 2.29.5
+digest: sha256:b9469567a7311b084f1f11a370472c13aa521308919616d84d3261223b45a9f4
+generated: "2026-05-09T02:06:54.540975673-04:00"

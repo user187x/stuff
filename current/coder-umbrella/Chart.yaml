@@ -1,0 +1,28 @@
+apiVersion: v2
+name: coder-umbrella
+description: |
+  Umbrella Helm chart that bundles Coder + CloudNativePG so ArgoCD can manage
+  the entire Coder control plane (operator, Postgres cluster, Coder server)
+  as a single Application — no Bitnami dependency.
+type: application
+
+# Version of THIS umbrella chart. Bump on any change here.
+version: 0.2.0
+
+# appVersion tracks the Coder release we deploy by default.
+appVersion: "2.29.5"
+
+dependencies:
+  # CloudNativePG operator. Installs CRDs (Cluster, Backup, ScheduledBackup, etc.)
+  # plus the controller. Defaults to cluster-wide; flip config.clusterWide=false
+  # in values.yaml if you want a namespace-scoped operator.
+  - name: cloudnative-pg
+    version: "0.28.0"
+    repository: "https://cloudnative-pg.github.io/charts"
+    condition: cloudnative-pg.enabled
+
+  # Coder control plane.
+  - name: coder
+    version: "2.29.5"
+    repository: "https://helm.coder.com/v2"
+    condition: coder.enabled

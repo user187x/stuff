@@ -1,0 +1,53 @@
+stages:
+  - lint
+  - build
+  - publish
+
+variables:
+  # The directory containing the Chart.yaml
+  CHART_DIR: "coder-umbrella"
+
+# 1. Lint the Helm Chart
+lint-chart:
+  stage: lint
+  image: alpine/helm:3.14.0
+  script:
+    - helm lint ${CHART_DIR}
+  rules:
+    - changes:
+        - ${CHART_DIR}/**/*
+
+# 2. Package the Helm Chart
+package-chart:
+  stage: build
+  image: alpine/helm:3.14.0
+  script:
+    - cd ${CHART_DIR}
+    # Fetch dependencies (cloudnative-pg and coder) defined in Chart.yaml
+    - helm dependency update .
+    # Build the package (creates coder-umbrella-<version>.tgz)
+    - helm package .
+  artifacts:
+    paths:
+      # Expose the packaged chart as a downloadable pipeline artifact
+      - ${CHART_DIR}/*.tgz
+    expire_in: 1 week
+  rules:
+    - changes:
+        - ${CHART_DIR}/**/*
+
+# 3. Publish to GitLab's Helm Package Registry (Optional)
+publish-chart:
+  stage: publish
+  image: curlimages/curl:latest
+  needs:
+    - package-chart
+  script:
+    # Find the packaged .tgz file
+    - CHART_FILE=$(ls ${CHART_DIR}/coder-umbrella-*.tgz)
+    - echo "Publishing ${CHART_FILE} to GitLab Package Registry..."
+    # Upload to the project's Helm package registry using the CI job token
+    - 'curl --request POST --user gitlab-ci-token:$CI_JOB_TOKEN --form "chart=@${CHART_FILE}" "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/api/stable/charts"'
+  rules:
+    # Only publish when merging/pushing to the main/default branch
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+# gmaps-export.sh
+# Export every saved place from every Google Maps list for the logged-in user.
+#
+# Why this exists: Google Takeout's "Saved" archive is incomplete. Custom lists
+# and the places inside them are routinely missing, truncated, or shipped as
+# bare URLs with no metadata. This script talks directly to the same internal
+# endpoints the Maps web UI uses, so you get whatever the UI can see.
+#
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+#  1. Log into Google in a browser.
+#  2. Export cookies for google.com to a Netscape-format file (cookies.txt).
+#     Any "cookies.txt" browser extension works. Save it next to this script.
+#  3. (Optional) If Google has rotated the `pb=` shape, open Maps → one of
+#     your lists → DevTools Network tab → filter "preview" → reload the list →
+#     right-click the `list_features` request → Copy as cURL. Replace the URL
+#     templates near the top of this file with whatever you captured. The
+#     auth/pagination/parsing logic below stays the same.
+#  4. chmod +x gmaps-export.sh && ./gmaps-export.sh
+#
+# Output:
+#   ./gmaps_export/lists.json             - manifest of every list
+#   ./gmaps_export/list_<id>.json         - raw response per list
+#   ./gmaps_export/list_<id>_places.tsv   - flattened: name, address, lat, lng, place_id, url
+#   ./gmaps_export/all_places.tsv         - everything concatenated
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+
+# === Config (env-overridable) ================================================
+COOKIE_FILE="${COOKIE_FILE:-./cookies.txt}"
+OUTPUT_DIR="${OUTPUT_DIR:-./gmaps_export}"
+AUTHUSER="${AUTHUSER:-0}"             # 0 = primary Google account; bump if you're multi-login
+HL="${HL:-en}"                        # UI language
+GL="${GL:-us}"                        # geo region
+PAGE_SIZE="${PAGE_SIZE:-100}"         # items per page when fetching list contents
+SLEEP_BETWEEN="${SLEEP_BETWEEN:-0.4}" # seconds; be polite, avoid rate limits
+
+ORIGIN="https://www.google.com"
+UA="${UA:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36}"
+
+# === URL templates ===========================================================
+# These are the two endpoints we hit. Both return the )]}'-prefixed nested-array
+# format. The `pb` parameter is Google's protobuf-text encoding; the bits that
+# matter for us are the list ID and the pagination offset/limit, which we
+# substitute via printf below.
+#
+# If Maps has rotated the schema, paste the working URL from DevTools here.
+# Use {LIST_ID}, {OFFSET}, {LIMIT} as placeholders.
+
+URL_LIST_LISTS="${URL_LIST_LISTS:-https://www.google.com/maps/preview/userdata/list_lists?authuser=${AUTHUSER}&hl=${HL}&gl=${GL}&pb=!1m1!1e1!2m1!1s!3m1!1e1}"
+
+URL_LIST_FEATURES="${URL_LIST_FEATURES:-https://www.google.com/maps/preview/entitylist?authuser=${AUTHUSER}&hl=${HL}&gl=${GL}&pb=!1m4!1s{LIST_ID}!4e1!7e81!9s{OFFSET}!2e{LIMIT}}"
+
+# === Sanity checks ===========================================================
+need() { command -v "$1" >/dev/null 2>&1 || {
+ echo "Missing required tool: $1" >&2
+ exit 1
+}; }
+need curl
+need sha1sum
+need awk
+need jq      # jq isn't strictly required for auth, but it's how we sanely walk the response trees
+need python3 # one tiny json-array walker is much cleaner in python than bash
+
+[ -f "$COOKIE_FILE" ] || {
+ echo "Cookie file not found: $COOKIE_FILE" >&2
+ exit 1
+}
+mkdir -p "$OUTPUT_DIR"
+
+# === Cookie + auth helpers ===================================================
+# Extract a cookie value from a Netscape cookie jar.
+# Field 6 is the name, field 7 is the value (tab-separated).
+get_cookie() {
+ local name="$1"
+ awk -v name="$name" 'BEGIN{FS="\t"} $0 !~ /^#/ && $6 == name { v=$7 } END{ print v }' "$COOKIE_FILE"
+}
+
+# Build the SAPISIDHASH Authorization header value.
+# Formula (this is the same one the Maps frontend uses):
+#   ts = current unix seconds
+#   hash = sha1( ts + " " + SAPISID + " " + ORIGIN )
+#   header = "SAPISIDHASH ts_hash"
+# Google accepts either the SAPISID cookie (1P) or __Secure-3PAPISID (3P).
+sapisid_hash() {
+ local sapisid ts h
+ sapisid="$(get_cookie SAPISID)"
+ if [ -z "$sapisid" ]; then
+  sapisid="$(get_cookie __Secure-3PAPISID)"
+ fi
+ if [ -z "$sapisid" ]; then
+  echo "Could not find SAPISID or __Secure-3PAPISID cookie. Are you logged in and is the cookie file current?" >&2
+  exit 1
+ fi
+ ts="$(date +%s)"
+ h="$(printf '%s %s %s' "$ts" "$sapisid" "$ORIGIN" | sha1sum | awk '{print $1}')"
+ printf 'SAPISIDHASH %s_%s' "$ts" "$h"
+}
+
+# Authenticated GET. Retries on transient failures.
+gmaps_get() {
+ local url="$1" tries=0 max=4 body http
+ while :; do
+  tries=$((tries + 1))
+  body="$(mktemp)"
+  http="$(curl -sS --compressed -o "$body" -w '%{http_code}' \
+   -b "$COOKIE_FILE" \
+   -H "Authorization: $(sapisid_hash)" \
+   -H "x-goog-authuser: ${AUTHUSER}" \
+   -H "Origin: ${ORIGIN}" \
+   -H "Referer: ${ORIGIN}/maps" \
+   -H "User-Agent: ${UA}" \
+   -H "Accept: */*" \
+   -H "Accept-Language: en-US,en;q=0.9" \
+   "$url" || echo "000")"
+  if [ "$http" = "200" ]; then
+   cat "$body"
+   rm -f "$body"
+   return 0
+  fi
+  rm -f "$body"
+  if [ "$tries" -ge "$max" ]; then
+   echo "Request failed (HTTP $http) after $tries tries: $url" >&2
+   return 1
+  fi
+  sleep "$((tries * 2))"
+ done
+}
+
+# Strip the )]}' XSSI prefix and any surrounding whitespace, leaving raw JSON.
+strip_xssi() {
+ # The prefix is exactly  )]}'  on its own line, sometimes followed by a
+ # blank line, then the JSON array.
+ sed -e "s/^)\]\}'//" -e '/^$/d'
+}
+
+# === Walking Google's anonymous-array responses ==============================
+# Both endpoints return deeply nested arrays (no field names). We don't try to
+# decode the entire schema -- we just hunt for the two things we care about:
+#   - list metadata: an entry that looks like [list_id_string, name_string, ...]
+#   - place entries: items containing a place_id (hex-y string) and a name.
+#
+# This is the part most likely to need tweaking if Google reshuffles the
+# response. The Python below is intentionally defensive: it walks the whole
+# tree and pattern-matches rather than indexing fixed paths.
+
+python_walker() {
+ python3 - "$@" <<'PY'
+import json, sys, re
+
+mode = sys.argv[1]   # "lists" or "features"
+data = json.load(sys.stdin)
+
+# Heuristics:
+# - A Google Maps list ID looks like a long base64-ish or hex-ish opaque string.
+# - A place ID typically starts with "ChIJ" or is a hex feature ID like
+#   "0x89c25..." paired with a numeric CID.
+LIST_ID_RE  = re.compile(r'^[A-Za-z0-9_\-]{16,}$')
+PLACE_ID_RE = re.compile(r'^ChIJ[A-Za-z0-9_\-]{10,}$')
+
+def walk(node, path=()):
+    if isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from walk(v, path + (i,))
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            yield from walk(v, path + (k,))
+    else:
+        yield path, node
+
+def find_lists(root):
+    """Return [{id, name, item_count?}] by scanning sibling fields of any
+    string that looks like a list ID."""
+    out, seen = [], set()
+    def rec(node):
+        if isinstance(node, list):
+            # If this array contains a plausible list-id followed by a
+            # human-ish string, treat it as a list record.
+            strs = [x for x in node if isinstance(x, str)]
+            ids  = [x for x in strs if LIST_ID_RE.match(x) and len(x) >= 22]
+            names= [x for x in strs if not LIST_ID_RE.match(x) and 1 <= len(x) <= 200]
+            if ids and names:
+                lid = ids[0]
+                if lid not in seen:
+                    seen.add(lid)
+                    # pick the first plausible name (skip ones that look like URLs/timestamps)
+                    name = next((n for n in names
+                                 if not n.startswith(('http','/','@'))
+                                 and not n.isdigit()), names[0])
+                    out.append({"id": lid, "name": name})
+            for v in node: rec(v)
+        elif isinstance(node, dict):
+            for v in node.values(): rec(v)
+    rec(root)
+    return out
+
+def find_places(root):
+    """Return [{name, address, lat, lng, place_id, url}] for each place node."""
+    out, seen = [], set()
+    def rec(node):
+        if isinstance(node, list):
+            # Look for sub-arrays that contain a place_id-shaped string.
+            strs = [x for x in node if isinstance(x, str)]
+            pids = [x for x in strs if PLACE_ID_RE.match(x)]
+            if pids:
+                pid = pids[0]
+                if pid not in seen:
+                    seen.add(pid)
+                    # Try to extract name (first short non-URL string),
+                    # address (longer string with a comma), lat/lng (floats).
+                    floats = [x for x in walk(node) if isinstance(x[1], float)]
+                    coords = [v for _,v in floats if -180 <= v <= 180]
+                    lat = lng = None
+                    # Heuristic: the first lat/lng pair where lat is in [-90,90]
+                    for i in range(len(coords)-1):
+                        a, b = coords[i], coords[i+1]
+                        if -90 <= a <= 90 and -180 <= b <= 180:
+                            lat, lng = a, b
+                            break
+                    short = [s for s in strs if 1 <= len(s) <= 80
+                             and not s.startswith(('http','/','@','0x'))
+                             and not LIST_ID_RE.match(s)
+                             and s != pid]
+                    addr  = next((s for s in strs if ',' in s and 5 < len(s) < 250
+                                   and not s.startswith('http')), '')
+                    name  = next((s for s in short if s != addr), '')
+                    url   = next((s for s in strs if s.startswith('http')), '')
+                    out.append({
+                        "name": name, "address": addr,
+                        "lat": lat, "lng": lng,
+                        "place_id": pid, "url": url,
+                    })
+            for v in node: rec(v)
+        elif isinstance(node, dict):
+            for v in node.values(): rec(v)
+    rec(root)
+    return out
+
+if mode == "lists":
+    json.dump(find_lists(data), sys.stdout)
+elif mode == "features":
+    json.dump(find_places(data), sys.stdout)
+else:
+    print("unknown mode", file=sys.stderr); sys.exit(2)
+PY
+}
+
+# === Pipelines ===============================================================
+fetch_lists_json() {
+ gmaps_get "$URL_LIST_LISTS" | strip_xssi
+}
+
+fetch_list_features_page() {
+ local list_id="$1" offset="$2" limit="$3" url
+ url="${URL_LIST_FEATURES//\{LIST_ID\}/$list_id}"
+ url="${url//\{OFFSET\}/$offset}"
+ url="${url//\{LIMIT\}/$limit}"
+ gmaps_get "$url" | strip_xssi
+}
+
+# === Main ====================================================================
+echo ">> Fetching list manifest..."
+manifest_raw="$OUTPUT_DIR/lists.raw.json"
+fetch_lists_json >"$manifest_raw"
+
+# Parse out [{id,name}, ...]
+python_walker lists <"$manifest_raw" >"$OUTPUT_DIR/lists.json"
+
+count="$(jq 'length' "$OUTPUT_DIR/lists.json")"
+echo ">> Found $count list(s)."
+if [ "$count" -eq 0 ]; then
+ echo "No lists detected. The response is in $manifest_raw -- if it looks valid," >&2
+ echo "Google may have changed the response shape; tweak the python walker." >&2
+ exit 1
+fi
+
+# Truncate aggregate output
+: >"$OUTPUT_DIR/all_places.tsv"
+printf 'list_name\tlist_id\tname\taddress\tlat\tlng\tplace_id\turl\n' >"$OUTPUT_DIR/all_places.tsv"
+
+# Iterate every list
+jq -c '.[]' "$OUTPUT_DIR/lists.json" | while read -r row; do
+ lid="$(jq -r '.id' <<<"$row")"
+ lname="$(jq -r '.name' <<<"$row")"
+ safe="$(printf '%s' "$lid" | tr -c 'A-Za-z0-9._-' '_')"
+ echo ">> List '$lname' ($lid)"
+
+ raw_all="$OUTPUT_DIR/list_${safe}.raw.json"
+ : >"$raw_all"
+
+ offset=0
+ total_places=0
+ while :; do
+  page="$(fetch_list_features_page "$lid" "$offset" "$PAGE_SIZE")" || break
+  echo "$page" >>"$raw_all"
+  parsed="$(echo "$page" | python_walker features)"
+  n="$(jq 'length' <<<"$parsed")"
+  if [ "$n" = "0" ]; then break; fi
+
+  # Append to per-list and aggregate TSVs
+  jq -r --arg lname "$lname" --arg lid "$lid" '
+      .[] | [$lname, $lid, (.name // ""), (.address // ""),
+             (.lat // ""|tostring), (.lng // ""|tostring),
+             (.place_id // ""), (.url // "")] | @tsv
+    ' <<<"$parsed" >>"$OUTPUT_DIR/all_places.tsv"
+
+  total_places=$((total_places + n))
+  if [ "$n" -lt "$PAGE_SIZE" ]; then break; fi
+  offset=$((offset + PAGE_SIZE))
+  sleep "$SLEEP_BETWEEN"
+ done
+
+ echo "   -> $total_places place(s) saved to list_${safe}.raw.json"
+done
+
+echo
+echo "Done. Aggregate output: $OUTPUT_DIR/all_places.tsv"
+echo "Per-list raw responses: $OUTPUT_DIR/list_*.raw.json"
+echo "If a list has 0 places but you know it shouldn't, capture the request"
+echo "from DevTools and adjust URL_LIST_FEATURES at the top of this script."

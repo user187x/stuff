@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Ensure the script is run with sudo privileges for firewall changes
+if [ "$EUID" -ne 0 ]; then
+ echo "Please run this script with sudo to allow local firewall modifications."
+ exit 1
+fi
+
+echo "=================================================="
+echo "    ASUS RT-AX86U Pro Port Forwarding Helper      "
+echo "=================================================="
+
+# Prompt for the port to expose
+read -p "Enter the port number you want to expose to the internet: " EXPOSE_PORT
+
+# Detect active interface, local IP, and MAC address
+ACTIVE_IFACE=$(ip route get 1.1.1.1 | grep -Po '(?<=dev\s)\w+' | cut -f1 -d ' ')
+LOCAL_IP=$(ip -f inet addr show "$ACTIVE_IFACE" | sed -En -e 's/.*inet ([0-9.]+).*/\1/p')
+MAC_ADDR=$(ip link show "$ACTIVE_IFACE" | awk '/ether/ {print $2}')
+
+echo ""
+echo "Detected Target Machine Info:"
+echo "Interface:   $ACTIVE_IFACE"
+echo "Local IP:    $LOCAL_IP"
+echo "MAC Address: $MAC_ADDR"
+echo "Target Port: $EXPOSE_PORT"
+echo "=================================================="
+echo ""
+
+# Router Step 1: DHCP Binding
+echo "## STEP 1: Assign a Static IP on the Router"
+echo "1. Log into your ASUS router admin panel (usually http://192.168.50.1 or http://router.asus.com)."
+echo "2. On the left sidebar, navigate to 'LAN'."
+echo "3. Click on the 'DHCP Server' tab at the top."
+echo "4. Scroll down to the 'Manually Assigned IP around the DHCP list' section."
+echo "5. Toggle 'Enable Manual Assignment' to 'Yes' if it isn't already."
+echo "6. Add a new entry with the following details:"
+echo "   - MAC Address: $MAC_ADDR"
+echo "   - IP Address:  $LOCAL_IP"
+echo "7. Click the '+' or 'Add' button, then click 'Apply' at the bottom to save."
+echo ""
+read -p "Press [Enter] when task complete..."
+
+# Router Step 2: Port Forwarding
+echo ""
+echo "## STEP 2: Configure Port Forwarding"
+echo "1. On the left sidebar, navigate to 'WAN'."
+echo "2. Click on the 'Virtual Server / Port Forwarding' tab at the top."
+echo "3. Toggle 'Enable Port Forwarding' to 'ON'."
+echo "4. Click the 'Add profile' button and enter the following:"
+echo "   - Service Name:        MyUbuntuService (or your preferred name)"
+echo "   - Protocol:            TCP (or UDP, depending on your application)"
+echo "   - External Port:       $EXPOSE_PORT"
+echo "   - Internal Port:       $EXPOSE_PORT"
+echo "   - Internal IP Address: $LOCAL_IP"
+echo "5. Click 'OK', then click 'Apply'."
+echo ""
+read -p "Press [Enter] when task complete..."
+
+# Local Step 3: Firewall Configuration
+echo ""
+echo "## STEP 3: Configure Local System Firewall"
+echo "Modifying local UFW rules to allow traffic on port $EXPOSE_PORT..."
+
+#if ufw status | grep -q "Status: active"; then
+# ufw allow "$EXPOSE_PORT"/tcp
+# ufw reload
+# echo "Rule added and firewall reloaded."
+#else
+# echo "UFW is currently inactive. The rule has been added, but won't take effect until UFW is enabled."
+# ufw allow "$EXPOSE_PORT"/tcp
+#fi
+
+# Final Verification Info
+PUBLIC_IP=$(curl -s ifconfig.me)
+echo ""
+echo "=================================================="
+echo "Setup Complete!"
+echo "Your computer should now be accessible from the internet."
+echo "Your Public IP is: $PUBLIC_IP"
+echo "Test the connection from an external network at: $PUBLIC_IP:$EXPOSE_PORT"
+echo "=================================================="

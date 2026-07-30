@@ -1,0 +1,56 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "coder-umbrella.labels" . | nindent 4 }}
+  annotations:
+    # Wave 1: the operator (wave 0 by default) + CRDs must be Established
+    # before this resource can be applied. ServerSideApply in the ArgoCD
+    # Application also helps avoid races on first sync.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  instances: {{ .Values.postgres.instances }}
+
+  {{- with .Values.postgres.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.database }}
+      owner: {{ .Values.postgres.owner }}
+      # Operator generates a strong random password and stores it in the
+      # Secret "<cluster>-app" (and "<cluster>-superuser"). Override via
+      # bootstrap.initdb.secret.name if you want to supply your own.
+
+  storage:
+    size: {{ .Values.postgres.storage.size }}
+    {{- with .Values.postgres.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+
+  {{- with .Values.postgres.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- with .Values.postgres.postgresql }}
+  postgresql:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- with .Values.postgres.backup }}
+  {{- if . }}
+  backup:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.postgres.monitoring.enabled }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+{{- end }}
