@@ -1,0 +1,32 @@
+#!/bin/bash
+
+function fetch-linuxServer-containers {
+
+ echo "=> Extracting LinuxServer KasmVNC base image for air-gapped export..."
+
+ local export_dir="airgap-images"
+ mkdir -p "${export_dir}"
+
+ # The LinuxServer KasmVNC base image is designed specifically as a foundation
+ # for building custom GUI apps accessible via a web browser.
+ local img="lscr.io/linuxserver/baseimage-kasmvnc:ubuntu"
+
+ if [ -z "${img}" ]; then
+  echo "=> No image specified."
+  return
+ fi
+
+ echo "=> Pulling image: ${img}"
+ docker pull "${img}"
+
+ # Create a safe filename by replacing slashes and colons with underscores
+ local safe_name
+ safe_name=$(echo "${img}" | tr '/:' '_')
+
+ echo "=> Saving ${img} to ${export_dir}/${safe_name}.tar"
+ docker save "${img}" -o "${export_dir}/${safe_name}.tar"
+
+ echo "=> Air-gap image export complete. Archives saved in ./${export_dir}/"
+}
+
+fetch-linuxServer-containers "$@"

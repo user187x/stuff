@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: excalidraw
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/quenchworks/charts
+    targetRevision: 0.0.6
+    chart: excalidraw
+    helm:
+      values: |
+        fullnameOverride: "excalidraw"
+        service:
+          type: ClusterIP
+          port: 80
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: excalidraw
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

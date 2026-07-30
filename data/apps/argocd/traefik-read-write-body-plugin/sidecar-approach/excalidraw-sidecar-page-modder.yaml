@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: excalidraw
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: excalidraw-css-modder
+  namespace: excalidraw
+data:
+  custom.css: |
+    /* Permanently hide Excalidraw's dynamic help button */
+    button.help-icon {
+      display: none !important;
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: excalidraw
+  template:
+    metadata:
+      labels:
+        app: excalidraw
+    spec:
+      volumes:
+        - name: css-modder-vol
+          configMap:
+            name: excalidraw-css-modder
+      containers:
+        - name: excalidraw
+          image: excalidraw/excalidraw:latest
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: css-modder-vol
+              mountPath: /usr/share/nginx/html/custom.css
+              subPath: custom.css
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - "/bin/sh"
+                  - "-c"
+                  - |
+                    if ! grep -q "custom.css" /usr/share/nginx/html/index.html; then
+                      sed -i 's|</head>|<link rel="stylesheet" href="./custom.css"></head>|' /usr/share/nginx/html/index.html
+                    fi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: excalidraw-service
+  namespace: excalidraw
+spec:
+  selector:
+    app: excalidraw
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: excalidraw-route
+  namespace: excalidraw
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: traefik-gateway
+  hostnames:
+    - "excalidraw.xxx.local"
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: excalidraw-exalidraw
+          port: 80

@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: excalidraw-route
+  namespace: excalidraw
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - "excalidraw.xxx.local"
+  rules:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: modify-page
+      backendRefs:
+        - name: excalidraw-excalidraw
+          port: 80

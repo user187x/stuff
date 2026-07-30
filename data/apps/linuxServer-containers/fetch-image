@@ -1,0 +1,36 @@
+#!/bin/bash
+
+function fetch-images {
+
+ echo "=> Extracting container images for air-gapped export..."
+
+ # Create a directory to store the tarballs
+ local export_dir="airgap-images"
+ mkdir -p "${export_dir}"
+
+ # Parse manifest.yaml for 'image:' definitions, strip quotes, and get unique entries
+ local images
+ images=$(grep -Eo 'image:\s*.*' manifest.yaml | awk '{print $2}' | tr -d '"' | tr -d "'" | sort -u)
+
+ if [ -z "${images}" ]; then
+  echo "=> No images found in manifest.yaml."
+  return
+ fi
+
+ for img in ${images}; do
+  echo "=> Pulling image: ${img}"
+  docker pull "${img}"
+
+  # Create a safe filename by replacing slashes and colons with underscores
+  local safe_name
+  safe_name=$(echo "${img}" | tr '/:' '_')
+
+  echo "=> Saving ${img} to ${export_dir}/${safe_name}.tar"
+  docker save "${img}" -o "${export_dir}/${safe_name}.tar"
+ done
+
+ echo "=> Air-gap image export complete. Archives saved in ./${export_dir}/"
+
+}
+
+fetch-images "$@"

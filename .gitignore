@@ -36,6 +36,7 @@ data/work/kv4p-ht/.git
 # Ignore all large file part directories by default
 *-parts/
 *-parts/*
+.minikube-tunnel.pid
 resources/os/components/icons/payload.tar
 target/
 certs/
