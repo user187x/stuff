@@ -1,0 +1,31 @@
+#!/bin/bash
+
+NEW_HOSTNAME="titan"
+
+function update-etc-hosts {
+
+ TMP_FILE=$(mktemp)
+ echo -e "127.0.0.1\tlocalhost" >"$TMP_FILE"
+ echo -e "127.0.1.1\t$NEW_HOSTNAME" >>"$TMP_FILE"
+
+ grep -vE '^127\.0\.0\.1|^127\.0\.1\.1' /etc/hosts >>"$TMP_FILE"
+
+ sudo cp "$TMP_FILE" /etc/hosts
+ sudo rm "$TMP_FILE"
+}
+
+echo "Installing avahi-daemon..."
+sudo apt update && sudo apt install avahi-daemon avahi-utils
+
+echo "Enabeling avahi daemon service..."
+sudo systemctl enable --now avahi-daemon
+
+echo "Setting hostname: titan"
+sudo hostnamectl set-hostname "${NEW_HOSTNAME}"
+
+echo "Updating /etc/hosts file for new hostname..."
+update-etc-hosts
+
+echo "Verifying hostname changes..."
+hostnamectl status
+
