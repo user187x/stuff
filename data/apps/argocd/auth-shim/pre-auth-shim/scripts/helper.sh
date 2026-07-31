@@ -15,23 +15,22 @@ function usage {
  echo
  echo "Overview"
  echo
- echo "To build the chart into a tarball:"
+ echo "Build Chart (tarball):"
  echo -e "\e[92m helm package ./pre-auth-shim\e[0m"
 
- echo "To install the chart:"
+ echo "Install Chart:"
  echo -e "\e[92m helm install pre-auth-shim ./pre-auth-shim-0.1.0.tgz --namespace pre-auth-shim --create-namespace \e[0m"
 
- echo "To update the chart:"
+ echo "Update Chart:"
  echo -e "\e[92m helm upgrade --install pre-auth-shim ./pre-auth-shim-0.1.0.tgz --namespace pre-auth-shim \e[0m"
 
- echo "To delete the chart:"
- echo -e "\e[92m helm uninstall pre-auth-shim -n pre-auth-shim e\[0m"
+ echo "Delete Chart:"
+ echo -e "\e[92m helm uninstall pre-auth-shim -n pre-auth-shim\e[0m"
  echo
 
- echo "To view auth-shim dashboard"
- echo "https://auth.xxx.local/ui"
+ echo -e " \e[93mAuth Control Dashboard\e[0m : \e[92mhttps://auth.xxx.local/ui\e[0m"
+ echo -e " \e[93mProtected Acccess URL\e[0m  : \e[92mhttps://protected.xxx.local/ui\e[0m"
  echo
-
 }
 
 package-chart() {
@@ -64,9 +63,9 @@ clean-chart() {
 deploy-chart() {
 
  echo "Fully redeploying Chart..."
-
- remove-chart >/dev/null 2>&1
- package-chart && install-chart
+ remove-chart
+ package-chart
+ install-chart
  clean-chart
 
  echo "Deployment complete!"
