@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banner-config
+  namespace: excalidraw
+data:
+  bannertext: "UNCLASS"

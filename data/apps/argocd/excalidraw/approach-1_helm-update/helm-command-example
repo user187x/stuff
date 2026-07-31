@@ -1,0 +1,3 @@
+#!/bin/bash
+
+helm upgrade excalidraw-banner ./my-chart --set bannerText="Welcome to our web site"

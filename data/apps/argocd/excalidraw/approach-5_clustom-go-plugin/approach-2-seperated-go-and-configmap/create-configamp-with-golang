@@ -1,0 +1,6 @@
+#!/bin/bash
+
+kubectl create configmap traefik-banner-plugin \
+ --namespace=traefik \
+ --from-file=./bannerplugin/ \
+ --dry-run=client -o yaml | kubectl apply -f -

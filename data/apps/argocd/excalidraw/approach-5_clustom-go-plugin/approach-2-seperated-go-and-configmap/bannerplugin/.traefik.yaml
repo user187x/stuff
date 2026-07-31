@@ -1,0 +1,6 @@
+displayName: "Dynamic Banner Injector"
+type: "middleware"
+import: "github.com/excalidraw/bannerplugin"
+summary: "Injects a dynamic HTML banner based on a request header."
+testData:
+  headerName: "X-Auth-Banner-Text"

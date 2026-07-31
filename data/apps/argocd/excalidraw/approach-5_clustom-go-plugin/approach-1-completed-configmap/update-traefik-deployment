@@ -1,0 +1,14 @@
+#!/bin/bash
+
+echo '
+args:
+  - "--experimental.localPlugins.bannerplugin.moduleName=github.com/excalidraw/bannerplugin"
+
+volumeMounts:
+  - name: plugin-volume
+    mountPath: /plugins-local/src/github.com/excalidraw/bannerplugin
+volumes:
+  - name: plugin-volume
+    configMap:
+      name: traefik-banner-plugin
+'

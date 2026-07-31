@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banner-syncer
+  namespace: excalidraw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banner-syncer
+  template:
+    metadata:
+      labels:
+        app: banner-syncer
+    spec:
+      serviceAccountName: banner-syncer
+      containers:
+        - name: syncer
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              LAST_TEXT=""
+              while true; do
+                export NEW_TEXT=$(cat /config/bannertext)
+
+                if [ "$NEW_TEXT" != "$LAST_TEXT" ]; then
+                  echo "Updating banner to: $NEW_TEXT"
+                  # envsubst automatically injects the variable into the clean template
+                  envsubst < /template/middleware.yaml.tmpl | kubectl apply -f -
+                  LAST_TEXT="$NEW_TEXT"
+                fi
+                sleep 10
+              done
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+            - name: template-volume
+              mountPath: /template
+      volumes:
+        - name: config-volume
+          configMap:
+            name: banner-config
+        - name: template-volume
+          configMap:
+            name: banner-template

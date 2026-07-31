@@ -1,0 +1,9 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dynamic-banner
+  namespace: excalidraw
+spec:
+  plugin:
+    bannerplugin:
+      headerName: "X-Auth-Banner-Text"

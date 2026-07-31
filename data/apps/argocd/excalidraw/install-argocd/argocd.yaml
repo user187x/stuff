@@ -9,12 +9,6 @@ spec:
     repoURL: ghcr.io/quenchworks/charts
     targetRevision: 0.0.6
     chart: excalidraw
-    helm:
-      values: |
-        service:
-          name: excalidraw
-          type: ClusterIP
-          port: 80
   destination:
     server: https://kubernetes.default.svc
     namespace: excalidraw
