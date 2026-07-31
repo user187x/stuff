@@ -1,22 +1,11 @@
-# =============================================================================
-# NiFi on Kubernetes via NiFiKop — complete ArgoCD setup
-#
-# Contains 4 documents:
-#   1. Application: nifikop operator (Helm, OCI registry)     [skip if already installed]
-#   2. Application: zookeeper (required for NiFi clustering)
-#   3. Application: nifi-cluster (points at a git path with the manifests below)
+#   1. Application: nifikop operator
+#   2. Application: zookeeper
+#   3. Application: nifi-cluster
 #   4. The manifests that git path should contain:
 #        - Namespace
 #        - NifiCluster CR
-#        - HTTPRoute (Traefik Gateway API)
-#
-# Replace all <PLACEHOLDER> values before applying.
-# =============================================================================
+#        - HTTPRoute
 ---
-# -----------------------------------------------------------------------------
-# 1. NiFiKop operator
-#    (Skip this Application if the operator is already running on the cluster)
-# -----------------------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -53,11 +42,8 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true        # NiFiKop CRDs are large; avoids annotation size limit
+      - ServerSideApply=true
 ---
-# -----------------------------------------------------------------------------
-# 2. ZooKeeper (NiFi cluster coordination)
-# -----------------------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -70,7 +56,7 @@ spec:
   source:
     repoURL: registry-1.docker.io/bitnamicharts
     chart: zookeeper
-    targetRevision: 13.8.5          # pin to a version available to you
+    targetRevision: 13.8.5
     helm:
       valuesObject:
         replicaCount: 3
@@ -91,46 +77,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
 ---
-# -----------------------------------------------------------------------------
-# 3. NiFi cluster Application
-#    Points at a directory in YOUR git repo containing the manifests in
-#    section 4 (Namespace, NifiCluster, HTTPRoute).
-# -----------------------------------------------------------------------------
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: nifi-cluster
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/<YOUR_ORG>/<YOUR_GITOPS_REPO>.git
-    targetRevision: main
-    path: apps/nifi                 # directory containing section-4 manifests
-    directory:
-      recurse: true
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: nifi
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 30s
-        factor: 2
-        maxDuration: 5m
----
-# =============================================================================
-# 4. Manifests for apps/nifi/ in your git repo
-# =============================================================================
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -148,16 +94,15 @@ spec:
       cluster-name: nifi
   zkAddress: "zookeeper.zookeeper.svc.cluster.local:2181"
   zkPath: /nifi
-  clusterImage: "apache/nifi:1.28.1"   # match to your nifikop compatibility matrix
+  clusterImage: "apache/nifi:1.28.1"
   oneNifiNodePerNode: false
   readOnlyConfig:
     nifiProperties:
-      # Required so NiFi accepts requests proxied through Traefik with your hostname
       webProxyHosts:
-        - "nifi.<YOUR_DOMAIN>"
+        - "nifi.xxx.local"
       overrideConfigs: |
-        nifi.ui.banner.text=NiFi - managed by NiFiKop
-        nifi.sensitive.props.key=<RANDOM_12+_CHAR_STRING>
+        nifi.ui.banner.text="nifikop"
+        nifi.sensitive.props.key="cSWtxWggSAHasdgEglIOnSwQ="
   nodeConfigGroups:
     default_group:
       isNode: true
@@ -168,7 +113,7 @@ spec:
           pvcSpec:
             accessModes:
               - ReadWriteOnce
-            storageClassName: "<YOUR_STORAGE_CLASS>"
+            storageClassName: "standard"
             resources:
               requests:
                 storage: 10Gi
@@ -177,7 +122,7 @@ spec:
           pvcSpec:
             accessModes:
               - ReadWriteOnce
-            storageClassName: "<YOUR_STORAGE_CLASS>"
+            storageClassName: "standard"
             resources:
               requests:
                 storage: 5Gi
@@ -186,7 +131,7 @@ spec:
           pvcSpec:
             accessModes:
               - ReadWriteOnce
-            storageClassName: "<YOUR_STORAGE_CLASS>"
+            storageClassName: "standard"
             resources:
               requests:
                 storage: 10Gi
@@ -195,7 +140,7 @@ spec:
           pvcSpec:
             accessModes:
               - ReadWriteOnce
-            storageClassName: "<YOUR_STORAGE_CLASS>"
+            storageClassName: "standard"
             resources:
               requests:
                 storage: 10Gi
@@ -204,7 +149,7 @@ spec:
           pvcSpec:
             accessModes:
               - ReadWriteOnce
-            storageClassName: "<YOUR_STORAGE_CLASS>"
+            storageClassName: "standard"
             resources:
               requests:
                 storage: 10Gi
@@ -240,14 +185,6 @@ spec:
         name: prometheus
         containerPort: 9090
 ---
-# -----------------------------------------------------------------------------
-# HTTPRoute — exposes NiFi UI through the Traefik Gateway
-#
-# Prerequisites on your Gateway (usually in the traefik namespace):
-#   - a listener matching this hostname (or a wildcard)
-#   - spec.listeners[].allowedRoutes.namespaces must permit the "nifi"
-#     namespace (e.g. from: All, or a selector matching it)
-# -----------------------------------------------------------------------------
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -255,18 +192,15 @@ metadata:
   namespace: nifi
 spec:
   parentRefs:
-    - name: traefik-gateway            # your Gateway resource name
-      namespace: traefik               # namespace the Gateway lives in
-      sectionName: websecure           # listener name on the Gateway (e.g. web/websecure)
+    - name: traefik-gateway
+      namespace: traefik
   hostnames:
-    - "nifi.<YOUR_DOMAIN>"
+    - "nifi.xxx.local"
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        # NiFiKop creates a "<cluster-name>-all-node" Service load-balancing
-        # across all NiFi nodes. Cluster is named "nifi" above.
-        - name: nifi-all-node
+        - name: nifi-cluster-ip
           port: 8080

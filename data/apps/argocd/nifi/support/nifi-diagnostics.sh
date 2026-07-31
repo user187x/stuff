@@ -9,7 +9,7 @@
 #   ./nifi-diagnostics.sh
 #   -> writes nifi-diagnostics-<timestamp>.txt in the current directory
 # =============================================================================
-set -uo pipefail   # no "-e": keep going even if individual commands fail
+set -uo pipefail # no "-e": keep going even if individual commands fail
 
 OUT="nifi-diagnostics-$(date +%Y%m%d-%H%M%S).txt"
 
@@ -21,28 +21,28 @@ NS_ARGO="argocd"
 NS_TRAEFIK="traefik"
 
 section() {
-  {
-    echo ""
-    echo "================================================================="
-    echo "### $1"
-    echo "================================================================="
-  } >> "$OUT"
+ {
+  echo ""
+  echo "================================================================="
+  echo "### $1"
+  echo "================================================================="
+ } >>"$OUT"
 }
 
 run() {
-  # Log the command, then its output (stdout+stderr) so failures are visible too
-  {
-    echo ""
-    echo "--- \$ $*"
-  } >> "$OUT"
-  "$@" >> "$OUT" 2>&1
+ # Log the command, then its output (stdout+stderr) so failures are visible too
+ {
+  echo ""
+  echo "--- \$ $*"
+ } >>"$OUT"
+ "$@" >>"$OUT" 2>&1
 }
 
-: > "$OUT"
+: >"$OUT"
 {
-  echo "NiFi cluster diagnostics"
-  echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-} >> "$OUT"
+ echo "NiFi cluster diagnostics"
+ echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+} >>"$OUT"
 
 section "CLUSTER / CONTEXT"
 run kubectl version
@@ -65,7 +65,7 @@ section "NIFIKOP OPERATOR — RBAC CHECKS"
 # Detect the operator's service account automatically, fall back to "nifikop"
 SA=$(kubectl get deploy -n "$NS_OPERATOR" -o jsonpath='{.items[0].spec.template.spec.serviceAccountName}' 2>/dev/null)
 SA="${SA:-nifikop}"
-echo "Detected operator ServiceAccount: $SA" >> "$OUT"
+echo "Detected operator ServiceAccount: $SA" >>"$OUT"
 run kubectl auth can-i get leases.coordination.k8s.io --as="system:serviceaccount:${NS_OPERATOR}:${SA}" -n "$NS_OPERATOR"
 run kubectl auth can-i create leases.coordination.k8s.io --as="system:serviceaccount:${NS_OPERATOR}:${SA}" -n "$NS_OPERATOR"
 run kubectl auth can-i get nificlusters.nifi.konpyutaika.com --as="system:serviceaccount:${NS_OPERATOR}:${SA}" -n "$NS_NIFI"
@@ -83,7 +83,7 @@ run kubectl get pods,svc,pvc,cm -n "$NS_NIFI" -o wide
 run bash -c "kubectl get events -n $NS_NIFI --sort-by=.lastTimestamp | tail -40"
 # Logs from any NiFi pods that exist (may be none if operator never reconciled)
 for p in $(kubectl get pods -n "$NS_NIFI" -o name 2>/dev/null); do
-  run kubectl logs -n "$NS_NIFI" "$p" --tail=50 --all-containers
+ run kubectl logs -n "$NS_NIFI" "$p" --tail=50 --all-containers
 done
 
 section "ZOOKEEPER — namespace $NS_ZK"
@@ -92,7 +92,7 @@ run bash -c "kubectl get events -n $NS_ZK --sort-by=.lastTimestamp | tail -20"
 # Quick health probe against the first ZK pod
 ZK_POD=$(kubectl get pods -n "$NS_ZK" -o name 2>/dev/null | head -1)
 if [ -n "${ZK_POD:-}" ]; then
-  run kubectl exec -n "$NS_ZK" "$ZK_POD" -- bash -c "echo srvr | nc 127.0.0.1 2181"
+ run kubectl exec -n "$NS_ZK" "$ZK_POD" -- bash -c "echo srvr | nc 127.0.0.1 2181"
 fi
 
 section "TRAEFIK GATEWAY / HTTPROUTE"
@@ -103,5 +103,5 @@ run kubectl get httproute -n "$NS_NIFI" -o yaml
 run bash -c "kubectl get pods -n $NS_TRAEFIK -o wide || true"
 
 section "DONE"
-echo "" >> "$OUT"
+echo "" >>"$OUT"
 echo "Diagnostics written to: $OUT"

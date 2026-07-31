@@ -1,0 +1,47 @@
+project: default
+source:
+  repoURL: ghcr.io/konpyutaika/helm-charts
+  targetRevision: 1.14.1
+  helm:
+    valuesObject:
+      cluster:
+        bootstrapProperties:
+          nifiJvmMemory: 1g
+        nameOverride: nifi-cluster
+        nifiProperties:
+          overrideConfigs: |
+            nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
+          webProxyHosts:
+            - nifi.xxx.local
+        nodeConfigGroups:
+          default-group:
+            isNode: true
+            resourcesRequirements:
+              limits:
+                cpu: '2'
+                memory: 3Gi
+              requests:
+                cpu: '1'
+                memory: 2Gi
+        zkAddress: zookeeper.zookeeper.svc.cluster.local:2181
+        zkPath: /cluster
+      readOnlyConfig:
+        nifiProperties:
+          overrideConfigs: |
+            nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
+  chart: nifi-cluster
+destination:
+  server: https://kubernetes.default.svc
+  namespace: nifi
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+  syncOptions:
+    - CreateNamespace=true
+  retry:
+    limit: 5
+    backoff:
+      duration: 30s
+      factor: 2
+      maxDuration: 5m

@@ -1,0 +1,35 @@
+project: default
+source:
+  repoURL: ghcr.io/konpyutaika/helm-charts
+  targetRevision: 1.14.1
+  helm:
+    valuesObject:
+      certManager:
+        enabled: true
+      createCustomResource: true
+      logLevel: Info
+      namespaces:
+        - nifi
+      rbacEnable: true
+      resources:
+        limits:
+          cpu: '1'
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      serviceAccount:
+        create: true
+      webhook:
+        enabled: true
+  chart: nifikop
+destination:
+  server: https://kubernetes.default.svc
+  namespace: nifikop
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+  syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true

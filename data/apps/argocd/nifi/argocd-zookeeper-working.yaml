@@ -1,0 +1,11 @@
+project: default
+source:
+  repoURL: https://repo.helmforge.dev
+  targetRevision: 1.0.2
+  chart: zookeeper
+destination:
+  server: https://kubernetes.default.svc
+  namespace: zookeeper
+syncPolicy:
+  syncOptions:
+    - CreateNamespace=true
