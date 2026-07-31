@@ -1,0 +1,15 @@
+#!/bin/bash
+
+{
+  echo "=== 1. SERVICES & ENDPOINTS (EXCALIDRAW) ==="
+  kubectl get svc,ep -n excalidraw
+
+  echo -e "\n=== 2. ROUTES & MIDDLEWARES ==="
+  kubectl get httproute,middleware -n excalidraw
+
+  echo -e "\n=== 3. HTTPROUTE CONFIG & STATUS ==="
+  kubectl get httproute -n excalidraw -o yaml
+
+  echo -e "\n=== 4. TRAEFIK PLUGIN CHECK ==="
+  kubectl get pod -n traefik -l app.kubernetes.io/name=traefik -o jsonpath='{range .items[*]}{.spec.containers[*].args}{"\n"}{end}' | grep -io '.*plugin.*' || echo "No plugins found in Traefik args"
+} > diagnostic.yaml

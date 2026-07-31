@@ -1,0 +1,73 @@
+---
+# 1. Strip Compression & Bypass Backend Cache
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-compression
+  namespace: excalidraw
+spec:
+  headers:
+    customRequestHeaders:
+      Accept-Encoding: ""
+      If-None-Match: ""
+      If-Modified-Since: ""
+
+---
+# 2. Inject Banner 
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: banner
+  namespace: excalidraw
+spec:
+  plugin:
+    rewritebody:
+      lastModified: true
+      rewrites:
+        - regex: "<body>"
+          replacement: '<body><div id="subscription-banner" style="background-color: #0f766e; color: #ffffff; padding: 12px 20px; font-family: sans-serif; font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; z-index: 99999; position: relative; width: 100%; box-sizing: border-box;"><span>Reminder: your subscription expires in 22 days. Renew to avoid account suspension.</span></div>'
+
+---
+# 3. The Ordered Chain
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: banner-chain
+  namespace: excalidraw
+spec:
+  chain:
+    middlewares:
+      - name: strip-compression
+      - name: banner
+
+---
+# 4. The Route
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: excalidraw-route
+  namespace: excalidraw
+spec:
+  hostnames:
+    - excalidraw.xxx.local
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: traefik-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: banner-chain
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: excalidraw-excalidraw
+          port: 80
+          weight: 1

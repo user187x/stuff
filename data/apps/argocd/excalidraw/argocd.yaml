@@ -11,8 +11,8 @@ spec:
     chart: excalidraw
     helm:
       values: |
-        fullnameOverride: "excalidraw"
         service:
+          name: excalidraw
           type: ClusterIP
           port: 80
   destination:

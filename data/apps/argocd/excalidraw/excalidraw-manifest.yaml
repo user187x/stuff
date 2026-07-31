@@ -1,0 +1,167 @@
+---
+# Source: excalidraw/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+  labels:
+    helm.sh/chart: excalidraw-0.0.6
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/version: "0.18.1"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: excalidraw
+      app.kubernetes.io/instance: excalidraw
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+---
+# Source: excalidraw/templates/poddisruptionbudget.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+  labels:
+    helm.sh/chart: excalidraw-0.0.6
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/version: "0.18.1"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: excalidraw
+      app.kubernetes.io/instance: excalidraw
+---
+# Source: excalidraw/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+  labels:
+    helm.sh/chart: excalidraw-0.0.6
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/version: "0.18.1"
+automountServiceAccountToken: false
+---
+# Source: excalidraw/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+  labels:
+    helm.sh/chart: excalidraw-0.0.6
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/version: "0.18.1"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+---
+# Source: excalidraw/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: excalidraw
+  namespace: excalidraw
+  labels:
+    helm.sh/chart: excalidraw-0.0.6
+    app.kubernetes.io/name: excalidraw
+    app.kubernetes.io/instance: excalidraw
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/version: "0.18.1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: excalidraw
+      app.kubernetes.io/instance: excalidraw
+  template:
+    metadata:
+
+      labels:
+        app.kubernetes.io/name: excalidraw
+        app.kubernetes.io/instance: excalidraw
+
+    spec:
+      serviceAccountName: excalidraw
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: excalidraw
+          image: ghcr.io/quenchworks/images/excalidraw@sha256:85ccb1fd7b34146ffecc67c3ded9cf814200a01863bab9922213988e6bb2ff51
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+
+          resources:
+            limits:
+              cpu: 250m
+              memory: 128Mi
+            requests:
+              cpu: 25m
+              memory: 32Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,36 @@
+Name:         excalidraw-route
+Namespace:    excalidraw
+Labels:       <none>
+Annotations:  <none>
+API Version:  gateway.networking.k8s.io/v1
+Kind:         HTTPRoute
+Metadata:
+  Creation Timestamp:  2026-07-30T23:47:23Z
+  Generation:          3
+  Resource Version:    4026571
+  UID:                 66d4eaad-a252-42e8-85c7-79bc67c2ac2e
+Spec:
+  Hostnames:
+    excalidraw.xxx.local
+  Parent Refs:
+    Group:  gateway.networking.k8s.io
+    Kind:   Gateway
+    Name:   traefik-gateway
+  Rules:
+    Backend Refs:
+      Group:   
+      Kind:    Service
+      Name:    excalidraw-excalidraw
+      Port:    80
+      Weight:  1
+    Filters:
+      Extension Ref:
+        Group:  traefik.io
+        Kind:   Middleware
+        Name:   banner-chain
+      Type:     ExtensionRef
+    Matches:
+      Path:
+        Type:   PathPrefix
+        Value:  /
+Events:         <none>

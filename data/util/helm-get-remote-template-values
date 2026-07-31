@@ -1,0 +1,8 @@
+#!/bin/bash
+
+helm show values oci://ghcr.io/quenchworks/charts/excalidraw --version 0.0.6
+
+helm template oci://ghcr.io/quenchworks/charts/excalidraw --version 0.0.6 -f values.yaml > values.yaml
+helm template oci://ghcr.io/quenchworks/charts/excalidraw --version 0.0.6 -s templates/deployment.yaml > deployment.yaml
+helm template oci://ghcr.io/quenchworks/charts/excalidraw --version 0.0.6 -s templates/service.yaml > service.yaml
+
