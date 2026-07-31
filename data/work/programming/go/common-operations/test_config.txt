@@ -1,0 +1,2 @@
+INIT=true
+APPENDED_KEY=secret_value

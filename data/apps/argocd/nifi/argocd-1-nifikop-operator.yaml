@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nifikop-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: nifikop
+    repoURL: https://konpyutaika.github.io/nifikop/
+    targetRevision: v1.2.0
+    helm:
+      releaseName: nifikop
+      values: |
+        watchNamespaces:
+          - nifi
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: nifi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

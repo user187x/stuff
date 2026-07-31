@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# 1. Extract the project
+tar -xzvf myapp-ready.tar.gz
+
+# 2. Build the app using ONLY the local vendor folder.
+# Go will not attempt to reach the internet.
+go build -mod=vendor -o myapp main.go

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# 1. Initialize the directory as a Go module (creates the go.mod file)
+go mod init cookbook
+
+# 2. Tell Go to scan your code, fetch missing imports, and lock their versions
+go mod tidy
+
+# 3. Compile your application
+go build -o cookbook main.go

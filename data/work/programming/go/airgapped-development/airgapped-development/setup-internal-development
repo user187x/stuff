@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# 1. Tell Go to ONLY use your internal server, never the public internet
+go env -w GOPROXY="https://artifactory.your-internal-network.local/go-repo,off"
+
+# 2. Disable checksum verification for internal, private code
+# (otherwise Go will try to verify hashes against sum.golang.org and fail)
+go env -w GONOSUMDB="your-internal-git.local/*"

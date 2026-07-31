@@ -1,0 +1,21 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gitea-httproute
+  namespace: gitea
+spec:
+  parentRefs:
+    # Points to your Traefik Gateway in its specific namespace
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - "gitea.xxx.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        # The default service name created by the Gitea Helm release
+        - name: gitea-http
+          port: 3000

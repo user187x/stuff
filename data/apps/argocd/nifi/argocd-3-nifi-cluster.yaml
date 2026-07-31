@@ -1,0 +1,46 @@
+apiVersion: nifi.konpyutaika.com/v1alpha1
+kind: NiFiCluster
+metadata:
+  name: nifi-cluster
+  namespace: nifi
+spec:
+  zkAddress: "zookeeper-client.zookeeper.svc.cluster.local:2181" # Update with your ZooKeeper address
+  clusterImage: "apache/nifi:1.25.0"
+  oneNifiNodePerNode: false
+  readOnlyConfig:
+    nifiProperties:
+      webProxyHosts:
+        - "nifi.xxx.local"
+  listenersConfig:
+    internalListeners:
+      - name: "http"
+        type: "http"
+        containerPort: 8080
+      - name: "cluster"
+        type: "cluster"
+        containerPort: 6007
+      - name: "s2s"
+        type: "s2s"
+        containerPort: 10000
+    externalServices:
+      - name: "nifi-external"
+        spec:
+          type: ClusterIP
+          portConfigs:
+            - port: 8080
+              internalListenerName: "http"
+  nodes:
+    - id: 1
+      nodeConfigGroup: "default_group"
+      storageConfigs:
+        - name: "data"
+          mountPath: "/opt/nifi/data"
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+  nodeConfigGroups:
+    default_group:
+      isNode: true

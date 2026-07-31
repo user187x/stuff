@@ -1,0 +1,272 @@
+# =============================================================================
+# NiFi on Kubernetes via NiFiKop — complete ArgoCD setup
+#
+# Contains 4 documents:
+#   1. Application: nifikop operator (Helm, OCI registry)     [skip if already installed]
+#   2. Application: zookeeper (required for NiFi clustering)
+#   3. Application: nifi-cluster (points at a git path with the manifests below)
+#   4. The manifests that git path should contain:
+#        - Namespace
+#        - NifiCluster CR
+#        - HTTPRoute (Traefik Gateway API)
+#
+# Replace all <PLACEHOLDER> values before applying.
+# =============================================================================
+---
+# -----------------------------------------------------------------------------
+# 1. NiFiKop operator
+#    (Skip this Application if the operator is already running on the cluster)
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nifikop
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/konpyutaika/helm-charts
+    chart: nifikop
+    targetRevision: 1.15.1          # check latest: https://github.com/konpyutaika/nifikop/releases
+    helm:
+      valuesObject:
+        logLevel: Info
+        # Namespaces the operator watches. Empty list = all namespaces
+        # (requires cluster-scoped RBAC).
+        namespaces:
+          - nifi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nifikop
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true        # NiFiKop CRDs are large; avoids annotation size limit
+---
+# -----------------------------------------------------------------------------
+# 2. ZooKeeper (NiFi cluster coordination)
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: zookeeper
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: registry-1.docker.io/bitnamicharts
+    chart: zookeeper
+    targetRevision: 13.8.5          # pin to a version available to you
+    helm:
+      valuesObject:
+        replicaCount: 3
+        persistence:
+          enabled: true
+          size: 8Gi
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: zookeeper
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+# -----------------------------------------------------------------------------
+# 3. NiFi cluster Application
+#    Points at a directory in YOUR git repo containing the manifests in
+#    section 4 (Namespace, NifiCluster, HTTPRoute).
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nifi-cluster
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/<YOUR_ORG>/<YOUR_GITOPS_REPO>.git
+    targetRevision: main
+    path: apps/nifi                 # directory containing section-4 manifests
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nifi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+---
+# =============================================================================
+# 4. Manifests for apps/nifi/ in your git repo
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nifi
+---
+apiVersion: nifi.konpyutaika.com/v1
+kind: NifiCluster
+metadata:
+  name: nifi
+  namespace: nifi
+spec:
+  service:
+    headlessEnabled: true
+    labels:
+      cluster-name: nifi
+  zkAddress: "zookeeper.zookeeper.svc.cluster.local:2181"
+  zkPath: /nifi
+  clusterImage: "apache/nifi:1.28.1"   # match to your nifikop compatibility matrix
+  oneNifiNodePerNode: false
+  readOnlyConfig:
+    nifiProperties:
+      # Required so NiFi accepts requests proxied through Traefik with your hostname
+      webProxyHosts:
+        - "nifi.<YOUR_DOMAIN>"
+      overrideConfigs: |
+        nifi.ui.banner.text=NiFi - managed by NiFiKop
+        nifi.sensitive.props.key=<RANDOM_12+_CHAR_STRING>
+  nodeConfigGroups:
+    default_group:
+      isNode: true
+      serviceAccountName: default
+      storageConfigs:
+        - mountPath: "/opt/nifi/data"
+          name: data
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "<YOUR_STORAGE_CLASS>"
+            resources:
+              requests:
+                storage: 10Gi
+        - mountPath: "/opt/nifi/nifi-current/logs"
+          name: logs
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "<YOUR_STORAGE_CLASS>"
+            resources:
+              requests:
+                storage: 5Gi
+        - mountPath: "/opt/nifi/flowfile_repository"
+          name: flowfile-repository
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "<YOUR_STORAGE_CLASS>"
+            resources:
+              requests:
+                storage: 10Gi
+        - mountPath: "/opt/nifi/content_repository"
+          name: content-repository
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "<YOUR_STORAGE_CLASS>"
+            resources:
+              requests:
+                storage: 10Gi
+        - mountPath: "/opt/nifi/provenance_repository"
+          name: provenance-repository
+          pvcSpec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "<YOUR_STORAGE_CLASS>"
+            resources:
+              requests:
+                storage: 10Gi
+      resourcesRequirements:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+  nodes:
+    - id: 0
+      nodeConfigGroup: default_group
+    - id: 1
+      nodeConfigGroup: default_group
+    - id: 2
+      nodeConfigGroup: default_group
+  propagateLabels: true
+  nifiClusterTaskSpec:
+    retryDurationMinutes: 10
+  listenersConfig:
+    internalListeners:
+      - type: http
+        name: http
+        containerPort: 8080
+      - type: cluster
+        name: cluster
+        containerPort: 6007
+      - type: s2s
+        name: s2s
+        containerPort: 10000
+      - type: prometheus
+        name: prometheus
+        containerPort: 9090
+---
+# -----------------------------------------------------------------------------
+# HTTPRoute — exposes NiFi UI through the Traefik Gateway
+#
+# Prerequisites on your Gateway (usually in the traefik namespace):
+#   - a listener matching this hostname (or a wildcard)
+#   - spec.listeners[].allowedRoutes.namespaces must permit the "nifi"
+#     namespace (e.g. from: All, or a selector matching it)
+# -----------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: nifi
+  namespace: nifi
+spec:
+  parentRefs:
+    - name: traefik-gateway            # your Gateway resource name
+      namespace: traefik               # namespace the Gateway lives in
+      sectionName: websecure           # listener name on the Gateway (e.g. web/websecure)
+  hostnames:
+    - "nifi.<YOUR_DOMAIN>"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        # NiFiKop creates a "<cluster-name>-all-node" Service load-balancing
+        # across all NiFi nodes. Cluster is named "nifi" above.
+        - name: nifi-all-node
+          port: 8080

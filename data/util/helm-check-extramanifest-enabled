@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Check if a path is provided
+if [ -z "$1" ]; then
+ echo "Usage: $0 <path-to-chart-directory-or-tgz>"
+ exit 1
+fi
+
+CHART_PATH="$1"
+TEMP_DIR=""
+
+# Determine if the input is a tarball or a directory
+if [[ -f "$CHART_PATH" && "$CHART_PATH" == *.tgz ]]; then
+ echo "Unpacking chart tarball..."
+ TEMP_DIR=$(mktemp -d)
+ tar -xzf "$CHART_PATH" -C "$TEMP_DIR"
+ SEARCH_DIR="$TEMP_DIR"
+elif [ -d "$CHART_PATH" ]; then
+ SEARCH_DIR="$CHART_PATH"
+else
+ echo "Error: '$CHART_PATH' is not a valid directory or .tgz file"
+ exit 1
+fi
+
+echo "Scanning chart for 'extraManifests' support..."
+echo "------------------------------------------------"
+
+# Search for "extraManifests" in the templates directory and values.yaml (ignoring binary files)
+# Using grep -rI to recursively search while ignoring binaries
+MATCHES=$(grep -rnI "extraManifests" "$SEARCH_DIR" 2>/dev/null || true)
+
+if [[ -n "$MATCHES" ]]; then
+ echo "✅ YES, the chart SUPPORTS extraManifests."
+ echo ""
+ echo "Found references in the following files:"
+
+ # Print the matches, cleaning up the temp directory path from the output for readability
+ if [[ -n "$TEMP_DIR" ]]; then
+  echo "$MATCHES" | sed "s|$TEMP_DIR/||g"
+ else
+  echo "$MATCHES"
+ fi
+else
+ echo "❌ NO, the chart DOES NOT seem to support extraManifests."
+ echo "(No references to 'extraManifests' were found in the values or templates)."
+fi
+
+# Cleanup temporary directory if it was created
+if [[ -n "$TEMP_DIR" ]]; then
+ rm -rf "$TEMP_DIR"
+fi

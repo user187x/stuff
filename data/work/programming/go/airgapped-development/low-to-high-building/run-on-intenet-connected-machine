@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# 1. Initialize and fetch your dependencies normally
+go mod init myapp
+go mod tidy
+
+# 2. Tell Go to copy all dependencies into a local "vendor" folder
+go mod vendor
+
+# 3. Zip your entire project, which now includes the vendor folder
+tar -czvf myapp.tar.gz ./

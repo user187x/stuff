@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Set a custom cache directory to your USB drive
+export GOMODCACHE=/media/usb/go-cache
+
+# Download all dependencies for your project directly to the USB
+go mod download

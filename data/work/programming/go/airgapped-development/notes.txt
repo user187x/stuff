@@ -1,0 +1,25 @@
+1. Athens (The Go Purist's Choice)
+If you only care about hosting Go modules, Athens is the undisputed champion. It is an open-source project designed specifically to act as a Go module datastore and proxy for enterprise and airgapped environments.
+
+Why it's great: It is incredibly lightweight, written in Go, and explicitly designed to serve the GOPROXY protocol.
+
+Airgap Workflow: You can populate its backend storage (which can be a local disk, MinIO, or a database) on the high-side by running an Athens instance on the low-side, exporting the storage volume, and moving it across the airgap.
+
+2. Sonatype Nexus Repository OSS (The DevOps Polyglot)
+If your airgapped environment also needs to host Docker images, Python packages (PyPI), Java binaries (Maven), and Ubuntu apt packages, Nexus OSS is the industry standard.
+
+Why it's great: It is a universal package manager. It has native, built-in support for Go modules alongside almost every other language.
+
+Airgap Workflow: You set up a "hosted" Go repository in Nexus. You can write a script to upload your downloaded .zip and .mod files directly into Nexus via its REST API after you cross the airgap.
+
+3. Gitea (The "All-in-One" Forge)
+If your airgapped environment doesn't have a Git server yet, Gitea is a fantastic, ultra-lightweight alternative to GitHub/GitLab that you can run on a single binary.
+
+Why it's great: Recent versions of Gitea include a built-in Go package registry. It allows you to host your source code and your Go modules in the exact same application.
+
+Airgap Workflow: You push your vendored modules or compiled Go packages to Gitea's package registry API, and developers point their GOPROXY to the Gitea server url.
+
+The Verdict
+Choose Athens if you want a tiny, lightweight container just for Go.
+
+Choose Nexus OSS if you are building a full enterprise DevOps pipeline and need to store Docker images, APT packages, and Go modules in one place.

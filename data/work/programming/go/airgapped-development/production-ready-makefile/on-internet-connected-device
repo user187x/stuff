@@ -1,0 +1,4 @@
+#!/bin/bash
+
+make bundle
+echo "Package ready for transfer to highside..."

@@ -1,0 +1,4 @@
+#!/bin/bash
+
+tar -xzvf cookbook-1.0.0-airgap.tar.gz
+make build-airgap
