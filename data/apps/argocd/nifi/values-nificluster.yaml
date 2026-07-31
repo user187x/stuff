@@ -1,0 +1,21 @@
+ cluster:
+  bootstrapProperties:
+    nifiJvmMemory: 2Gb
+  nameOverride: nifi-cluster
+  nifiProperties:
+    overrideConfigs: |
+      nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
+    webProxyHosts:
+      - nifi.xxx.local
+  nodeConfigGroups:
+    default-group:
+      isNode: true
+      resourcesRequirements:
+        limits:
+          cpu: '2'
+          memory: 3Gi
+        requests:
+          cpu: '1'
+          memory: 2Gi
+  zkAddress: zookeeper.zookeeper.svc.cluster.local:2181
+  zkPath: /cluster
