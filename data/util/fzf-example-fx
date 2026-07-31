@@ -162,11 +162,11 @@ while true; do
 
  # Route based on the first character of the choice
  case "$CHOICE" in
- 1*) tool_tar_extractor ;;
- 2*) tool_process_killer ;;
- 3*) tool_file_browser ;;
- 4*) tool_git_log ;;
- 5*) tool_create_archive ;;
+  1*) tool_tar_extractor ;;
+  2*) tool_process_killer ;;
+  3*) tool_file_browser ;;
+  4*) tool_git_log ;;
+  5*) tool_create_archive ;;
  esac
 done
 

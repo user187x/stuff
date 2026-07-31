@@ -1,0 +1,17 @@
+A common SysAdmin or DevOps task is logging into a cluster and checking if the nodes are ready, if any deployments are failing to scale up, and if any pods are stuck. Doing this in Bash requires multiple kubectl calls, heavy use of grep/awk, and parsing raw text strings.
+
+This Go script fetches all this data concurrently, parses the raw JSON natively, and generates a clean health report. It demonstrates using Go's sync.WaitGroup alongside a sync.Mutex to safely collect data from multiple threads at once.
+
+Platform Engineering: Concurrent Cluster Health Auditor
+
+Setup and Execution:
+
+Initialize: go mod init k8sauditor
+
+Dependencies: Requires an authenticated kubectl binary on the system.
+
+Run on the fly:
+go run main.go
+
+Compile for distribution:
+go build -o k8s-auditor main.goi

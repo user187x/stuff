@@ -1,0 +1,16 @@
+Here is a fifth example. This is a very common requirement in zero-trust architectures or mTLS (Mutual TLS) environments.
+
+When you use a reverse proxy or a pre-auth shim (like Traefik, NGINX, or Envoy) to terminate an mTLS connection, the proxy validates the user's smartcard or client certificate. It then forwards the request to your backend app, passing the user's public certificate as a URL-encoded string inside an HTTP header (often X-Forwarded-Tls-Client-Cert).
+
+This Go application acts as the backend. It spins up an HTTP server, intercepts that header, unescapes the PEM data, parses the X.509 certificate, and extracts the user's Distinguished Name (DN), Common Name (Name), and Email Addresses (from the Subject Alternative Names).
+
+5. Identity & Access: Client Certificate (mTLS) Extractor
+Setup and Execution:
+
+Initialize: go mod init certextractor
+
+Dependencies: None (Uses standard net/http, crypto/x509, and encoding/pem).
+
+Run on the fly: go run main.go
+
+Test it (Once running): You will need to pass a URL-encoded PEM certificate to the server. You can simulate the proxy using curl:

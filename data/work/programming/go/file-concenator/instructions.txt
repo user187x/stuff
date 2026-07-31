@@ -1,0 +1,11 @@
+This script acts like a manual version of the Bash cat dir1/*.txt dir2/*.txt > giant_file.txt. It loops through two hardcoded directories, explicitly checks for .txt files, reads them, and writes them to an output file.
+
+Setup and Execution:
+
+Initialize: go mod init concat
+
+Dependencies: None (uses only the Go standard library).
+
+Run on the fly: go run main.go
+
+Compile to binary: go build -o concat-tool main.go

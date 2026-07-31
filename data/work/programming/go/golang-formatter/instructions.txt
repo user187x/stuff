@@ -1,0 +1,12 @@
+Writing a Go formatter that uses anything other than standard tabs is a profound crime against gofmt, but as a developer, you have the absolute right to format your code exactly how you want.
+
+Because Go has incredible reflection and parsing libraries built into the standard library, we don't have to write a messy text-replacement script. We can use Go's own Abstract Syntax Tree (AST) parser (go/parser) to read the code natively, and then use go/printer to spit it back out using a custom configuration that forces exactly 1 space per indentation level.
+
+The 1-Space Go Formatter
+Setup and Execution:
+
+Initialize: go mod init oneformatter
+
+Dependencies: None (Uses pure Go standard library).
+
+Run: go run main.go target_file.go (It will print the formatted code to the terminal. To overwrite the file, you can pipe it: go run main.go target_file.go > formatted.go).

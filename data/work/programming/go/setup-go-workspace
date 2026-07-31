@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status,
+# treat unset variables as an error, and fail pipelines if any command fails.
+set -euo pipefail
+
+echo "======================================================="
+echo "🚀 Bootstrapping Go DevOps Workspace..."
+echo "======================================================="
+
+# 1. Update system and install core dependencies
+echo ""
+echo "[1/5] Installing core system dependencies..."
+sudo apt-get update -y
+sudo apt-get install -y \
+ build-essential \
+ curl \
+ wget \
+ git \
+ jq \
+ tree \
+ openssl \
+ apt-transport-https \
+ ca-certificates
+
+# 2. Install the latest version of Go
+echo ""
+echo "[2/5] Fetching and installing the latest Go release..."
+# Dynamically grab the latest Go version from the official API
+GO_VERSION=$(curl -s https://go.dev/VERSION?m=text | head -n 1)
+GO_TARBALL="${GO_VERSION}.linux-amd64.tar.gz"
+GO_URL="https://go.dev/dl/${GO_TARBALL}"
+
+echo "Downloading ${GO_VERSION}..."
+curl -LO "$GO_URL"
+
+# Remove any existing Go installation and extract the new one
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf "$GO_TARBALL"
+rm "$GO_TARBALL"
+
+# 3. Configure Environment Variables
+echo ""
+echo "[3/5] Configuring environment variables ($USER)..."
+PROFILE_FILE="$HOME/.bashrc"
+
+# Function to safely append to bashrc if the line doesn't exist
+append_if_missing() {
+ grep -qF "$1" "$PROFILE_FILE" || echo "$1" >>"$PROFILE_FILE"
+}
+
+# Add standard Go paths and our custom ~/.local/bin to PATH
+append_if_missing 'export GOPATH=$HOME/go'
+append_if_missing 'export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin'
+
+# Export them for the current session so the rest of the script works
+export GOPATH=$HOME/go
+export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin
+
+# Create standard directories
+mkdir -p "$GOPATH"/{bin,src,pkg}
+mkdir -p "$HOME/.local/bin"
+
+# 4. Install Go Tooling and Linters
+echo ""
+echo "[4/5] Installing Go language servers and linters..."
+# Install gopls (Official Go Language Server for IDEs like VSCode/Vim)
+go install golang.org/x/tools/gopls@latest
+
+# Install golangci-lint (The industry standard linter for Go)
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$GOPATH/bin" latest
+
+# 5. Install Kubernetes Tools (Since we covered K8s Auditing)
+echo ""
+echo "[5/5] Installing DevOps tools (kubectl)..."
+if ! command -v kubectl &>/dev/null; then
+ curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+ echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+ sudo apt-get update -y
+ sudo apt-get install -y kubectl
+else
+ echo "kubectl is already installed, skipping."
+fi
+
+echo "======================================================="
+echo "✅ Workspace Setup Complete!"
+echo "======================================================="
+echo "Go version installed: $(go version)"
+echo "golangci-lint version: $(golangci-lint --version | awk '{print $4}')"
+echo ""
+echo "⚠️  IMPORTANT: To apply the PATH changes to your current terminal, run:"
+echo "source ~/.bashrc"

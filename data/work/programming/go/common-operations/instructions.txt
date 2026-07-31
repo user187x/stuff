@@ -1,0 +1,11 @@
+When moving from Bash or Python to Go, these are the fundamental operations you will use every day. This script covers all the string manipulation, type conversion, basic data structures (Slices and Maps), terminal I/O, and file operations you requested.
+
+6. Developer Fundamentals: The Go Cookbook
+Setup and Execution:
+
+Initialize: go mod init gocookbook
+
+Add Dependencies: Go doesn't have a built-in password masking function in the standard library, so we use the official Go term package. Run:
+go get golang.org/x/term
+
+Run on the fly: go run main.go

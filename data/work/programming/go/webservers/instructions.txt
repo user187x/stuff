@@ -1,0 +1,12 @@
+This script is a complete, self-contained microservice demonstration.
+
+When you run it, it will automatically generate its own self-signed TLS certificates, spin up an HTTP server and an HTTPS server concurrently, and then use an internal HTTP client to send a secure request to the HTTPS server and read the response.
+
+7. Networking: HTTP/HTTPS Servers and Clients
+Setup and Execution:
+
+Initialize: go mod init webservers
+
+Dependencies: None (Uses pure Go standard library).
+
+Run on the fly: go run main.go

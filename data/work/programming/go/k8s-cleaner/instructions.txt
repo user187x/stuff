@@ -1,0 +1,11 @@
+In Bash, if you wanted to delete all Kubernetes pods in a CrashLoopBackOff state, you would typically chain several binaries together using pipes: kubectl get pods -A | grep CrashLoopBackOff | awk '{print $1, $2}' | xargs.... This is fragile because if column outputs change, the script breaks.
+
+Go handles this safely by calling kubectl and natively parsing its JSON output.
+
+Setup and Execution:
+
+Initialize: go mod init k8scleanup
+
+Dependencies: Requires the kubectl binary to be installed on your system. No external Go libraries needed.
+
+Run on the fly: go run main.go

@@ -1,0 +1,9 @@
+Bash is strictly single-threaded; firing off 50 HTTP requests in Bash requires backgrounding jobs with & and managing process IDs, which is messy. Go uses "Goroutines" and "WaitGroups" to handle hundreds of concurrent tasks securely and cleanly.
+
+Setup and Execution:
+
+Initialize: go mod init healthchecker
+
+Dependencies: None. Uses Go's native HTTP client (net/http).
+
+Run on the fly: go run main.go
