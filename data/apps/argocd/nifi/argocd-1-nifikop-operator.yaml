@@ -1,27 +1,47 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: nifikop-operator
+  name: nifikop
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
+    # Use upstream OCI chart, or your helmforge repo — the values below use
+    # the upstream chart's keys either way.
+    repoURL: ghcr.io/konpyutaika/helm-charts
     chart: nifikop
-    repoURL: https://konpyutaika.github.io/nifikop/
-    targetRevision: v1.2.0
+    targetRevision: 1.14.1            # or newer; 1.17.0 is current upstream
     helm:
-      releaseName: nifikop
-      values: |
-        watchNamespaces:
+      valuesObject:
+        rbacEnable: true
+        namespaces:
           - nifi
+        serviceAccount:
+          create: true
+        createCustomResource: true
+        certManager:
+          enabled: true
+        webhook:
+          enabled: true
+        logLevel: Info
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
   destination:
-    server: "https://kubernetes.default.svc"
-    namespace: nifi
+    server: https://kubernetes.default.svc
+    namespace: nifikop
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true

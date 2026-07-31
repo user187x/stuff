@@ -1,46 +1,48 @@
-apiVersion: nifi.konpyutaika.com/v1alpha1
-kind: NiFiCluster
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: nifi-cluster
-  namespace: nifi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  zkAddress: "zookeeper-client.zookeeper.svc.cluster.local:2181" # Update with your ZooKeeper address
-  clusterImage: "apache/nifi:1.25.0"
-  oneNifiNodePerNode: false
-  readOnlyConfig:
-    nifiProperties:
-      webProxyHosts:
-        - "nifi.xxx.local"
-  listenersConfig:
-    internalListeners:
-      - name: "http"
-        type: "http"
-        containerPort: 8080
-      - name: "cluster"
-        type: "cluster"
-        containerPort: 6007
-      - name: "s2s"
-        type: "s2s"
-        containerPort: 10000
-    externalServices:
-      - name: "nifi-external"
-        spec:
-          type: ClusterIP
-          portConfigs:
-            - port: 8080
-              internalListenerName: "http"
-  nodes:
-    - id: 1
-      nodeConfigGroup: "default_group"
-      storageConfigs:
-        - name: "data"
-          mountPath: "/opt/nifi/data"
-          pvcSpec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 10Gi
-  nodeConfigGroups:
-    default_group:
-      isNode: true
+  project: default
+  source:
+    repoURL: ghcr.io/konpyutaika/helm-charts   # or your helmforge repo
+    chart: nifi-cluster
+    targetRevision: 1.14.1
+    helm:
+      valuesObject:
+        cluster:
+          nameOverride: "nifi-cluster"
+          # ---------------- FIX #2 ----------------
+          # Chart default is "nifi-cluster-zookeeper:2181" (a bundled ZK that
+          # doesn't exist on your cluster). Point at the real service.
+          zkAddress: "zookeeper.zookeeper.svc.cluster.local:2181"
+          # ----------------------------------------
+          zkPath: "/cluster"
+          nifiProperties:
+            # ---------------- FIX #4 ----------------
+            # Must contain every hostname NiFi is reached through via Traefik,
+            # or NiFi rejects the proxied request.
+            webProxyHosts:
+              - "nifi.xxx.local"
+            # ----------------------------------------
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nifi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+---

@@ -1,0 +1,125 @@
+# =============================================================================
+# nifikop-rbac.yaml — manual RBAC for the NiFiKop operator
+#
+# Exact replica of what the upstream nifikop chart renders with:
+#   rbacEnable: true, namespaces: [nifi]
+# for ServiceAccount "nifikop" in namespace "nifikop".
+#
+# Apply:   kubectl apply -f nifikop-rbac.yaml
+#
+# NOTE: this unblocks the operator immediately, but it lives outside your
+# GitOps flow. Long term, either commit this file to your repo as its own
+# synced path, or fix the helmforge chart so it renders RBAC itself (see chat).
+# =============================================================================
+---
+# Leader-election Lease permissions in the operator's own namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nifikop-leader-election
+  namespace: nifikop
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nifikop-leader-election
+  namespace: nifikop
+subjects:
+  - kind: ServiceAccount
+    name: nifikop
+    namespace: nifikop
+roleRef:
+  kind: Role
+  name: nifikop-leader-election
+  apiGroup: rbac.authorization.k8s.io
+---
+# Full operator permissions in the watched namespace (nifi)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nifikop
+  namespace: nifi
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - services/finalizers
+      - endpoints
+      - persistentvolumeclaims
+      - events
+      - configmaps
+      - secrets
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "create"]
+  - apiGroups: ["apps"]
+    resourceNames: ["nifikop"]
+    resources: ["deployments/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["nifi.konpyutaika.com"]
+    resources:
+      - nifiusers
+      - nifiusergroups
+      - nificlusters
+      - nifidataflows
+      - nifiregistryclients
+      - nifiparametercontexts
+      - nifinodegroupautoscalers
+      - nificonnections
+      - nifiresources
+      - nifiusers/finalizers
+      - nificlusters/finalizers
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["nifi.konpyutaika.com"]
+    resources:
+      - nifiusers/status
+      - nifiusergroups/status
+      - nificlusters/status
+      - nifidataflows/status
+      - nifiregistryclients/status
+      - nifiparametercontexts/status
+      - nifinodegroupautoscalers/status
+      - nificonnections/status
+      - nifiresources/status
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["issuers", "certificates"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nifikop
+  namespace: nifi
+subjects:
+  - kind: ServiceAccount
+    name: nifikop
+    namespace: nifikop
+roleRef:
+  kind: Role
+  name: nifikop
+  apiGroup: rbac.authorization.k8s.io
