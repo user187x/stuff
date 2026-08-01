@@ -1,0 +1,32 @@
+#!/bin/bash
+
+sudo apt install inotify-tools
+
+if [ "$EUID" -ne 0 ]; then
+ echo "Please run as root (e.g., using sudo)."
+ exit 1
+fi
+
+# Target paths to watch
+WATCH_SYSCTL="/proc/sys"
+WATCH_SECURITY="/etc/security"
+
+echo "======================================================================"
+echo "Watching live changes (Creation / Deletion / Modification) for:"
+echo " 1. Sysctl parameters ($WATCH_SYSCTL)"
+echo " 2. Security limits files ($WATCH_SECURITY)"
+echo "======================================================================"
+echo "Press [CTRL+C] to stop."
+echo ""
+
+# Run inotifywait in monitor mode (-m) listening for:
+# create (-e create), delete (-e delete), modify (-e modify), and move (-e moved_to/moved_from)
+inotifywait -m -r \
+ -e create \
+ -e delete \
+ -e modify \
+ -e moved_to \
+ -e moved_from \
+ --format '%T [%e] %path%file' \
+ --timefmt '%Y-%m-%d %H:%M:%S' \
+ "$WATCH_SYSCTL" "$WATCH_SECURITY" 2>/dev/null
