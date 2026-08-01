@@ -3,57 +3,114 @@
 set -euo pipefail
 
 DOMAIN_SUFFIX="xxx.local"
-
 HOSTS_FILE="/etc/hosts"
-MARKER_START="# --- BEGIN DEVELOPMENT TESTING ---"
-MARKER_END="# --- END DEVELOPMENT TESTING ---"
 
-echo "Querying cluster for LoadBalancer IPs..."
+MARKER_BEG="# --- 🏁 ---"
+MARKER_END="# --- 🏴 ---"
 
-# Get all LoadBalancer services: namespace, name, and IP
-LB_SERVICES=$(kubectl get svc -A --field-selector spec.type=LoadBalancer -o jsonpath='{range .items[?(@.status.loadBalancer.ingress)]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.loadBalancer.ingress[0].ip}{"\n"}{end}')
+# Define colors for output
+CYAN='\033[1;36m'
+GREEN='\033[1;32m'
+NC='\033[0m' # No Color
 
-if [[ -z "$LB_SERVICES" ]]; then
- echo "No LoadBalancer IPs found. Ensure 'minikube tunnel' is running."
+echo
+echo "[+] Querying Cluster External IPs..."
+echo
+
+# Check if kubectl is available for the current user
+if ! command -v kubectl &>/dev/null; then
+ echo "[-] 'kubectl' could not be found." >&2
  exit 1
 fi
 
-# Build the new hosts block in a temporary file
+# Get LoadBalancer services using current user's context
+LB_SERVICES=$(kubectl get svc -A --field-selector spec.type=LoadBalancer -o jsonpath='{range .items[?(@.status.loadBalancer.ingress)]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.loadBalancer.ingress[0].ip}{"\n"}{end}')
+
+if [[ -z "$LB_SERVICES" ]]; then
+ echo "[-] No LoadBalancer IPs found. Ensure your cluster is running and 'minikube tunnel' is active." >&2
+ exit 1
+fi
+
+# Create a temporary block file for the new hosts entries
 TMP_BLOCK=$(mktemp)
-echo "$MARKER_START" >"$TMP_BLOCK"
+trap 'rm -f "$TMP_BLOCK"' EXIT
+
+echo "$MARKER_BEG" >"$TMP_BLOCK"
 
 while read -r ns svc ip; do
- # Skip any services still waiting on an IP
  if [[ -z "$ip" || "$ip" == "<pending>" ]]; then
   continue
  fi
 
- # Default mapping: service-name.xxx.local
- ALIASES="$svc.$DOMAIN_SUFFIX"
+ # Start with the base service alias
+ ALIASES=("$svc.$DOMAIN_SUFFIX")
 
- # If the service is Traefik, dynamically fetch all Gateway API HTTPRoute hostnames
- # and map them to Traefik's external LoadBalancer IP
+ # If the service is Traefik, also pull custom HTTPRoute hostnames
  if [[ "$svc" == "traefik" ]]; then
   ROUTES=$(kubectl get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{" "}{end}{end}' 2>/dev/null || true)
   if [[ -n "$ROUTES" ]]; then
-   ALIASES="$ALIASES $ROUTES"
+   for route in $ROUTES; do
+    ALIASES+=("$route")
+   done
   fi
  fi
 
- echo "$ip $ALIASES" >>"$TMP_BLOCK"
+ # Write each domain mapping to the temporary block and print to console with colored prefix & IP
+ for alias in "${ALIASES[@]}"; do
+  echo "$ip $alias" >>"$TMP_BLOCK"
+
+  # Extract the domain prefix (everything before the first dot)
+  PREFIX="${alias%%.*}"
+
+  # Check if there is a suffix to append back for the terminal output
+  if [[ "$alias" == *.* ]]; then
+   SUFFIX="${alias#*.}"
+   echo -e "  Mapped ${GREEN}${ip}${NC} -> ${CYAN}${PREFIX}${NC}.${SUFFIX}"
+  else
+   echo -e "  Mapped ${GREEN}${ip}${NC} -> ${CYAN}${PREFIX}${NC}"
+  fi
+ done
+
 done <<<"$LB_SERVICES"
 
 echo "$MARKER_END" >>"$TMP_BLOCK"
+echo
 
-echo "Requesting sudo permissions to update $HOSTS_FILE..."
-# Delete the existing block if it exists
-sudo sed -i "/^$MARKER_START$/,/^$MARKER_END$/d" "$HOSTS_FILE"
+# Verify root privileges before modifying /etc/hosts
+if [[ $EUID -ne 0 ]]; then
+ echo "[+] Requesting administrator privileges to update $HOSTS_FILE..."
+ echo
+ SUDO='sudo'
+ # Force sudo to prompt for a password interactively right here
+ $SUDO -v
+else
+ SUDO=''
+fi
 
-# Append the new block
-cat "$TMP_BLOCK" | sudo tee -a "$HOSTS_FILE" >/dev/null
+# Update /etc/hosts cleanly by replacing content between markers (or appending if missing)
+if $SUDO grep -q "$MARKER_BEG" "$HOSTS_FILE"; then
+ # Replace existing block
+ TMP_HOSTS=$(mktemp)
+ # Ensure awk runs with sudo so it can read /etc/hosts on hardened systems
+ $SUDO awk -v beg="$MARKER_BEG" -v end="$MARKER_END" -v block="$TMP_BLOCK" '
+    $0 == beg {
+      while ((getline line < block) > 0) print line
+      skip=1
+      next
+    }
+    $0 == end {
+      skip=0
+      next
+    }
+    !skip { print }
+  ' "$HOSTS_FILE" >"$TMP_HOSTS" && $SUDO mv "$TMP_HOSTS" "$HOSTS_FILE"
 
-echo "Cleaning up..."
-rm "$TMP_BLOCK"
+ # Ensure permissions on /etc/hosts remain secure after mv
+ $SUDO chmod 644 "$HOSTS_FILE"
+else
+ # Append new block to the end of the file
+ cat "$TMP_BLOCK" | $SUDO tee -a "$HOSTS_FILE" >/dev/null
+fi
 
-echo "Success! Inserted the following block into $HOSTS_FILE:"
-grep -A 20 "$MARKER_START" "$HOSTS_FILE"
+echo "[+] Successfully updated $HOSTS_FILE with cluster external IPs!"
+echo
