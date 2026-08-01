@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "Updating limits.conf for performance settings..."
+sudo zip -m /etc/security/limits.conf-back.zip /etc/security/limits.conf
+sudo cp -f limits.conf /etc/security/limits.conf
+sudo chown root:root /etc/security/limits.conf
+sudo chmod 644 /etc/security/limits.conf
+
+echo "Updating sysctl for performance settings..."
+sudo zip -m /etc/sysctl.conf-back.zip /etc/sysctl.conf
+sudo cp -f sysctl.conf /etc/sysctl.conf
+sudo chown root:root /etc/sysctl.conf
+sudo chmod 644 /etc/sysctl.conf
+
+echo "Applying kernel parameters to the system..."
+sudo sysctl -p
