@@ -1,0 +1,95 @@
+#!/bin/bash
+
+function list-available-models {
+ curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" | jq '.models[].name'
+}
+
+# Ensure dependencies are installed
+if ! command -v jq &>/dev/null; then
+ echo "Error: 'jq' is required but not found. Install it via your package manager."
+ exit 1
+fi
+
+if ! command -v curl &>/dev/null; then
+ echo "Error: 'curl' is required but not found."
+ exit 1
+fi
+
+# Ensure API key is set
+if [ -z "$GEMINI_API_KEY" ]; then
+ echo "Error: GEMINI_API_KEY environment variable is missing."
+ echo "Run: export GEMINI_API_KEY='your_google_api_key'"
+ exit 1
+else
+ echo "API KEY FOUND!"
+ echo "GEMINI_API_KEY=\"$GEMINI_API_KEY\""
+fi
+
+# API Configuration
+MODEL="gemini-3.6-flash" # Feel free to update to your specific model
+API_URL="https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}"
+
+# Initialize temporary files
+HISTORY_FILE=$(mktemp)
+RESPONSE_FILE=$(mktemp)
+echo "[]" >"$HISTORY_FILE"
+
+echo "====================================================="
+echo "  Gemini Terminal Chat (Type 'exit' to quit)         "
+echo "====================================================="
+
+# Clean up temporary files on exit
+trap 'rm -f "$HISTORY_FILE" "$RESPONSE_FILE"' EXIT
+
+while true; do
+ # Prompt for user input
+ read -e -p $'\e[1;32mYou:\e[0m ' user_input
+
+ # Handle exit commands
+ if [[ "$user_input" == "exit" || "$user_input" == "quit" ]]; then
+  echo "Session ended."
+  break
+ fi
+
+ # Skip empty inputs
+ if [[ -z "${user_input// /}" ]]; then
+  continue
+ fi
+
+ # Safely append user message to history array using jq
+ jq --arg text "$user_input" \
+  '. += [{"role": "user", "parts": [{"text": $text}]}]' \
+  "$HISTORY_FILE" >"${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+
+ # Construct JSON payload
+ PAYLOAD="{\"contents\": $(cat "$HISTORY_FILE")}"
+
+ # Call the Gemini API - write body directly to file to prevent JSON truncation
+ HTTP_STATUS=$(curl -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST "$API_URL" \
+  -H 'Content-Type: application/json' \
+  -d "$PAYLOAD")
+
+ if [ "$HTTP_STATUS" -eq 200 ]; then
+  # Robustly parse the model's reply, mapping over parts and ignoring thoughtSignatures
+  REPLY_TEXT=$(jq -r '(.candidates[0].content.parts // []) | map(select(.text != null) | .text) | join("") // empty' "$RESPONSE_FILE")
+
+  if [ -n "$REPLY_TEXT" ]; then
+   echo -e "\n\e[1;34mGemini:\e[0m\n$REPLY_TEXT\n"
+
+   # Append only the clean text back to history
+   jq --arg text "$REPLY_TEXT" \
+    '. += [{"role": "model", "parts": [{"text": $text}]}]' \
+    "$HISTORY_FILE" >"${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+  else
+   echo -e "\n\e[1;31m[Error: Couldn't extract text from response]\e[0m\n"
+   cat "$RESPONSE_FILE" | jq .
+   # Revert user message to maintain turn order
+   jq 'del(.[-1])' "$HISTORY_FILE" >"${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+  fi
+ else
+  echo -e "\n\e[1;31m[API Error: $HTTP_STATUS]\e[0m\n"
+  jq -r '.error.message // "Unknown error"' "$RESPONSE_FILE"
+  # Revert user message to maintain turn order
+  jq 'del(.[-1])' "$HISTORY_FILE" >"${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+ fi
+done
