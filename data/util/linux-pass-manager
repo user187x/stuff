@@ -76,7 +76,8 @@ setup_gpg_agent() {
 generate_gpg_key_if_needed() {
  if ! gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
   echo "Generating secure GPG key seamlessly (this may take a moment)..."
-  local batch_file=$(mktemp)
+  local batch_file
+  batch_file=$(mktemp)
   cat <<EOF >"$batch_file"
 %echo Generating key
 Key-Type: RSA
@@ -100,8 +101,47 @@ EOF
  fi
 }
 
+# FIX: Validate the supplied password against the certificate using the correct
+# OpenSSL tool for the file's actual type. The previous code always used
+# `openssl pkey`, which does not portably read PKCS#12 (.p12/.pfx) bundles
+# (it only happens to work on OpenSSL 3.x), so the default .p12 configuration
+# could never pass setup on systems shipping OpenSSL 1.1.x.
+validate_cert_password() {
+ local cert_file="$1"
+ local pass_phrase="$2"
+ local lower="${cert_file,,}"
+
+ if [[ "$lower" == *.p12 || "$lower" == *.pfx ]]; then
+  openssl pkcs12 -in "$cert_file" -passin pass:"$pass_phrase" -noout 2>/dev/null
+ else
+  # PEM (cert+key bundle or standalone encrypted key)
+  openssl pkey -in "$cert_file" -passin pass:"$pass_phrase" -noout 2>/dev/null
+ fi
+}
+
+# FIX: Warm the gpg-agent cache immediately after the passphrase is set/entered.
+# Generating the GPG key does NOT populate the agent's decrypt cache, so without
+# this the very next `pass` decrypt in the main flow would prompt the user a
+# SECOND time right after setup — defeating the whole "enter it once" purpose.
+# A loopback decrypt with the known passphrase primes the cache; subsequent
+# agent-only decrypts then succeed silently within the TTL.
+prime_agent_cache() {
+ local pass_phrase="$1"
+
+ # (Re)create the tiny probe file encrypted to our own key.
+ echo "cache check" | gpg --batch --yes --trust-model always \
+  --encrypt -r "$GPG_EMAIL" >"$TEST_ENC_FILE" 2>/dev/null
+
+ if gpg --batch --pinentry-mode loopback --passphrase "$pass_phrase" \
+  --decrypt "$TEST_ENC_FILE" >/dev/null 2>&1; then
+  date +%s >"$UNLOCK_FILE"
+  return 0
+ fi
+ return 1
+}
+
 create_or_update_entry() {
- read -erp "Enter path to the certificate (PEM format): " NEW_CERT_PATH
+ read -erp "Enter path to the certificate (PEM or PKCS#12 .p12): " NEW_CERT_PATH
  if [ ! -f "$NEW_CERT_PATH" ]; then
   echo "Error: Certificate file not found at $NEW_CERT_PATH"
   exit 1
@@ -118,27 +158,36 @@ create_or_update_entry() {
  fi
 
  echo -n "Validating password against certificate"
- for i in 1 2 3; do
+ for _ in 1 2 3; do
   echo -n "."
   sleep 0.3
  done
  echo
 
- # Check valid format and password using OpenSSL
- if ! openssl pkey -in "$NEW_CERT_PATH" -passin pass:"$USER_PASS" -noout 2>/dev/null; then
-  echo "Error: Incorrect password or invalid PEM certificate format."
+ # Check valid format and password using OpenSSL (type-aware).
+ if ! validate_cert_password "$NEW_CERT_PATH" "$USER_PASS"; then
+  echo "Error: Incorrect password or invalid/unsupported certificate format."
   exit 1
+ fi
+
+ # FIX: Detect whether the vault's GPG key already exists BEFORE (possibly)
+ # creating it, so we can tell a brand-new key (passphrase == this password)
+ # apart from a pre-existing key (whose passphrase may differ).
+ local key_existed=false
+ if gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
+  key_existed=true
  fi
 
  generate_gpg_key_if_needed
 
  # Gather Metadata
- local filepath=$(dirname "$(realpath -m "$NEW_CERT_PATH")")
- local filename=$(basename "$NEW_CERT_PATH")
- local filesize=$(wc -c <"$NEW_CERT_PATH" 2>/dev/null | awk '{print $1}' || echo "Unknown")
- local created_time=$(date +"%Y-%m-%d %H:%M:%S %Z")
+ local filepath filename filesize created_time
+ filepath=$(dirname "$(realpath -m "$NEW_CERT_PATH")")
+ filename=$(basename "$NEW_CERT_PATH")
+ filesize=$(wc -c <"$NEW_CERT_PATH" 2>/dev/null | awk '{print $1}' || echo "Unknown")
+ created_time=$(date +"%Y-%m-%d %H:%M:%S %Z")
 
- # Format Multi-line Payload
+ # Format Multi-line Payload (line 1 MUST be the raw certificate password).
  local payload
  payload=$(
   cat <<EOF
@@ -150,10 +199,27 @@ Created: $created_time
 EOF
  )
 
- # Store securely (overwrites existing if present)
- if ! echo "$payload" | pass insert -f -m "$PASS_ENTRY" >/dev/null; then
+ # Store securely (overwrites existing if present).
+ if ! printf '%s\n' "$payload" | pass insert -f -m "$PASS_ENTRY" >/dev/null; then
   echo "Error: Failed to store password in pass."
   exit 1
+ fi
+
+ # FIX: Prime the cache so the user is NOT asked for the password again on this
+ # run, and start the 8-hour unlock timer from this moment.
+ if prime_agent_cache "$USER_PASS"; then
+  echo "Vault unlocked and cached for the next 8 hours."
+ else
+  # Priming only fails when a GPG key already existed with a DIFFERENT
+  # passphrase than the certificate password just entered. The certificate
+  # password has still been stored correctly and curl will work, but the
+  # "unlock" passphrase (the GPG key passphrase) no longer matches it.
+  if [ "$key_existed" = true ]; then
+   echo "Note: the stored certificate password was updated, but the vault's"
+   echo "      unlock passphrase differs from it (the GPG key predates this"
+   echo "      change). To make a single password unlock everything again, run:"
+   echo "          $0 --clean    # then re-run to set it up fresh"
+  fi
  fi
 }
 
@@ -208,7 +274,8 @@ show_details() {
 # ==========================================
 install_dependencies
 setup_gpg_agent
-export GPG_TTY=$(tty)
+export GPG_TTY
+GPG_TTY=$(tty 2>/dev/null || echo "")
 
 # Argument Parsing Utility
 case "$1" in
@@ -263,17 +330,19 @@ esac
 
 setup_pass_if_needed
 
-# Ensure dummy encrypted file exists to test cache silently
+# Ensure dummy encrypted file exists to test cache silently.
 if [ ! -f "$TEST_ENC_FILE" ]; then
- echo "cache check" | gpg --batch --yes --encrypt -r "$GPG_EMAIL" >"$TEST_ENC_FILE" 2>/dev/null
+ echo "cache check" | gpg --batch --yes --trust-model always \
+  --encrypt -r "$GPG_EMAIL" >"$TEST_ENC_FILE" 2>/dev/null
 fi
 
-# Silently test if GPG agent already has password cached
+# Silently test if GPG agent already has the passphrase cached.
 NEEDS_UNLOCK=false
 if ! gpg --batch --pinentry-mode error --decrypt "$TEST_ENC_FILE" &>/dev/null; then
  NEEDS_UNLOCK=true
 fi
 
+# This decrypt prompts (once) only if the cache is cold; otherwise it is silent.
 PASS_OUTPUT=$(pass "$PASS_ENTRY")
 
 if [ -z "$PASS_OUTPUT" ]; then
@@ -281,22 +350,25 @@ if [ -z "$PASS_OUTPUT" ]; then
  exit 1
 fi
 
-if [ "$NEEDS_UNLOCK" = true ]; then
+# FIX: Start/refresh the unlock timer whenever we actually had to unlock, and
+# also initialize it if it is simply missing (e.g. first successful run), so the
+# --details view and countdown never wrongly report "Locked" while cached.
+if [ "$NEEDS_UNLOCK" = true ] || [ ! -f "$UNLOCK_FILE" ]; then
  date +%s >"$UNLOCK_FILE"
 fi
 
-# Extract Password (Line 1) and Metadata (Lines 2+)
-CERT_PASS=$(echo "$PASS_OUTPUT" | head -n 1)
-METADATA=$(echo "$PASS_OUTPUT" | tail -n +2)
+# Extract Password (Line 1) and Metadata (Lines 2+).
+CERT_PASS=$(printf '%s\n' "$PASS_OUTPUT" | head -n 1)
+METADATA=$(printf '%s\n' "$PASS_OUTPUT" | tail -n +2)
 
-# Dynamically override CERT_PATH if found in metadata to accommodate PEM usage
-STORED_PATH=$(echo "$METADATA" | grep "^Filepath: " | sed 's/^Filepath: //')
-STORED_NAME=$(echo "$METADATA" | grep "^Filename: " | sed 's/^Filename: //')
+# Dynamically override CERT_PATH if found in metadata to accommodate PEM usage.
+STORED_PATH=$(printf '%s\n' "$METADATA" | grep "^Filepath: " | sed 's/^Filepath: //')
+STORED_NAME=$(printf '%s\n' "$METADATA" | grep "^Filename: " | sed 's/^Filename: //')
 if [ -n "$STORED_PATH" ] && [ -n "$STORED_NAME" ]; then
  CERT_PATH="${STORED_PATH}/${STORED_NAME}"
 fi
 
-# Determine cert type to pass to curl (P12 vs PEM)
+# Determine cert type to pass to curl (P12 vs PEM).
 CERT_TYPE="P12"
 if [[ "${CERT_PATH,,}" == *.pem ]]; then
  CERT_TYPE="PEM"
@@ -321,7 +393,8 @@ echo " Vault locks again in: ${HRS}h ${MINS}m ${SECS}s"
 echo "=================================================="
 echo -e "\nExecuting curl request..."
 
-# Execute the curl command
+# Execute the curl command.
+# Note: the certificate password is supplied via the "path:password" form.
 curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
 
 echo -e "\nWork invoked successfully!"
