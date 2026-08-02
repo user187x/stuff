@@ -21,8 +21,9 @@ if [ -z "$GEMINI_API_KEY" ]; then
  echo "Run: export GEMINI_API_KEY='your_google_api_key'"
  exit 1
 else
- echo "API KEY FOUND!"
- echo "GEMINI_API_KEY=\"$GEMINI_API_KEY\""
+ echo
+ echo -e "\e[90m API KEY FOUND\e[0m"
+ echo -e "\e[92m GEMINI_API_KEY: \e[93m$GEMINI_API_KEY\e[0m"
 fi
 
 # API Configuration
@@ -34,9 +35,8 @@ HISTORY_FILE=$(mktemp)
 RESPONSE_FILE=$(mktemp)
 echo "[]" >"$HISTORY_FILE"
 
-echo "====================================================="
-echo "  Gemini Terminal Chat (Type 'exit' to quit)         "
-echo "====================================================="
+echo -e "\e[1;27m LLM Inferencing \e[0m[\e[92mACTIVE\e[0m]\e[90m (type 'exit' to quit) \e[0m"
+echo
 
 # Clean up temporary files on exit
 trap 'rm -f "$HISTORY_FILE" "$RESPONSE_FILE"' EXIT
