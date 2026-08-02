@@ -1,0 +1,165 @@
+#!/bin/bash
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+CERT_PATH="$HOME/my-cert.p12"     # Update this to the path of your .p12 certificate
+CURL_TARGET="https://example.com" # Update this to your target URL
+PASS_ENTRY="work/cert-password"
+GPG_NAME="Work Cert Key"
+GPG_EMAIL="work-cert-key@${USER}.local"
+CACHE_TTL=28800 # 8 hours in seconds
+
+# ==========================================
+# 1. SEAMLESS DEPENDENCY INSTALLATION
+# ==========================================
+install_dependencies() {
+ local missing_pkgs=()
+
+ for pkg in pass gpg curl; do
+  if ! command -v "$pkg" &>/dev/null; then
+   # Map gpg to gnupg for package managers
+   [ "$pkg" == "gpg" ] && pkg_name="gnupg" || pkg_name="$pkg"
+   missing_pkgs+=("$pkg_name")
+  fi
+ done
+
+ if [ ${#missing_pkgs[@]} -ne 0 ]; then
+  echo "Installing missing dependencies: ${missing_pkgs[*]}..."
+  if command -v apt-get &>/dev/null; then
+   sudo apt-get update -qq
+   sudo apt-get install -y -qq "${missing_pkgs[@]}"
+  elif command -v yum &>/dev/null; then
+   sudo yum install -y -q "${missing_pkgs[@]}"
+  else
+   echo "Error: Neither apt-get nor yum found. Please install ${missing_pkgs[*]} manually."
+   exit 1
+  fi
+ fi
+}
+
+# ==========================================
+# 2. GPG AGENT CONFIGURATION (8-Hour Cache)
+# ==========================================
+setup_gpg_agent() {
+ mkdir -p "$HOME/.gnupg"
+ chmod 700 "$HOME/.gnupg"
+
+ local agent_conf="$HOME/.gnupg/gpg-agent.conf"
+ local needs_reload=false
+
+ # Set default cache timeout to 8 hours
+ if ! grep -q "default-cache-ttl $CACHE_TTL" "$agent_conf" 2>/dev/null; then
+  echo "default-cache-ttl $CACHE_TTL" >>"$agent_conf"
+  needs_reload=true
+ fi
+
+ # Set maximum cache timeout to 8 hours
+ if ! grep -q "max-cache-ttl $CACHE_TTL" "$agent_conf" 2>/dev/null; then
+  echo "max-cache-ttl $CACHE_TTL" >>"$agent_conf"
+  needs_reload=true
+ fi
+
+ # Allow loopback pinentry for seamless batch key generation
+ if ! grep -q "allow-loopback-pinentry" "$agent_conf" 2>/dev/null; then
+  echo "allow-loopback-pinentry" >>"$agent_conf"
+  needs_reload=true
+ fi
+
+ # Restart gpg-agent safely to apply changes
+ if $needs_reload; then
+  if command -v gpgconf &>/dev/null; then
+   gpgconf --kill gpg-agent
+  else
+   killall gpg-agent 2>/dev/null || true
+  fi
+ fi
+}
+
+# ==========================================
+# 3. FIRST-TIME PASS & GPG SETUP
+# ==========================================
+setup_pass_if_needed() {
+ # Check if the pass entry already exists. If not, run setup.
+ if ! pass "$PASS_ENTRY" >/dev/null 2>&1; then
+  echo "=================================================="
+  echo " First-time setup: Secure Password Store"
+  echo "=================================================="
+  echo "Please enter your Certificate Password."
+  echo "This will be securely stored and used to unlock your workday environment for 8 hours."
+
+  read -s -p "Password: " USER_PASS
+  echo
+  read -s -p "Confirm Password: " USER_PASS_CONFIRM
+  echo
+
+  if [ "$USER_PASS" != "$USER_PASS_CONFIRM" ]; then
+   echo "Error: Passwords do not match. Exiting."
+   exit 1
+  fi
+
+  echo "Generating secure GPG key seamlessly (this may take a moment)..."
+
+  # Generate GPG key seamlessly in the background using RSA to avoid Elliptic Curve errors
+  if ! gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
+   local batch_file=$(mktemp)
+   cat <<EOF >"$batch_file"
+%echo Generating key
+Key-Type: RSA
+Key-Length: 3072
+Subkey-Type: RSA
+Subkey-Length: 3072
+Name-Real: $GPG_NAME
+Name-Email: $GPG_EMAIL
+Expire-Date: 0
+Passphrase: $USER_PASS
+%commit
+%echo done
+EOF
+   if ! gpg --batch --pinentry-mode loopback --passphrase "$USER_PASS" --generate-key "$batch_file"; then
+    echo "Error: GPG key generation failed."
+    rm -f "$batch_file"
+    exit 1
+   fi
+   rm -f "$batch_file"
+  fi
+
+  # Initialize the 'pass' store for this GPG email
+  pass init "$GPG_EMAIL" >/dev/null
+
+  # Insert the certificate password into 'pass'
+  if ! echo "$USER_PASS" | pass insert -f -m "$PASS_ENTRY" >/dev/null; then
+   echo "Error: Failed to store password in pass."
+   exit 1
+  fi
+
+  echo "Setup complete! Your environment is secured."
+  echo "--------------------------------------------------"
+ fi
+}
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+
+install_dependencies
+setup_gpg_agent
+setup_pass_if_needed
+
+# Export GPG_TTY so the password prompt (pinentry) renders properly in the terminal
+export GPG_TTY=$(tty)
+
+# Retrieve the password from pass.
+CERT_PASS=$(pass "$PASS_ENTRY")
+
+if [ -z "$CERT_PASS" ]; then
+ echo "Error: Failed to retrieve password from password manager."
+ exit 1
+fi
+
+echo "Authenticating and executing curl request..."
+
+# Execute the curl command using the user's certificate and unlocked password
+curl --silent --cert-type P12 --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
+
+echo -e "\nWork invoked successfully!"
