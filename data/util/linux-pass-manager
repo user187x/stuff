@@ -1,0 +1,327 @@
+#!/bin/bash
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+CERT_PATH="$HOME/my-cert.p12"
+CURL_TARGET="https://grey-marshall.com"
+PASS_ENTRY="work/cert-password"
+GPG_NAME="Work Cert Key"
+GPG_EMAIL="work-cert-key@${USER}.local"
+CACHE_TTL=28800 # 8 hours in seconds
+UNLOCK_FILE="$HOME/.gnupg/.work-unlock-time"
+TEST_ENC_FILE="$HOME/.gnupg/.pass-check.gpg"
+
+function nuke-all {
+ gpgconf --kill gpg-agent
+ rm -rf ~/.password-store
+ rm -rf ~/.gnupg
+}
+
+# ==========================================
+# 1. SEAMLESS DEPENDENCY INSTALLATION
+# ==========================================
+install_dependencies() {
+ local missing_pkgs=()
+ for pkg in pass gpg curl openssl; do
+  if ! command -v "$pkg" &>/dev/null; then
+   [ "$pkg" == "gpg" ] && pkg_name="gnupg" || pkg_name="$pkg"
+   missing_pkgs+=("$pkg_name")
+  fi
+ done
+
+ if [ ${#missing_pkgs[@]} -ne 0 ]; then
+  echo "Installing missing dependencies: ${missing_pkgs[*]}..."
+  if command -v apt-get &>/dev/null; then
+   sudo apt-get update -qq && sudo apt-get install -y -qq "${missing_pkgs[@]}"
+  elif command -v yum &>/dev/null; then
+   sudo yum install -y -q "${missing_pkgs[@]}"
+  else
+   echo "Error: Package manager not found. Install ${missing_pkgs[*]} manually."
+   exit 1
+  fi
+ fi
+}
+
+# ==========================================
+# 2. GPG AGENT CONFIGURATION (8-Hour Cache)
+# ==========================================
+setup_gpg_agent() {
+ mkdir -p "$HOME/.gnupg"
+ chmod 700 "$HOME/.gnupg"
+
+ local agent_conf="$HOME/.gnupg/gpg-agent.conf"
+ local needs_reload=false
+
+ # Enforce 8-hour timeouts exactly
+ for setting in "default-cache-ttl $CACHE_TTL" "max-cache-ttl $CACHE_TTL" "allow-loopback-pinentry"; do
+  if ! grep -q "^$setting" "$agent_conf" 2>/dev/null; then
+   echo "$setting" >>"$agent_conf"
+   needs_reload=true
+  fi
+ done
+
+ if $needs_reload; then
+  if command -v gpgconf &>/dev/null; then
+   gpgconf --kill gpg-agent
+  else
+   killall gpg-agent 2>/dev/null || true
+  fi
+ fi
+}
+
+# ==========================================
+# 3. CORE PASS & GPG MANAGEMENT
+# ==========================================
+generate_gpg_key_if_needed() {
+ if ! gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
+  echo "Generating secure GPG key seamlessly (this may take a moment)..."
+  local batch_file=$(mktemp)
+  cat <<EOF >"$batch_file"
+%echo Generating key
+Key-Type: RSA
+Key-Length: 3072
+Subkey-Type: RSA
+Subkey-Length: 3072
+Name-Real: $GPG_NAME
+Name-Email: $GPG_EMAIL
+Expire-Date: 0
+Passphrase: $USER_PASS
+%commit
+%echo done
+EOF
+  if ! gpg --batch --pinentry-mode loopback --passphrase "$USER_PASS" --generate-key "$batch_file" 2>/dev/null; then
+   echo "Error: GPG key generation failed."
+   rm -f "$batch_file"
+   exit 1
+  fi
+  rm -f "$batch_file"
+  pass init "$GPG_EMAIL" >/dev/null
+ fi
+}
+
+create_or_update_entry() {
+ read -erp "Enter path to the certificate (PEM format): " NEW_CERT_PATH
+ if [ ! -f "$NEW_CERT_PATH" ]; then
+  echo "Error: Certificate file not found at $NEW_CERT_PATH"
+  exit 1
+ fi
+
+ read -s -p "Enter Certificate Password: " USER_PASS
+ echo
+ read -s -p "Confirm Password: " USER_PASS_CONFIRM
+ echo
+
+ if [ "$USER_PASS" != "$USER_PASS_CONFIRM" ]; then
+  echo "Error: Passwords do not match. Exiting."
+  exit 1
+ fi
+
+ echo -n "Validating password against certificate"
+ for i in 1 2 3; do
+  echo -n "."
+  sleep 0.3
+ done
+ echo
+
+ # Check valid format and password using OpenSSL
+ if ! openssl pkey -in "$NEW_CERT_PATH" -passin pass:"$USER_PASS" -noout 2>/dev/null; then
+  echo "Error: Incorrect password or invalid PEM certificate format."
+  exit 1
+ fi
+
+ generate_gpg_key_if_needed
+
+ # Gather Metadata
+ local filepath=$(dirname "$(realpath -m "$NEW_CERT_PATH")")
+ local filename=$(basename "$NEW_CERT_PATH")
+ local filesize=$(wc -c <"$NEW_CERT_PATH" 2>/dev/null | awk '{print $1}' || echo "Unknown")
+ local created_time=$(date +"%Y-%m-%d %H:%M:%S %Z")
+
+ # Format Multi-line Payload
+ local payload
+ payload=$(
+  cat <<EOF
+$USER_PASS
+Filepath: $filepath
+Filename: $filename
+Size: $filesize bytes
+Created: $created_time
+EOF
+ )
+
+ # Store securely (overwrites existing if present)
+ if ! echo "$payload" | pass insert -f -m "$PASS_ENTRY" >/dev/null; then
+  echo "Error: Failed to store password in pass."
+  exit 1
+ fi
+}
+
+setup_pass_if_needed() {
+ if ! pass "$PASS_ENTRY" >/dev/null 2>&1; then
+  echo "=================================================="
+  echo " First-time setup: Secure Password Store"
+  echo "=================================================="
+  create_or_update_entry
+  echo "Setup complete! Your environment is secured."
+  echo "--------------------------------------------------"
+ fi
+}
+
+show_details() {
+ LAST_UNLOCK=$(cat "$UNLOCK_FILE" 2>/dev/null || echo 0)
+ NOW=$(date +%s)
+ ELAPSED=$((NOW - LAST_UNLOCK))
+ REMAINING=$((CACHE_TTL - ELAPSED))
+
+ if [ "$REMAINING" -lt 0 ]; then
+  REMAINING=0
+ fi
+
+ HRS=$((REMAINING / 3600))
+ MINS=$(((REMAINING % 3600) / 60))
+ SECS=$((REMAINING % 60))
+
+ echo "=================================================="
+ echo " Vault Details"
+ echo "=================================================="
+ if [ "$REMAINING" -gt 0 ] && [ "$LAST_UNLOCK" -ne 0 ]; then
+  EXP_DATE=$(date -d "@$((NOW + REMAINING))" +"%Y-%m-%d %H:%M:%S")
+  echo "Status: Unlocked"
+  echo "Expires: $EXP_DATE"
+
+  BAR_WIDTH=30
+  FILL=$(((REMAINING * BAR_WIDTH) / CACHE_TTL))
+  EMPTY=$((BAR_WIDTH - FILL))
+  printf -v BAR_FILL "%${FILL}s" ""
+  printf -v BAR_EMPTY "%${EMPTY}s" ""
+  echo "Progress: [${BAR_FILL// /#}${BAR_EMPTY// /-}] ${HRS}h ${MINS}m ${SECS}s remaining"
+ else
+  echo "Status: Locked"
+  echo "Progress: [------------------------------] 0h 0m 0s remaining"
+ fi
+ echo "=================================================="
+}
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+install_dependencies
+setup_gpg_agent
+export GPG_TTY=$(tty)
+
+# Argument Parsing Utility
+case "$1" in
+ --list)
+  pass "$PASS_ENTRY"
+  exit 0
+  ;;
+ --details)
+  show_details
+  exit 0
+  ;;
+ --update | --create)
+  create_or_update_entry
+  echo "Entry successfully processed."
+  exit 0
+  ;;
+ --delete)
+  pass rm -f "$PASS_ENTRY"
+  echo "Deleted pass entry: $PASS_ENTRY"
+  exit 0
+  ;;
+ --reset-timer)
+  gpgconf --kill gpg-agent
+  rm -f "$UNLOCK_FILE"
+  echo "Timer reset. Vault is now locked."
+  exit 0
+  ;;
+ --edit)
+  EDITOR=vim pass edit "$PASS_ENTRY"
+  exit 0
+  ;;
+ --clean)
+  nuke-all
+  echo "Pass has been nuked."
+  exit 0
+  ;;
+ --help | -h)
+  echo "Usage: $0 [OPTION]"
+  echo "Options:"
+  echo "  --list          Display the unencrypted pass entry."
+  echo "  --details       Show expiration date with a time-remaining progress bar."
+  echo "  --update        Update the existing password and certificate association."
+  echo "  --create        Create a new pass entry, overwriting the existing one."
+  echo "  --delete        Delete the pass entry."
+  echo "  --reset-timer   Reset the 8-hour vault unlock timer."
+  echo "  --edit          Edit the pass entry directly using Vim."
+  echo "  --clean         Remove all pass and GPG configurations."
+  echo "  --help, -h      Display this help message."
+  exit 0
+  ;;
+esac
+
+setup_pass_if_needed
+
+# Ensure dummy encrypted file exists to test cache silently
+if [ ! -f "$TEST_ENC_FILE" ]; then
+ echo "cache check" | gpg --batch --yes --encrypt -r "$GPG_EMAIL" >"$TEST_ENC_FILE" 2>/dev/null
+fi
+
+# Silently test if GPG agent already has password cached
+NEEDS_UNLOCK=false
+if ! gpg --batch --pinentry-mode error --decrypt "$TEST_ENC_FILE" &>/dev/null; then
+ NEEDS_UNLOCK=true
+fi
+
+PASS_OUTPUT=$(pass "$PASS_ENTRY")
+
+if [ -z "$PASS_OUTPUT" ]; then
+ echo "Error: Failed to retrieve or unlock password manager vault."
+ exit 1
+fi
+
+if [ "$NEEDS_UNLOCK" = true ]; then
+ date +%s >"$UNLOCK_FILE"
+fi
+
+# Extract Password (Line 1) and Metadata (Lines 2+)
+CERT_PASS=$(echo "$PASS_OUTPUT" | head -n 1)
+METADATA=$(echo "$PASS_OUTPUT" | tail -n +2)
+
+# Dynamically override CERT_PATH if found in metadata to accommodate PEM usage
+STORED_PATH=$(echo "$METADATA" | grep "^Filepath: " | sed 's/^Filepath: //')
+STORED_NAME=$(echo "$METADATA" | grep "^Filename: " | sed 's/^Filename: //')
+if [ -n "$STORED_PATH" ] && [ -n "$STORED_NAME" ]; then
+ CERT_PATH="${STORED_PATH}/${STORED_NAME}"
+fi
+
+# Determine cert type to pass to curl (P12 vs PEM)
+CERT_TYPE="P12"
+if [[ "${CERT_PATH,,}" == *.pem ]]; then
+ CERT_TYPE="PEM"
+fi
+
+LAST_UNLOCK=$(cat "$UNLOCK_FILE" 2>/dev/null || echo 0)
+NOW=$(date +%s)
+ELAPSED=$((NOW - LAST_UNLOCK))
+REMAINING=$((CACHE_TTL - ELAPSED))
+if [ "$REMAINING" -lt 0 ]; then REMAINING=0; fi
+
+HRS=$((REMAINING / 3600))
+MINS=$(((REMAINING % 3600) / 60))
+SECS=$((REMAINING % 60))
+
+echo "=================================================="
+echo " 🔒 Vault Unlocked "
+echo "=================================================="
+echo "$METADATA"
+echo "--------------------------------------------------"
+echo " Vault locks again in: ${HRS}h ${MINS}m ${SECS}s"
+echo "=================================================="
+echo -e "\nExecuting curl request..."
+
+# Execute the curl command
+curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
+
+echo -e "\nWork invoked successfully!"
