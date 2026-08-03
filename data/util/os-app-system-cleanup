@@ -23,10 +23,8 @@ fi
 TMP_SNAP=$(mktemp)
 TMP_FLATPAK=$(mktemp)
 
-# Gather installed packages (ignoring headers)
-# Snap output: Name Version
+# Gather installed packages
 snap list | awk 'NR>1 {print $1, $2}' >"$TMP_SNAP"
-# Flatpak output: ApplicationID Version
 flatpak list --app --columns=application,version >"$TMP_FLATPAK"
 
 # Read flatpak apps into associative arrays
@@ -35,7 +33,6 @@ declare -A flatpak_versions
 
 while read -r f_id f_version; do
  flatpak_apps["$f_id"]="$f_id"
- # Fallback to a dash if version is empty
  flatpak_versions["$f_id"]="${f_version:--}"
 done <"$TMP_FLATPAK"
 
@@ -45,23 +42,18 @@ duplicates_found=0
 while read -r s_name s_version; do
  matched_f_id=""
 
- # Matching Logic 1: Exact suffix match (e.g., snap "vlc" matches flatpak "org.videolan.VLC")
+ # IMPROVED MATCHING LOGIC: Token-based exact word matching
  for f_id in "${!flatpak_apps[@]}"; do
-  if [[ "${f_id,,}" == *".${s_name,,}" ]]; then
+  # Replace dots and dashes with spaces to isolate words
+  # e.g., "org.videolan.VLC" becomes "org videolan VLC"
+  f_tokens="${f_id//[.-]/ }"
+
+  # Check if the snap name is an exact standalone word in the flatpak ID
+  if [[ " ${f_tokens,,} " == *" ${s_name,,} "* ]]; then
    matched_f_id="$f_id"
    break
   fi
  done
-
- # Matching Logic 2: Substring match (e.g., snap "spotify" matches flatpak "com.spotify.Client")
- if [ -z "$matched_f_id" ]; then
-  for f_id in "${!flatpak_apps[@]}"; do
-   if [[ "${f_id,,}" == *"${s_name,,}"* ]]; then
-    matched_f_id="$f_id"
-    break
-   fi
-  done
- fi
 
  # If a duplicate is found, compare versions and prompt user
  if [ -n "$matched_f_id" ]; then
@@ -73,17 +65,23 @@ while read -r s_name s_version; do
 
   # Determine which version is newer using sort -V (Version sort)
   if [ "$s_version" = "$f_version" ]; then
-   : # Versions are identical, do nothing special
+   : # Versions are identical
   elif [ "$s_version" = "-" ] || [ "$f_version" = "-" ]; then
-   : # Missing version data, skip comparison
+   : # Missing version data
   else
-   newer=$(printf "%s\n%s\n" "$s_version" "$f_version" | sort -V | tail -n 1)
-   if [ "$newer" = "$s_version" ]; then
-    s_newer="${GREEN}(Newer)${NC}"
-    f_newer="${RED}(Older)${NC}"
-   else
-    s_newer="${RED}(Older)${NC}"
-    f_newer="${GREEN}(Newer)${NC}"
+   # Strip non-numeric/dot characters (like git hashes) for cleaner comparison
+   clean_s=$(echo "$s_version" | sed -E 's/[^0-9.]//g')
+   clean_f=$(echo "$f_version" | sed -E 's/[^0-9.]//g')
+
+   if [[ -n "$clean_s" && -n "$clean_f" ]]; then
+    newer=$(printf "%s\n%s\n" "$clean_s" "$clean_f" | sort -V | tail -n 1)
+    if [ "$newer" = "$clean_s" ] && [ "$clean_s" != "$clean_f" ]; then
+     s_newer="${GREEN}(Newer)${NC}"
+     f_newer="${RED}(Older)${NC}"
+    elif [ "$newer" = "$clean_f" ] && [ "$clean_s" != "$clean_f" ]; then
+     s_newer="${RED}(Older)${NC}"
+     f_newer="${GREEN}(Newer)${NC}"
+    fi
    fi
   fi
 
@@ -96,17 +94,19 @@ while read -r s_name s_version; do
   echo "  1) Remove Snap package"
   echo "  2) Remove Flatpak package"
   echo "  3) Keep both (Skip)"
-  read -p "Enter choice [1-3]: " choice
+
+  # FIX: Explicitly read from /dev/tty so the file loop doesn't swallow the prompt
+  read -p "Enter choice [1-3]: " choice </dev/tty
 
   case $choice in
    1)
     echo -e "\nRemoving Snap package: $s_name..."
-    sudo snap remove "$s_name"
+    # Also pass /dev/tty to sudo in case it needs password input
+    sudo snap remove "$s_name" </dev/tty
     ;;
    2)
     echo -e "\nRemoving Flatpak package: $matched_f_id..."
-    # Flatpak handles its own auth via polkit if needed
-    flatpak uninstall -y "$matched_f_id"
+    flatpak uninstall -y "$matched_f_id" </dev/tty
     ;;
    *)
     echo -e "\nSkipping $s_name..."

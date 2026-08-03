@@ -182,10 +182,12 @@ function create_or_update_entry {
  payload=$(
   cat <<EOF
 $USER_PASS
-Filepath: $filepath
-Filename: $filename
-Size: $filesize bytes
-Created: $created_time
+
+Filepath : $filepath
+Filename : $filename
+Size     : $filesize bytes
+Created  : $created_time
+
 EOF
  )
 
@@ -218,45 +220,88 @@ function setup_pass_if_needed {
 
 function show_details {
 
- LAST_UNLOCK=$(cat "$UNLOCK_FILE" 2>/dev/null || echo 0)
- NOW=$(date +%s)
- ELAPSED=$((NOW - LAST_UNLOCK))
- REMAINING=$((CACHE_TTL - ELAPSED))
+ # Hide the cursor for a clean animation and trap Ctrl+C to restore it
+ tput civis
+ trap 'tput cnorm; echo; exit 0' SIGINT
 
- if [ "$REMAINING" -lt 0 ]; then
-  REMAINING=0
- fi
+ while true; do
+  clear
 
- HRS=$((REMAINING / 3600))
- MINS=$(((REMAINING % 3600) / 60))
- SECS=$((REMAINING % 60))
+  LAST_UNLOCK=$(cat "$UNLOCK_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - LAST_UNLOCK))
+  REMAINING=$((CACHE_TTL - ELAPSED))
 
- echo
- echo "Vault Details"
- echo "============="
+  if [ "$REMAINING" -lt 0 ]; then
+   REMAINING=0
+  fi
 
- if [ "$REMAINING" -gt 0 ] && [ "$LAST_UNLOCK" -ne 0 ]; then
+  # Live Elapsed (Unlocked) Clocks
+  if [ "$LAST_UNLOCK" -ne 0 ]; then
+   EHRS=$((ELAPSED / 3600))
+   EMINS=$(((ELAPSED % 3600) / 60))
+   ESECS=$((ELAPSED % 60))
+  else
+   EHRS=0
+   EMINS=0
+   ESECS=0
+  fi
 
-  EXP_DATE=$(date -d "@$((NOW + REMAINING))" +"%Y-%m-%d %H:%M:%S")
+  # Live Remaining Clocks
+  RHRS=$((REMAINING / 3600))
+  RMINS=$(((REMAINING % 3600) / 60))
+  RSECS=$((REMAINING % 60))
 
-  BAR_WIDTH=30
-  FILL=$(((REMAINING * BAR_WIDTH) / CACHE_TTL))
-  EMPTY=$((BAR_WIDTH - FILL))
-  printf -v BAR_FILL "%${FILL}s" ""
-  printf -v BAR_EMPTY "%${EMPTY}s" ""
+  echo
+  echo "Vault Details"
+  echo "============="
+  echo "Press [Ctrl-C] to quit."
+  echo
 
-  echo -e "Status         : \e[93mUnlocked\e[0m 🔓"
-  echo -e "Expires        : $EXP_DATE"
-  echo -e "Unlocked Time  : <<TODO>>"
-  echo -e "Remaining Time : ${HRS}h ${MINS}m ${SECS}s"
-  echo -e "Progress       : [\e[92m${BAR_FILL// /#}\e[0m${BAR_EMPTY// /-}]"
+  if [ "$REMAINING" -gt 0 ] && [ "$LAST_UNLOCK" -ne 0 ]; then
 
- else
+   EXP_DATE=$(date -d "@$((NOW + REMAINING))" +"%Y-%m-%d %H:%M:%S")
 
-  echo -e "Status         : \e[92mLocked\e[0m 🔒"
-  echo -e "Progress       : [------------------------------] 0h 0m 0s remaining"
+   BAR_WIDTH=30
+   FILL=$(((REMAINING * BAR_WIDTH) / CACHE_TTL))
+   EMPTY=$((BAR_WIDTH - FILL))
 
- fi
+   # Blinking last character logic
+   if [ "$FILL" -gt 0 ]; then
+    printf -v STATIC_FILL "%$((FILL - 1))s" ""
+    STATIC_FILL="${STATIC_FILL// /#}"
+
+    # Toggle between '#' and '_' based on even/odd seconds
+    if [ $((NOW % 2)) -eq 0 ]; then
+     BLINK_CHAR="#"
+    else
+     BLINK_CHAR="_"
+    fi
+   else
+    STATIC_FILL=""
+    BLINK_CHAR=""
+   fi
+
+   printf -v BAR_EMPTY "%${EMPTY}s" ""
+   BAR_EMPTY="${BAR_EMPTY// /-}"
+
+   echo -e "Status         : \e[93mUnlocked\e[0m 🔓"
+   echo -e "Expires        : $EXP_DATE"
+   echo -e "Unlocked Time  : ${EHRS}h ${EMINS}m ${ESECS}s"
+   echo -e "Remaining Time : ${RHRS}h ${RMINS}m ${RSECS}s"
+   echo -e "Progress       : [\e[92m${STATIC_FILL}${BLINK_CHAR}\e[0m${BAR_EMPTY}]"
+
+  else
+
+   echo -e "Status         : \e[92mLocked\e[0m 🔒"
+   echo -e "Unlocked Time  : 0h 0m 0s"
+   echo -e "Remaining Time : 0h 0m 0s"
+   echo -e "Progress       : [------------------------------] 0h 0m 0s remaining"
+
+  fi
+
+  sleep 1
+ done
 }
 
 install_dependencies
@@ -372,17 +417,14 @@ HRS=$((REMAINING / 3600))
 MINS=$(((REMAINING % 3600) / 60))
 SECS=$((REMAINING % 60))
 
-echo "======================"
-echo " Password Unlocked 🔒 "
-echo "======================"
+echo "===================="
+echo "Password Unlocked 🔒"
+echo "===================="
 echo
 echo "$METADATA"
-echo "----------"
-echo " Relocking: ${HRS}h ${MINS}m ${SECS}s ⏱️"
+echo "Relocking: ${HRS}h ${MINS}m ${SECS}s ⏱️"
 echo
 
-# Execute the curl command.
-echo -e "\nExecuting curl request..."
 curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
 
 unset CERT_PATH
