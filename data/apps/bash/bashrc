@@ -203,7 +203,7 @@ export ANDROID_PLATFORM_TOOLS="${ANDROID_HOME}/platform-tools"
 export KITTY_HOME="${HOME}/.config/kitty"
 export DEV_CNTR_HOME="${HOME}./devcontainers"
 
-# Add directory to PATH
+# Add additional bin directory to PATH
 export PATH="${PATH}:${BIN_HOME}:/usr/local/bin/"
 
 export PATH="${PATH}:${KITTY_HOME}/kitty"
@@ -212,19 +212,17 @@ export PATH="${PATH}:${DEV_CNTR_HOME}/bin"
 
 source /home/xxx/.config/broot/launcher/bash/br
 
-function phobos {
+source "$HOME/.cargo/env"
 
- ssh 10.42.0.161 && terminal_soundFx phobos
-}
-
-export -f phobos
-
-. "$HOME/.cargo/env"
-
+# Handle nvm initialization
 export NVM_DIR="$HOME/.config/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Added krew support
 export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+
+# Adding golang support
 export GOPATH=$HOME/go
 export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin

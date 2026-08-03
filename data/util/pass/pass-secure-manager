@@ -425,11 +425,13 @@ echo "$METADATA"
 echo "Relocking: ${HRS}h ${MINS}m ${SECS}s ⏱️"
 echo
 
+echo "Running secured task"
 curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
+echo "Secured task completed"
 
 unset CERT_PATH
 unset CERT_PASS
 
 echo
-echo -e "\nTask Complete!"
+echo -e "\nScript Complete!"
 echo
