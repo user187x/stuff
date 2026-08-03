@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# We use 'find' to get a list of directories in the current path.
+# - Outer fzf: Selects a directory.
+# - Outer preview: Shows the contents of that directory (ls -la).
+# - Action: Pressing ENTER executes a nested fzf.
+# - Inner fzf: Selects a file within the chosen directory.
+# - Inner preview: Shows the text content of that file (cat).
+
+find . -maxdepth 2 -type d | fzf \
+  --prompt="📁 Outer (Dirs) > " \
+  --preview="ls -la --color=always {}" \
+  --header="Arrows: Move | ENTER: Dive into directory | ESC: Quit" \
+  --bind 'enter:execute(
+    find {} -maxdepth 1 -type f 2>/dev/null | fzf \
+      --prompt="📄 Inner (Files) > " \
+      --preview="cat {} 2>/dev/null || echo \"Cannot read file\"" \
+      --header="Arrows: Move | ENTER: Select File | ESC: Back to Outer"
+  )'

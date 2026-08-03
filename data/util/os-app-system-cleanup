@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+# Terminal Colors for readability
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${YELLOW}Scanning for duplicate Snap and Flatpak applications...${NC}\n"
+
+# Ensure both package managers are installed
+if ! command -v snap &>/dev/null; then
+ echo "Snap is not installed or not in PATH. Exiting."
+ exit 1
+fi
+
+if ! command -v flatpak &>/dev/null; then
+ echo "Flatpak is not installed or not in PATH. Exiting."
+ exit 1
+fi
+
+# Create temporary files for parsing
+TMP_SNAP=$(mktemp)
+TMP_FLATPAK=$(mktemp)
+
+# Gather installed packages (ignoring headers)
+# Snap output: Name Version
+snap list | awk 'NR>1 {print $1, $2}' >"$TMP_SNAP"
+# Flatpak output: ApplicationID Version
+flatpak list --app --columns=application,version >"$TMP_FLATPAK"
+
+# Read flatpak apps into associative arrays
+declare -A flatpak_apps
+declare -A flatpak_versions
+
+while read -r f_id f_version; do
+ flatpak_apps["$f_id"]="$f_id"
+ # Fallback to a dash if version is empty
+ flatpak_versions["$f_id"]="${f_version:--}"
+done <"$TMP_FLATPAK"
+
+duplicates_found=0
+
+# Iterate through snap packages and find Flatpak matches
+while read -r s_name s_version; do
+ matched_f_id=""
+
+ # Matching Logic 1: Exact suffix match (e.g., snap "vlc" matches flatpak "org.videolan.VLC")
+ for f_id in "${!flatpak_apps[@]}"; do
+  if [[ "${f_id,,}" == *".${s_name,,}" ]]; then
+   matched_f_id="$f_id"
+   break
+  fi
+ done
+
+ # Matching Logic 2: Substring match (e.g., snap "spotify" matches flatpak "com.spotify.Client")
+ if [ -z "$matched_f_id" ]; then
+  for f_id in "${!flatpak_apps[@]}"; do
+   if [[ "${f_id,,}" == *"${s_name,,}"* ]]; then
+    matched_f_id="$f_id"
+    break
+   fi
+  done
+ fi
+
+ # If a duplicate is found, compare versions and prompt user
+ if [ -n "$matched_f_id" ]; then
+  duplicates_found=$((duplicates_found + 1))
+  f_version="${flatpak_versions[$matched_f_id]}"
+
+  s_newer=""
+  f_newer=""
+
+  # Determine which version is newer using sort -V (Version sort)
+  if [ "$s_version" = "$f_version" ]; then
+   : # Versions are identical, do nothing special
+  elif [ "$s_version" = "-" ] || [ "$f_version" = "-" ]; then
+   : # Missing version data, skip comparison
+  else
+   newer=$(printf "%s\n%s\n" "$s_version" "$f_version" | sort -V | tail -n 1)
+   if [ "$newer" = "$s_version" ]; then
+    s_newer="${GREEN}(Newer)${NC}"
+    f_newer="${RED}(Older)${NC}"
+   else
+    s_newer="${RED}(Older)${NC}"
+    f_newer="${GREEN}(Newer)${NC}"
+   fi
+  fi
+
+  echo -e "----------------------------------------------------"
+  echo -e "Duplicate found: ${YELLOW}${s_name}${NC}"
+  echo -e "  Snap version:    $s_version $s_newer"
+  echo -e "  Flatpak version: $f_version $f_newer (ID: $matched_f_id)"
+  echo -e "----------------------------------------------------"
+  echo "Choose an action:"
+  echo "  1) Remove Snap package"
+  echo "  2) Remove Flatpak package"
+  echo "  3) Keep both (Skip)"
+  read -p "Enter choice [1-3]: " choice
+
+  case $choice in
+   1)
+    echo -e "\nRemoving Snap package: $s_name..."
+    sudo snap remove "$s_name"
+    ;;
+   2)
+    echo -e "\nRemoving Flatpak package: $matched_f_id..."
+    # Flatpak handles its own auth via polkit if needed
+    flatpak uninstall -y "$matched_f_id"
+    ;;
+   *)
+    echo -e "\nSkipping $s_name..."
+    ;;
+  esac
+  echo ""
+ fi
+
+done <"$TMP_SNAP"
+
+if [ "$duplicates_found" -eq 0 ]; then
+ echo -e "${GREEN}No duplicate applications found between Snap and Flatpak!${NC}"
+else
+ echo -e "${GREEN}Finished processing duplicates.${NC}"
+fi
+
+# Cleanup temp files
+rm -f "$TMP_SNAP" "$TMP_FLATPAK"
