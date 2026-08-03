@@ -1,0 +1,110 @@
+#!/bin/bash
+
+# Ensure required tools are installed
+for cmd in fzf packer docker apt-cache; do
+ if ! command -v "$cmd" &>/dev/null; then
+  echo "Error: '$cmd' is required but not installed."
+  exit 1
+ fi
+done
+
+clear
+echo "=========================================="
+echo "       Container Image Builder TUI        "
+echo "=========================================="
+echo
+
+# 1. Select Base Image
+BASE_IMAGES="ubuntu:24.04\nubuntu:22.04\nubuntu:20.04\ndebian:bookworm\ndebian:bullseye"
+BASE_IMAGE=$(echo -e "$BASE_IMAGES" | fzf \
+ --prompt="Select Base Image > " \
+ --header="Arrow keys to navigate, ENTER to select")
+
+if [ -z "$BASE_IMAGE" ]; then
+ echo "No base image selected. Exiting."
+ exit 0
+fi
+
+clear
+echo "Selected Base Image: $BASE_IMAGE"
+echo "Loading available apt packages (this may take a few seconds)..."
+
+# 2. Select Packages
+# Using apt-cache pkgnames as it is significantly faster and outputs clean package names
+SELECTED_PACKAGES=$(apt-cache pkgnames | sort | fzf --multi \
+ --prompt="Select packages > " \
+ --header="TAB to select/deselect multiple, ENTER to confirm" \
+ --preview="apt-cache show {} 2>/dev/null || echo 'No detailed information available for this package.'")
+
+if [ -z "$SELECTED_PACKAGES" ]; then
+ echo "No packages selected. Exiting."
+ exit 0
+fi
+
+# Convert multi-line output to space-separated string
+PACKAGE_LIST=$(echo "$SELECTED_PACKAGES" | tr '\n' ' ' | sed 's/ $//')
+
+clear
+echo "=========================================="
+echo "           Build Configuration            "
+echo "=========================================="
+echo "Base Image : $BASE_IMAGE"
+echo "Packages   : $PACKAGE_LIST"
+echo "=========================================="
+echo
+read -p "Proceed with Packer build? (y/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+ echo "Build cancelled."
+ exit 0
+fi
+
+# 3. Generate Packer Configuration (HCL format)
+PACKER_FILE="image_builder.pkr.hcl"
+
+cat <<EOF >"$PACKER_FILE"
+packer {
+  required_plugins {
+    docker = {
+      version = ">= 1.0.8"
+      source  = "github.com/hashicorp/docker"
+    }
+  }
+}
+
+source "docker" "custom_image" {
+  image  = "$BASE_IMAGE"
+  commit = true
+}
+
+build {
+  name    = "custom-builder"
+  sources = [
+    "source.docker.custom_image"
+  ]
+
+  provisioner "shell" {
+    environment_vars = [
+      "DEBIAN_FRONTEND=noninteractive"
+    ]
+    inline = [
+      "apt-get update",
+      "apt-get install -y $PACKAGE_LIST",
+      "apt-get clean",
+      "rm -rf /var/lib/apt/lists/*"
+    ]
+  }
+}
+EOF
+
+echo
+echo "Generated $PACKER_FILE. Initializing Packer..."
+packer init "$PACKER_FILE"
+
+echo
+echo "Building image with Packer..."
+packer build "$PACKER_FILE"
+
+echo
+echo "=========================================="
+echo "Build complete! Check your local Docker images using 'docker images'."

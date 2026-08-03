@@ -32,12 +32,12 @@ packer {
 source "docker" "ubuntu" {
   image  = "ubuntu:22.04"
   commit = true
-  
+
   # Mount the local apt-cache directory to the container's apt archive directory.
   volumes = {
     "\${abspath(path.root)}/apt-cache" = "/var/cache/apt/archives"
   }
-  
+
   changes = [
     "ENV DEBIAN_FRONTEND=noninteractive",
     "ENV TZ=America/New_York",
@@ -86,20 +86,20 @@ rm -f /etc/apt/apt.conf.d/docker-clean
 echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/01keep-cache
 
 echo "--- 🔄 Updating Package Lists & Core Utils ---"
-# Since Packer runs this as the root user inside the container, we can drop 'sudo' 
+# Since Packer runs this as the root user inside the container, we can drop 'sudo'
 # from the apt commands to keep things perfectly clean.
 apt-get update -y
 apt-get install -y tzdata curl wget gnupg software-properties-common apt-transport-https dirmngr sudo
 
 # List of tools to install
 packages=(
- "tmux" "vim" "batcat:bat" "curl" "wget" "openssl" "btop" "pluma" "gedit" "colordiff" 
- "tty-clock" "java:default-jdk" "visualvm" "lolcat" "build-essential" "netstat:net-tools" 
- "jq" "notify-send:libnotify-bin" "yq" "figlet" "toilet" "qrencode" "python3-segno" 
- "tree" "whiptail" "mpv" "duf" "fzf" "imagemagick" "zenity" "pipx" "tigervnc-common" 
- "tigervnc-client" "tigervnc-tools" "tigervnc-standalone-server" "pv" "git" "delta:git-delta" 
- "thefuck" "shfmt" "shellcheck" "yamllint" "neofetch:neofetch-desktop" "expect" 
- "xmllint:libxml2-utils" "jc" "gufw" "ranger" "mc" "cmatrix" "sysvbanner" "xclip" "7zip" 
+ "tmux" "vim" "batcat:bat" "curl" "wget" "openssl" "btop" "pluma" "gedit" "colordiff"
+ "tty-clock" "java:default-jdk" "visualvm" "lolcat" "build-essential" "netstat:net-tools"
+ "jq" "notify-send:libnotify-bin" "yq" "figlet" "toilet" "qrencode" "python3-segno"
+ "tree" "whiptail" "mpv" "duf" "fzf" "imagemagick" "zenity" "pipx" "tigervnc-common"
+ "tigervnc-client" "tigervnc-tools" "tigervnc-standalone-server" "pv" "git" "delta:git-delta"
+ "thefuck" "shfmt" "shellcheck" "yamllint" "neofetch:neofetch-desktop" "expect"
+ "xmllint:libxml2-utils" "jc" "gufw" "ranger" "mc" "cmatrix" "sysvbanner" "xclip" "7zip"
  "p7zip-full" "file-roller" "ffmpeg" "ffmpegthumbnailer" "htop" "kubecolor" "synaptic"
 )
 
