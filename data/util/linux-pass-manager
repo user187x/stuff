@@ -1,28 +1,24 @@
 #!/bin/bash
 
-# ==========================================
-# CONFIGURATION
-# ==========================================
 CERT_PATH="$HOME/my-cert.p12"
 CURL_TARGET="https://xxx.com"
 PASS_ENTRY="$HOME/.pass/x509"
 GPG_NAME="x509"
 GPG_EMAIL="xxx@xxx.com"
 
-CACHE_TTL=28800 # 8 hours in seconds
+CACHE_TTL=28800
 UNLOCK_FILE="$HOME/.gnupg/.work-unlock-time"
 TEST_ENC_FILE="$HOME/.gnupg/.pass-check.gpg"
 
 function nuke-all {
+
  gpgconf --kill gpg-agent
  rm -rf ~/.password-store
  rm -rf ~/.gnupg
 }
 
-# ==========================================
-# 1. SEAMLESS DEPENDENCY INSTALLATION
-# ==========================================
-install_dependencies() {
+function install_dependencies {
+
  local missing_pkgs=()
  for pkg in pass gpg curl openssl; do
   if ! command -v "$pkg" &>/dev/null; then
@@ -44,10 +40,8 @@ install_dependencies() {
  fi
 }
 
-# ==========================================
-# 2. GPG AGENT CONFIGURATION (8-Hour Cache)
-# ==========================================
-setup_gpg_agent() {
+function setup_gpg_agent {
+
  mkdir -p "$HOME/.gnupg"
  chmod 700 "$HOME/.gnupg"
 
@@ -76,13 +70,11 @@ function lock-password {
  gpgconf --kill gpg-agent
  rm -f "$UNLOCK_FILE"
 
- echo "password locked!"
+ echo "Password Locked 🔒"
 }
 
-# ==========================================
-# 3. CORE PASS & GPG MANAGEMENT
-# ==========================================
-generate_gpg_key_if_needed() {
+function generate_gpg_key_if_needed {
+
  if ! gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
   echo "Generating secure GPG key seamlessly (this may take a moment)..."
   local batch_file
@@ -110,7 +102,8 @@ EOF
  fi
 }
 
-validate_cert_password() {
+function validate_cert_password {
+
  local cert_file="$1"
  local pass_phrase="$2"
  local lower="${cert_file,,}"
@@ -123,7 +116,8 @@ validate_cert_password() {
  fi
 }
 
-prime_agent_cache() {
+function prime_agent_cache {
+
  local pass_phrase="$1"
 
  # (Re)create the tiny probe file encrypted to our own key.
@@ -138,7 +132,8 @@ prime_agent_cache() {
  return 1
 }
 
-create_or_update_entry() {
+function create_or_update_entry {
+
  read -erp "Enter path to the certificate (PEM or PKCS#12 .p12): " NEW_CERT_PATH
  if [ ! -f "$NEW_CERT_PATH" ]; then
   echo "Error: Certificate file not found at $NEW_CERT_PATH"
@@ -211,18 +206,18 @@ EOF
  fi
 }
 
-setup_pass_if_needed() {
+function setup_pass_if_needed {
+
  if ! pass "$PASS_ENTRY" >/dev/null 2>&1; then
-  echo "=================================================="
-  echo " First-time setup: Secure Password Store"
-  echo "=================================================="
+  echo "Initializing secure password store"
   create_or_update_entry
-  echo "Setup complete! Your environment is secured."
-  echo "--------------------------------------------------"
+  echo "Environment Secured."
+  echo
  fi
 }
 
-show_details() {
+function show_details {
+
  LAST_UNLOCK=$(cat "$UNLOCK_FILE" 2>/dev/null || echo 0)
  NOW=$(date +%s)
  ELAPSED=$((NOW - LAST_UNLOCK))
@@ -236,36 +231,39 @@ show_details() {
  MINS=$(((REMAINING % 3600) / 60))
  SECS=$((REMAINING % 60))
 
- echo "=================================================="
- echo " Vault Details"
- echo "=================================================="
+ echo
+ echo "Vault Details"
+ echo "============="
+
  if [ "$REMAINING" -gt 0 ] && [ "$LAST_UNLOCK" -ne 0 ]; then
+
   EXP_DATE=$(date -d "@$((NOW + REMAINING))" +"%Y-%m-%d %H:%M:%S")
-  echo "Status: Unlocked"
-  echo "Expires: $EXP_DATE"
 
   BAR_WIDTH=30
   FILL=$(((REMAINING * BAR_WIDTH) / CACHE_TTL))
   EMPTY=$((BAR_WIDTH - FILL))
   printf -v BAR_FILL "%${FILL}s" ""
   printf -v BAR_EMPTY "%${EMPTY}s" ""
-  echo "Progress: [${BAR_FILL// /#}${BAR_EMPTY// /-}] ${HRS}h ${MINS}m ${SECS}s remaining"
+
+  echo -e "Status         : \e[93mUnlocked\e[0m 🔓"
+  echo -e "Expires        : $EXP_DATE"
+  echo -e "Unlocked Time  : <<TODO>>"
+  echo -e "Remaining Time : ${HRS}h ${MINS}m ${SECS}s"
+  echo -e "Progress       : [\e[92m${BAR_FILL// /#}\e[0m${BAR_EMPTY// /-}]"
+
  else
-  echo "Status: Locked"
-  echo "Progress: [------------------------------] 0h 0m 0s remaining"
+
+  echo -e "Status         : \e[92mLocked\e[0m 🔒"
+  echo -e "Progress       : [------------------------------] 0h 0m 0s remaining"
+
  fi
- echo "=================================================="
 }
 
-# ==========================================
-# MAIN EXECUTION
-# ==========================================
 install_dependencies
 setup_gpg_agent
 export GPG_TTY
 GPG_TTY=$(tty 2>/dev/null || echo "")
 
-# Argument Parsing Utility
 case "$1" in
  --list)
   pass "$PASS_ENTRY"
@@ -374,16 +372,17 @@ HRS=$((REMAINING / 3600))
 MINS=$(((REMAINING % 3600) / 60))
 SECS=$((REMAINING % 60))
 
-echo "=================================================="
-echo " 🔒 Vault Unlocked "
-echo "=================================================="
+echo "======================"
+echo " Password Unlocked 🔒 "
+echo "======================"
+echo
 echo "$METADATA"
-echo "--------------------------------------------------"
-echo " Vault locks again in: ${HRS}h ${MINS}m ${SECS}s"
-echo "=================================================="
-echo -e "\nExecuting curl request..."
+echo "----------"
+echo " Relocking: ${HRS}h ${MINS}m ${SECS}s ⏱️"
+echo
 
 # Execute the curl command.
+echo -e "\nExecuting curl request..."
 curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
 
 unset CERT_PATH

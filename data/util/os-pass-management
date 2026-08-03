@@ -148,6 +148,19 @@ fi
 echo "Authenticating and executing curl request..."
 
 # Execute the curl command using the user's certificate and unlocked password
-curl --silent --cert-type P12 --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
+##curl --silent --cert-type P12 --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
+
+KEY_PATH="${CERT_DIR}/xxx.key"
+AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+CONTENT_TYPE="Content-Type: application/json"
+QUERY="What time is it?"
+URL="https://www.google.com/search?q=\"${QUERY}\""
+
+curl --user-agent "${USER_AGENT}" \
+ --cert "${CERT_PATH}" \
+ --key "${KEY_PATH}" \
+ --header "${CONTENT_TYPE}" \
+ --data "{\"query\": \"${QUERY}\"}" \
+ "${URL}"
 
 echo -e "\nWork invoked successfully!"
