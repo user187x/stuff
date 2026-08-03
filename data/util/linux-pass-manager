@@ -4,10 +4,11 @@
 # CONFIGURATION
 # ==========================================
 CERT_PATH="$HOME/my-cert.p12"
-CURL_TARGET="https://grey-marshall.com"
-PASS_ENTRY="work/cert-password"
-GPG_NAME="Work Cert Key"
-GPG_EMAIL="work-cert-key@${USER}.local"
+CURL_TARGET="https://xxx.com"
+PASS_ENTRY="$HOME/.pass/x509"
+GPG_NAME="x509"
+GPG_EMAIL="xxx@xxx.com"
+
 CACHE_TTL=28800 # 8 hours in seconds
 UNLOCK_FILE="$HOME/.gnupg/.work-unlock-time"
 TEST_ENC_FILE="$HOME/.gnupg/.pass-check.gpg"
@@ -70,6 +71,14 @@ setup_gpg_agent() {
  fi
 }
 
+function lock-password {
+
+ gpgconf --kill gpg-agent
+ rm -f "$UNLOCK_FILE"
+
+ echo "password locked!"
+}
+
 # ==========================================
 # 3. CORE PASS & GPG MANAGEMENT
 # ==========================================
@@ -101,11 +110,6 @@ EOF
  fi
 }
 
-# FIX: Validate the supplied password against the certificate using the correct
-# OpenSSL tool for the file's actual type. The previous code always used
-# `openssl pkey`, which does not portably read PKCS#12 (.p12/.pfx) bundles
-# (it only happens to work on OpenSSL 3.x), so the default .p12 configuration
-# could never pass setup on systems shipping OpenSSL 1.1.x.
 validate_cert_password() {
  local cert_file="$1"
  local pass_phrase="$2"
@@ -119,12 +123,6 @@ validate_cert_password() {
  fi
 }
 
-# FIX: Warm the gpg-agent cache immediately after the passphrase is set/entered.
-# Generating the GPG key does NOT populate the agent's decrypt cache, so without
-# this the very next `pass` decrypt in the main flow would prompt the user a
-# SECOND time right after setup — defeating the whole "enter it once" purpose.
-# A loopback decrypt with the known passphrase primes the cache; subsequent
-# agent-only decrypts then succeed silently within the TTL.
 prime_agent_cache() {
  local pass_phrase="$1"
 
@@ -170,9 +168,6 @@ create_or_update_entry() {
   exit 1
  fi
 
- # FIX: Detect whether the vault's GPG key already exists BEFORE (possibly)
- # creating it, so we can tell a brand-new key (passphrase == this password)
- # apart from a pre-existing key (whose passphrase may differ).
  local key_existed=false
  if gpg --list-keys "$GPG_EMAIL" >/dev/null 2>&1; then
   key_existed=true
@@ -199,21 +194,14 @@ Created: $created_time
 EOF
  )
 
- # Store securely (overwrites existing if present).
  if ! printf '%s\n' "$payload" | pass insert -f -m "$PASS_ENTRY" >/dev/null; then
   echo "Error: Failed to store password in pass."
   exit 1
  fi
 
- # FIX: Prime the cache so the user is NOT asked for the password again on this
- # run, and start the 8-hour unlock timer from this moment.
  if prime_agent_cache "$USER_PASS"; then
   echo "Vault unlocked and cached for the next 8 hours."
  else
-  # Priming only fails when a GPG key already existed with a DIFFERENT
-  # passphrase than the certificate password just entered. The certificate
-  # password has still been stored correctly and curl will work, but the
-  # "unlock" passphrase (the GPG key passphrase) no longer matches it.
   if [ "$key_existed" = true ]; then
    echo "Note: the stored certificate password was updated, but the vault's"
    echo "      unlock passphrase differs from it (the GPG key predates this"
@@ -292,6 +280,11 @@ case "$1" in
   echo "Entry successfully processed."
   exit 0
   ;;
+ -l | --lock)
+  lock-password
+  echo "Password secured. New session required for automatic password service"
+  exit 0
+  ;;
  --delete)
   pass rm -f "$PASS_ENTRY"
   echo "Deleted pass entry: $PASS_ENTRY"
@@ -317,6 +310,7 @@ case "$1" in
   echo "Options:"
   echo "  --list          Display the unencrypted pass entry."
   echo "  --details       Show expiration date with a time-remaining progress bar."
+  echo "  --lock          Locks the password immediately"
   echo "  --update        Update the existing password and certificate association."
   echo "  --create        Create a new pass entry, overwriting the existing one."
   echo "  --delete        Delete the pass entry."
@@ -330,7 +324,6 @@ esac
 
 setup_pass_if_needed
 
-# Ensure dummy encrypted file exists to test cache silently.
 if [ ! -f "$TEST_ENC_FILE" ]; then
  echo "cache check" | gpg --batch --yes --trust-model always \
   --encrypt -r "$GPG_EMAIL" >"$TEST_ENC_FILE" 2>/dev/null
@@ -350,9 +343,6 @@ if [ -z "$PASS_OUTPUT" ]; then
  exit 1
 fi
 
-# FIX: Start/refresh the unlock timer whenever we actually had to unlock, and
-# also initialize it if it is simply missing (e.g. first successful run), so the
-# --details view and countdown never wrongly report "Locked" while cached.
 if [ "$NEEDS_UNLOCK" = true ] || [ ! -f "$UNLOCK_FILE" ]; then
  date +%s >"$UNLOCK_FILE"
 fi
@@ -394,7 +384,11 @@ echo "=================================================="
 echo -e "\nExecuting curl request..."
 
 # Execute the curl command.
-# Note: the certificate password is supplied via the "path:password" form.
 curl --silent --cert-type "$CERT_TYPE" --cert "${CERT_PATH}:${CERT_PASS}" "$CURL_TARGET"
 
-echo -e "\nWork invoked successfully!"
+unset CERT_PATH
+unset CERT_PASS
+
+echo
+echo -e "\nTask Complete!"
+echo

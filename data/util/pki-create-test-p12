@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 DOMAIN="localhost"
-PASSWORD="changeit"
+PASSWORD="changeIt!"
 OUTPUT_DIR="./x509-certs"
 OUTPUT_P12="xxx.p12"
 OUTPUT_KEY="xxx.key"
