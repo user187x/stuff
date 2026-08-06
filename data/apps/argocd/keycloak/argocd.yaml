@@ -86,8 +86,8 @@ spec:
             type: Opaque
             stringData:
               username: keycloak
-              password: "ChooseAStrongPassword123!"
-              db-password: "ChooseAStrongPassword123!"
+              password: "changeIt!"
+              db-password: "changeIt!"
           - apiVersion: postgresql.cnpg.io/v1
             kind: Cluster
             metadata:

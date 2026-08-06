@@ -1,0 +1,166 @@
+#!/bin/bash
+#set -euo pipefail
+
+# ==============================================================================
+# CONFIGURATION
+# Modify these variables to match your environment.
+# ==============================================================================
+
+# Keycloak settings
+KC_URL="https://keycloak.xxx.local"
+KC_ADMIN_USER="admin"
+KC_ADMIN_PASS="UZvKgGeaDuJemXVJ7XdsSfhbWkZrSpNd"
+KC_REALM="master"
+KC_CLIENT_ID="headlamp"
+
+# Headlamp settings
+HEADLAMP_NAMESPACE="headlamp"
+HEADLAMP_URL="https://headlamp.xxx.local"
+HEADLAMP_OIDC_SCOPES="openid,profile,email,groups"
+
+# Kubernetes RBAC mapping
+# The Keycloak group name that will be granted 'cluster-admin' rights
+ADMIN_GROUP_NAME="headlamp"
+
+# ==============================================================================
+# PRE-FLIGHT CHECKS
+# ==============================================================================
+echo "==> Verifying pre-requisites..."
+for cmd in curl jq kubectl helm; do
+  if ! command -v $cmd &> /dev/null; then
+    echo "Error: $cmd is required but not installed."
+    exit 1
+  fi
+done
+
+echo "==> Verifying Kubernetes cluster access..."
+kubectl cluster-info > /dev/null
+
+# ==============================================================================
+# STEP 1: KEYCLOAK CONFIGURATION (Invoked via Keycloak Admin REST API)
+# ==============================================================================
+echo "==> Authenticating with Keycloak Master Realm..."
+KC_TOKEN=$(curl -sS -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=$KC_ADMIN_USER" \
+  -d "password=$KC_ADMIN_PASS" \
+  -d "grant_type=password" \
+  -d "client_id=admin-cli" | jq -r '.access_token')
+
+if [ "$KC_TOKEN" == "null" ] || [ -z "$KC_TOKEN" ]; then
+  echo "Error: Failed to authenticate with Keycloak."
+  exit 1
+fi
+
+echo "==> Ensuring Realm '$KC_REALM' exists..."
+HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $KC_TOKEN" "$KC_URL/admin/realms/$KC_REALM")
+if [ "$HTTP_STATUS" -eq 404 ]; then
+  curl -sS -X POST "$KC_URL/admin/realms" \
+    -H "Authorization: Bearer $KC_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"realm\": \"$KC_REALM\", \"enabled\": true}"
+  echo "    Created realm $KC_REALM."
+else
+  echo "    Realm $KC_REALM already exists."
+fi
+
+echo "==> Creating Headlamp OIDC Client..."
+# We configure this as a public client. If you want a confidential client, set publicClient to false and generate a secret.
+curl -sS -X POST "$KC_URL/admin/realms/$KC_REALM/clients" \
+  -H "Authorization: Bearer $KC_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"clientId\": \"$KC_CLIENT_ID\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": true,
+    \"standardFlowEnabled\": true,
+    \"redirectUris\": [\"$HEADLAMP_URL/*\"],
+    \"webOrigins\": [\"$HEADLAMP_URL\"]
+  }" || true # Ignore failure if client already exists
+
+# Get the internal ID (UUID) of the client we just created
+CLIENT_UUID=$(curl -sS -H "Authorization: Bearer $KC_TOKEN" "$KC_URL/admin/realms/$KC_REALM/clients?clientId=$KC_CLIENT_ID" | jq -r '.[0].id')
+
+echo "==> Adding Group Mapper to Client..."
+curl -sS -X POST "$KC_URL/admin/realms/$KC_REALM/clients/$CLIENT_UUID/protocol-mappers/models" \
+  -H "Authorization: Bearer $KC_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"groups\",
+    \"protocol\": \"openid-connect\",
+    \"protocolMapper\": \"oidc-group-membership-mapper\",
+    \"config\": {
+      \"claim.name\": \"groups\",
+      \"full.path\": \"false\",
+      \"id.token.claim\": \"true\",
+      \"access.token.claim\": \"true\",
+      \"userinfo.token.claim\": \"true\"
+    }
+  }" || true # Ignore failure if mapper already exists
+
+# ==============================================================================
+# STEP 2: HEADLAMP HELM DEPLOYMENT (Invoked via Helm CLI to K8s API)
+# ==============================================================================
+echo "==> Setting up Kubernetes Namespace..."
+kubectl create namespace "$HEADLAMP_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+echo "==> Adding Headlamp Helm Repository..."
+helm repo add headlamp https://headlamp-k8s.github.io/headlamp/
+helm repo update
+
+echo "==> Generating Helm values file..."
+cat <<EOF > headlamp-values.yaml
+config:
+  oidc:
+    issuerUrl: "$KC_URL/realms/$KC_REALM"
+    clientId: "$KC_CLIENT_ID"
+    scopes: "$HEADLAMP_OIDC_SCOPES"
+ingress:
+  enabled: true
+  hosts:
+    - host: $(echo $HEADLAMP_URL | awk -F/ '{print $3}')
+      paths:
+        - path: /
+          type: ImplementationSpecific
+EOF
+
+echo "==> Deploying Headlamp via Helm..."
+helm upgrade --install headlamp headlamp/headlamp \
+  --namespace "$HEADLAMP_NAMESPACE" \
+  -f headlamp-values.yaml
+
+# ==============================================================================
+# STEP 3: KUBERNETES RBAC (Invoked via kubectl to K8s API)
+# ==============================================================================
+echo "==> Applying Kubernetes RBAC for Keycloak groups..."
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-keycloak-admins
+subjects:
+- kind: Group
+  name: "$ADMIN_GROUP_NAME" # This matches the group name in Keycloak
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+EOF
+
+# ==============================================================================
+# WRAP UP
+# ==============================================================================
+echo "======================================================================"
+echo "✅ Headlamp & Keycloak OIDC Setup Complete!"
+echo ""
+echo "IMPORTANT NEXT STEP:"
+echo "Your Kubernetes API server MUST be configured to trust this Keycloak."
+echo "Ensure your API server is running with the following flags:"
+echo "  --oidc-issuer-url=$KC_URL/realms/$KC_REALM"
+echo "  --oidc-client-id=$KC_CLIENT_ID"
+echo "  --oidc-groups-claim=groups"
+echo ""
+echo "(If using EKS, configure the cluster OIDC Identity Provider via AWS Console/CLI)."
+echo "======================================================================"
