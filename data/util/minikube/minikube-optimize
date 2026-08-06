@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# 1. Determine OS type
+OS_TYPE="$(uname -s)"
+echo "🚀 Detected Operating System: ${OS_TYPE}"
+
+# 2. Get active minikube driver (defaults to docker if minikube isn't running yet)
+DRIVER="docker"
+if command -v minikube &>/dev/null && minikube status &>/dev/null; then
+ DRIVER="$(minikube profile list -o json 2>/dev/null | grep -o '"Driver": "[^"]*' | grep -o '[^" ]*$' | head -n1 || echo "docker")"
+fi
+echo "🐳 Detected Minikube Driver: ${DRIVER}"
+
+# 3. Apply Host-Specific Limits
+if [ "${OS_TYPE}" = "Linux" ]; then
+ echo "🔧 Applying Linux host inotify limits..."
+ sudo sysctl -w fs.inotify.max_user_watches=1048576 || true
+ sudo sysctl -w fs.inotify.max_user_instances=8192 || true
+
+ # Make permanent on host
+ if [ -d /etc/sysctl.d ]; then
+  echo "fs.inotify.max_user_watches=1048576" | sudo tee /etc/sysctl.d/99-minikube-inotify.conf >/dev/null
+  echo "fs.inotify.max_user_instances=8192" | sudo tee -a /etc/sysctl.d/99-minikube-inotify.conf >/dev/null
+ fi
+elif [ "${OS_TYPE}" = "Darwin" ]; then
+ echo "🍏 Applying macOS maxfiles limits..."
+ sudo launchctl limit maxfiles 524288 524288 || true
+fi
+
+# 4. Apply Driver/VM-Specific Limits
+if [ "${DRIVER}" = "docker" ] || [ "${DRIVER}" = "podman" ]; then
+ echo "💡 Driver is ${DRIVER}. Run minikube with this optimized flag:"
+ echo "   minikube start --docker-opt=\"default-ulimit=nofile=102400:102400\""
+else
+ # VM-based drivers (virtualbox, qemu, kvm2, hyperkit)
+ if command -v minikube &>/dev/null && minikube status &>/dev/null; then
+  echo "🖥️  Applying limits directly inside the Minikube VM via SSH..."
+  minikube ssh "sudo sysctl -w fs.inotify.max_user_instances=8192 && sudo sysctl -w fs.inotify.max_user_watches=1048576 && sudo sysctl -w fs.file-max=2097152"
+ else
+  echo "⚠️  Minikube VM is not currently running. Start minikube first, then re-run this script to fix internal VM limits."
+ fi
+fi
+
+echo "✅ Optimization script completed successfully."
+echo
