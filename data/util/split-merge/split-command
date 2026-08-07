@@ -1,1 +1,0 @@
-split -d -a 3 -n 100 chrome-driver.exe chunk_

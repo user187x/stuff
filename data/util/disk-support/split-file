@@ -1,7 +1,15 @@
 #!/bin/bash
 #
-# file-splitter.sh — split a file into ~500-line parts, or rejoin parts.
+# file-splitter.sh — split a file into parts, or rejoin parts.
 # Requires: fzf, tree (tree only used for the join preview), coreutils.
+
+# ANSI Color Codes for enhanced output
+RESET='\033[0m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
 
 # Convert a byte count to MB with two decimals.
 bytes_to_mb() {
@@ -21,14 +29,51 @@ function split-file {
  local file_name
  file_name=$(basename "${file_path}")
 
+ local total_file_size
+ total_file_size=$(stat -c%s "${file_path}")
+
+ # Prompt for split calculation loop
+ local num_splits
+ read -e -r -p "Enter number of splits: " num_splits
+
+ while true; do
+  # Validate input is a positive integer
+  if ! [[ "${num_splits}" =~ ^[0-9]+$ ]] || ((num_splits <= 0)); then
+   read -e -r -p "Invalid number. Enter number of splits: " num_splits
+   continue
+  fi
+
+  local bytes_per_split=$((total_file_size / num_splits))
+  local mb_per_split=$(bytes_to_mb "${bytes_per_split}")
+
+  echo -e "Estimated size per split: ${GREEN}${mb_per_split} MB${RESET}"
+
+  local new_val
+  read -e -r -p "Press [ENTER] to continue, or enter new value for different total of splits: " new_val
+
+  # If empty string (Enter), break loop. Otherwise, set new value and calculate again.
+  if [[ -z "${new_val}" ]]; then
+   break
+  else
+   num_splits="${new_val}"
+  fi
+ done
+
  local parts_directory="${PWD}/${file_name}-parts"
  mkdir -p "${parts_directory}"
 
  local prefix="${file_name}-part_"
 
+ # Dynamically size the suffix length to prevent "suffixes exhausted" errors for large counts
+ local suffix_len=2
+ if ((num_splits > 99)); then
+  suffix_len=${#num_splits}
+ fi
+
  (
   cd "${parts_directory}" || exit 1
-  split --numeric-suffixes=1 -l 500 "${file_path}" "${prefix}"
+  # Use -n (number of files) instead of -l (lines) to divide cleanly by the requested splits
+  split --numeric-suffixes=1 -a "${suffix_len}" -n "${num_splits}" "${file_path}" "${prefix}"
  )
 
  # Gather stats on the parts we just created.
@@ -44,12 +89,23 @@ function split-file {
  ((count > 0)) && part_bytes=$(stat -c%s "${parts[0]}")
 
  echo
- echo "File split complete"
- echo "Directory  : ${parts_directory}"
- echo "Splits     : ${count}"
- echo "Prefix     : ${prefix}"
- echo "Size  (MB) : $(bytes_to_mb "${part_bytes}")   (per part, first part)"
- echo "Total (MB) : $(bytes_to_mb "${total_bytes}")"
+ echo -e "${BOLD}${MAGENTA}File split complete${RESET}"
+ echo -e "Directory  : ${CYAN}${parts_directory}${RESET}"
+ echo -e "Splits     : ${GREEN}${count}${RESET}"
+ echo -e "Prefix     : ${YELLOW}${prefix}${RESET}"
+ echo -e "Size  (MB) : ${GREEN}$(bytes_to_mb "${part_bytes}")${RESET}   (per part, first part)"
+ echo -e "Total (MB) : ${GREEN}$(bytes_to_mb "${total_bytes}")${RESET}"
+ echo
+
+ # Prompt to delete the original file
+ local delete_confirm
+ read -e -r -p "Do you wish to delete the original file? (y/N): " delete_confirm
+ if [[ "${delete_confirm}" =~ ^[Yy]$ || "${delete_confirm}" =~ ^[Yy][Ee][Ss]$ ]]; then
+  rm "${file_path}"
+  echo -e "${YELLOW}Original file '${file_name}' has been deleted.${RESET}"
+ else
+  echo -e "${GREEN}Original file '${file_name}' was preserved.${RESET}"
+ fi
  echo
 }
 
@@ -89,7 +145,7 @@ function join-file {
  echo "Merging file back together..."
  cat "${parts[@]}" >"${restored}"
 
- echo "Merged: ${restored}"
+ echo -e "${GREEN}Merged:${RESET} ${CYAN}${restored}${RESET}"
 }
 
 # Wrap the main interactive logic into its own function
