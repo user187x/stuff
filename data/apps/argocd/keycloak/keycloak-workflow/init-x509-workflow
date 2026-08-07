@@ -57,7 +57,7 @@ function get-keycloak-scripts {
  echo "Scripts copied."
 }
 
-if ! get-keycloak-admin; tnen
+if ! get-keycloak-admin; then
  echo "Failure getting keycloak admin credentials"
  exit 1
 fi
