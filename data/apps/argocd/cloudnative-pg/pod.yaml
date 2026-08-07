@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+  labels:
+    app.kubernetes.io/instance: cloudnative-pag
+    app.kubernetes.io/name: cloudnative-pg
+  name: cloudnative-pag-cloudnative-pg-b68686947-jl57l
+  namespace: cnpg-system
+spec:
+  containers:
+    - args:
+        - controller
+        - '--leader-elect'
+        - '--max-concurrent-reconciles=10'
+        - '--config-map-name=cnpg-controller-manager-config'
+        - '--webhook-port=9443'
+      command:
+        - /manager
+      env:
+        - name: OPERATOR_IMAGE_NAME
+          value: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: MONITORING_QUERIES_CONFIGMAP
+          value: cnpg-default-monitoring
+      image: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0
+      imagePullPolicy: IfNotPresent
+      livenessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /readyz
+          port: webhook-server
+          scheme: HTTPS
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: manager
+      ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /readyz
+          port: webhook-server
+          scheme: HTTPS
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources: {}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsGroup: 10001
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      startupProbe:
+        failureThreshold: 6
+        httpGet:
+          path: /readyz
+          port: webhook-server
+          scheme: HTTPS
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+        - mountPath: /controller
+          name: scratch-data
+        - mountPath: /run/secrets/cnpg.io/webhook
+          name: webhook-certificates
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access-qftlv
+          readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: coder-shroder
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  serviceAccount: cloudnative-pag-cloudnative-pg
+  serviceAccountName: cloudnative-pag-cloudnative-pg
+  terminationGracePeriodSeconds: 10
+  tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+  volumes:
+    - emptyDir: {}
+      name: scratch-data
+    - name: webhook-certificates
+      secret:
+        defaultMode: 420
+        optional: true
+        secretName: cnpg-webhook-cert
+    - name: kube-api-access-qftlv
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              items:
+                - key: ca.crt
+                  path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
