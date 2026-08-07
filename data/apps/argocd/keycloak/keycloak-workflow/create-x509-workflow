@@ -128,14 +128,12 @@ $KCADM create authentication/executions/$EXEC_ID/config -r "$REALM_NAME" \
     }
   }'
 
-# NOTE: To achieve 100% zero-touch user creation in standard Keycloak without a registration
-# redirect, you would inject a Script Authenticator execution right after this step in the flow
-# to intercept the "User Not Found" state and provision the user via Keycloak's JavaScript API.
-# Alternatively, map an Identity Provider (IdP) if routing through an external federation proxy.
+echo "Creating x509 SPI"
+./keycloak-provider/create-x509-SPI
 
 echo "Binding 'x509-browser-flow' as the default browser flow for realm ${REALM_NAME}..."
 $KCADM update realms/$REALM_NAME -s browserFlow="x509-browser-flow"
 
-echo "=========================================="
-echo " Configuration Completed Successfully!    "
-echo "=========================================="
+echo
+echo "Configuration Complete"
+echo
