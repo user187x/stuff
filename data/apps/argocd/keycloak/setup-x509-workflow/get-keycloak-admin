@@ -1,0 +1,33 @@
+#!/bin/bash
+
+function get-keycloak-admin {
+
+ local NAMESPACE="${1:-keycloak}"
+
+ if ! command -v kubectl &>/dev/null; then
+  echo "❌ Error: kubectl is not installed or not in your PATH."
+  return 1
+ fi
+
+ local SECRET_NAME=$(kubectl get secrets -n "$NAMESPACE" -o custom-columns=NAME:.metadata.name --no-headers | grep -E 'keycloak-admin' | head -n 1)
+ if [ -z "$SECRET_NAME" ]; then
+  return 1
+ fi
+
+ local PASSWORD=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.password}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ if [ -z "$PASSWORD" ]; then
+  PASSWORD=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.admin-password}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ fi
+
+ local USERNAME=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.admin-username}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ if [ -z "$PASSWORD" ]; then
+  return 1
+ fi
+
+ echo
+ echo "----------------------------------------"
+ echo -e " 👤 Username: \e[92m$USERNAME\e[0m"
+ echo -e " 🔑 Password: \e[92m$PASSWORD\e[0m"
+ echo "----------------------------------------"
+ echo
+}

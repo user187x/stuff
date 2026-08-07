@@ -1,0 +1,26 @@
+#!/bin/bash
+set -e
+
+NAMESPACE="${1:-keycloak}"
+LABEL_SELECTOR="${2:-app.kubernetes.io/name=keycloak}"
+DEST_DIR="${3:-.}"
+KEYCLOAK_BIN_PATH="/opt/keycloak/bin"
+
+POD_NAME=$(kubectl get pods -n "$NAMESPACE" -l "$LABEL_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+if [ -z "$POD_NAME" ]; then
+ echo "❌ Error: Could not find pod matching '$LABEL_SELECTOR' in '$NAMESPACE'."
+ exit 1
+fi
+
+echo "✅ Found Keycloak pod: $POD_NAME"
+mkdir -p "$DEST_DIR"
+
+echo "📥 Copying kcadm.sh (via cat)..."
+kubectl exec -n "$NAMESPACE" "$POD_NAME" -- cat "$KEYCLOAK_BIN_PATH/kcadm.sh" >"$DEST_DIR/kcadm.sh"
+
+echo "📥 Copying kc.sh (via cat)..."
+kubectl exec -n "$NAMESPACE" "$POD_NAME" -- cat "$KEYCLOAK_BIN_PATH/kc.sh" >"$DEST_DIR/kc.sh"
+
+chmod +x "$DEST_DIR/kcadm.sh" "$DEST_DIR/kc.sh"
+echo "🎉 Success! Scripts copied."

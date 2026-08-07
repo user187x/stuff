@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# Fail & Bail
+set -euo
+
+NAMESPACE="keycloak"
+
+REALM_NAME="xxx"
+KEYCLOAK_URL="https://keycloak.xxx.local"
+ADMIN_USER="admin"
+ADMIN_PASS=""
+
+CLIENT_ID="headlamp"
+CLIENT_NAME="headlamp"
+CLIENT_URL="https://headlamp.xxx.local"
+
+LOCAL_KEYCLOAK_SCRIPTS="../keycloak-scripts"
+
+KEYCLOAK_BIN_PATH="/opt/keycloak/bin"
+KCADM_SCRIPT_PATH="${KEYCLOAK_BIN_PATH}/kcadm.sh"
+
+function get-keycloak-admin {
+
+ SECRET_NAME=$(kubectl get secrets -n "$NAMESPACE" -o custom-columns=NAME:.metadata.name --no-headers | grep -E 'keycloak-admin' | head -n 1)
+ if [ -z "$SECRET_NAME" ]; then
+  return 1
+ fi
+
+ ADMIN_PASS=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.password}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ if [ -z "$ADMIN_PASS" ]; then
+  ADMIN_PASS=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.admin-password}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ fi
+
+ ADMIN_USER=$(kubectl get secret -n "$NAMESPACE" "$SECRET_NAME" -o jsonpath="{.data.admin-username}" 2>/dev/null | base64 --decode 2>/dev/null || true)
+ if [ -z "$ADMIN_USER" ]; then
+  return 1
+ fi
+}
+
+function get-keycloak-scripts {
+
+ local LABEL_SELECTOR="app.kubernetes.io/name=keycloak"
+ local POD_NAME=$(kubectl get pods -n "$NAMESPACE" -l "$LABEL_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+ if [ -z "$POD_NAME" ]; then
+  echo "Could not find pod matching '$LABEL_SELECTOR' in '$NAMESPACE'."
+  return 1
+ fi
+
+ echo "Found Keycloak pod: $POD_NAME"
+ mkdir -p "$LOCAL_KEYCLOAK_SCRIPTS"
+
+ kubectl cp "$NAMESPACE/$POD_NAME:$KEYCLOAK_BIN_PATH/kcadm.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh"
+ kubectl cp "$NAMESPACE/$POD_NAME:$KEYCLOAK_BIN_PATH/kc.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kc.sh"
+
+ chmod +x "${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kc.sh"
+ echo "Scripts copied."
+}
+
+if ! get-keycloak-admin; tnen
+ echo "Failure getting keycloak admin credentials"
+ exit 1
+fi
+
+if ! get-keyclaok-scripts; then
+ echo "Failure fetching keycloak scripts"
+ exit 1
+fi
+
+echo "Authenticating to Keycloak API at ${KEYCLOAK_URL}..."
+$KCADM config credentials --server "$KEYCLOAK_URL" --realm master --user "$ADMIN_USER" --password "$ADMIN_PASS"
+
+echo "Creating Realm: ${REALM_NAME}..."
+$KCADM create realms -s realm="$REALM_NAME" -s enabled=true -s registrationAllowed=true -s resetPasswordAllowed=false || echo "Realm already exists."
+
+echo "Creating Default X509 Users Group..."
+$KCADM create groups -r "$REALM_NAME" -s name="X509-Autoprovisioned-Users" || echo "Group already exists."
+
+echo "Creating Custom Client Scope for x509 claims..."
+$KCADM create client-scopes -r "$REALM_NAME" -s name="x509-claims" -s protocol="openid-connect" -s description="X509 Certificate Claims" || echo "Scope already exists."
+
+echo "Creating OIDC Client: ${CLIENT_ID}..."
+$KCADM create clients -r "$REALM_NAME" \
+ -s clientId="$CLIENT_ID" \
+ -s name="$CLIENT_NAME" \
+ -s enabled=true \
+ -s publicClient=false \
+ -s bearerOnly=false \
+ -s standardFlowEnabled=true \
+ -s rootUrl="$CLIENT_URL" \
+ -s "redirectUris=[\"${CLIENT_URL}/*\"]" \
+ -s "webOrigins=[\"${CLIENT_URL}\"]" || echo "Client already exists."
+
+echo "Duplicating the default browser flow to 'x509-browser-flow'..."
+$KCADM create authentication/flows -r "$REALM_NAME" \
+ -s alias="x509-browser-flow" \
+ -s providerId="basic-flow" \
+ -s topLevel=true \
+ -s builtIn=false \
+ -s description="Custom flow for X509 Mutual TLS and fallback" || echo "Flow already exists."
+
+echo "Adding X509/Validate Username execution step..."
+$KCADM create authentication/flows/x509-browser-flow/executions/execution -r "$REALM_NAME" \
+ -b '{"provider": "auth-x509-client-username-form"}'
+
+# Retrieve the newly created execution ID using jq
+EXEC_ID=$($KCADM get authentication/flows/x509-browser-flow/executions -r "$REALM_NAME" | jq -r '.[] | select(.providerId == "auth-x509-client-username-form") | .id')
+
+if [ -z "$EXEC_ID" ] || [ "$EXEC_ID" == "null" ]; then
+ echo "[-] Failed to retrieve X509 execution ID. Exiting."
+ exit 1
+fi
+
+echo "Setting X509 execution requirement to ALTERNATIVE..."
+$KCADM update authentication/flows/x509-browser-flow/executions -r "$REALM_NAME" -b "{\"id\": \"$EXEC_ID\", \"requirement\": \"ALTERNATIVE\"}"
+
+echo "Configuring X509 execution identity extraction mappings..."
+$KCADM create authentication/executions/$EXEC_ID/config -r "$REALM_NAME" \
+ -b '{
+    "alias": "x509-cert-config",
+    "config": {
+      "x509-cert-auth.mapping-source-selection": "Subject'"'"'s Common Name",
+      "x509-cert-auth.mapper-selection": "Username or Email",
+      "x509-cert-auth.regular-expression": "(.*?)(?:$)",
+      "x509-cert-auth.confirmation-page-disallowed": "true",
+      "x509-cert-auth.crl-checking-enabled": "false",
+      "x509-cert-auth.revalidate-certificate-enabled": "false"
+    }
+  }'
+
+# NOTE: To achieve 100% zero-touch user creation in standard Keycloak without a registration
+# redirect, you would inject a Script Authenticator execution right after this step in the flow
+# to intercept the "User Not Found" state and provision the user via Keycloak's JavaScript API.
+# Alternatively, map an Identity Provider (IdP) if routing through an external federation proxy.
+
+echo "Binding 'x509-browser-flow' as the default browser flow for realm ${REALM_NAME}..."
+$KCADM update realms/$REALM_NAME -s browserFlow="x509-browser-flow"
+
+echo "=========================================="
+echo " Configuration Completed Successfully!    "
+echo "=========================================="
