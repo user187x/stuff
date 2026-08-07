@@ -1,0 +1,64 @@
+#!/bin/bash
+
+set -euo pipefail
+
+PROJECT_BASE="keycloak-x509-SPI"
+
+PROJECT_RESC_DIR="${PROJECT_BASE}/src/main/resources"
+PROJECT_META_SVC="${PROJECT_RESC_DIR}/META-INF/services"
+PROJECT_JAVA_DIR="${PROJECT_BASE}/src/main/java"
+PROJECT_PAKG_DIR="${PROJECT_JAVA_DIR}/xxx/keycloak"
+
+JAVA_KEYCLOAK_FACTORY="org.keycloak.authentication.AuthenticatorFactory"
+
+PROJECT_PACKAGE_NAMESPACE="xxx.keycloak"
+AUTHENTICATOR_FACTORY="X509AutoProvisionAuthenticator"
+PROVISION_AUTHENTICATOR_FACTORY="X509AutoProvisionAuthenticatorFactory"
+
+JAVA_PKG_PROV_AUTH_FACTORY="${PROJECT_PACKAGE_NAMESPACE}.${PROVISION_AUTHENTICATOR_FACTORY}"
+
+DEPENDENCIES=(
+ "${AUTHENTICATOR_FACTORY}.java"
+ "${PROVISION_AUTHENTICATOR_FACTORY}.java"
+ "pom.xml"
+)
+
+echo "Checking for required files..."
+for DEPENDENCY in "${DEPENDENCIES[@]}"; do
+ if [[ ! -f "$DEPENDENCY" ]]; then
+  echo "Missing required file in the current directory: $DEPENDENCY"
+  exit 1
+ fi
+done
+
+echo "Creating Maven project structure..."
+mkdir -p "${PROJECT_PAKG_DIR}"
+mkdir -p "${PROJECT_META_SVC}"
+
+echo "Copying source files into the Maven structure..."
+cp "${AUTHENTICATOR_FACTORY}.java" "${PROJECT_PAKG_DIR}/"
+cp "${PROVISION_AUTHENTICATOR_FACTORY}.java" "${PROJECT_PAKG_DIR}/"
+cp pom.xml "${PROJECT_BASE}/"
+
+cd "${PROJECT_BASE}"
+
+echo "Creating SPI registration file into META-INF..."
+echo "${JAVA_PKG_PROV_AUTH_FACTORY}" >"${PROJECT_META_SVC}/${JAVA_KEYCLOAK_FACTORY}"
+
+echo "Compiling and packaging with Maven..."
+mvn clean package
+
+echo
+echo "Success! Your JAR file has been built and is located at:"
+echo "$(pwd)/target/keycloak-x509-autoprovision.jar"
+echo "--------------------------------------------------------"
+echo "Mount this file into your Keycloak pod at: /opt/keycloak/providers/x509-autoprovision.jar"
+echo
+
+echo "Building the Keycloak Autoprovision SPI container..."
+
+docker build -t local-registry/keycloak-java-spi:latest .
+docker push local-registry/keycloak-java-spi:latest
+
+echo "Applying Updated argocd.yaml application back to the cluster..."
+kubctl apply -f argocd.yaml
