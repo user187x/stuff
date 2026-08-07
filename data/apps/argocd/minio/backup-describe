@@ -1,0 +1,3 @@
+#!/bin/bash
+
+velero restore describe $BACKUP_NAME --namespace minio

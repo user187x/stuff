@@ -1,0 +1,12 @@
+#!/bin/bash
+
+velero install \
+ --namespace minio \
+ --provider aws \
+ --plugins velero/velero-plugin-for-aws:latest \
+ --bucket cluster-backup \
+ --secret-file ./credentials \
+ --use-volume-snapshots=false \
+ --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://minio.minio.svc.cluster.local:9000
+
+velero client config set namespace=minio

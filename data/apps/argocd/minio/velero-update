@@ -1,0 +1,6 @@
+#!/bin/bash
+
+velero backup-location \
+ set default \
+ --namespace minio \
+ --config region=minio,s3ForcePathStyle="true",s3Url="http://minio.minio.svc.cluster.local:9000"

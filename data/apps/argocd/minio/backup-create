@@ -1,0 +1,7 @@
+#!/bin/bash
+
+BACKUP_NAME="cluster-backup-$(date +%Y.%m.%d-%H.%M)"
+echo "Backup Name: $BACKUP_NAME"
+
+# Create a Velero backup with the specified name and wait for completion
+velero backup create $BACKUP_NAME --wait --namespace minio
