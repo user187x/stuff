@@ -74,7 +74,7 @@ spec:
             command:
               - "sh"
               - "-c"
-              - "curl -L -o /providers/x509-autoprovision.jar https://headlamp.xxx.local/keycloak-x509-autoprovision-1.0.0-SNAPSHOT.jar"
+              - "curl -L -o /providers/x509-autoprovision.jar https://headlamp.xxx.local/keycloak-x509-autoprovision.jar"
             volumeMounts:
               - name: providers-volume
                 mountPath: /providers

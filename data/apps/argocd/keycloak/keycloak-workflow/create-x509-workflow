@@ -15,9 +15,9 @@ CLIENT_NAME="headlamp"
 CLIENT_URL="https://headlamp.xxx.local"
 
 LOCAL_KEYCLOAK_SCRIPTS="../keycloak-scripts"
+KCADM="${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh"
 
-KEYCLOAK_BIN_PATH="/opt/keycloak/bin"
-KCADM_SCRIPT_PATH="${KEYCLOAK_BIN_PATH}/kcadm.sh"
+CONTAINER_KEYCLOAK_BIN_PATH="/opt/keycloak/bin"
 
 function get-keycloak-admin {
 
@@ -50,19 +50,23 @@ function get-keycloak-scripts {
  echo "Found Keycloak pod: $POD_NAME"
  mkdir -p "$LOCAL_KEYCLOAK_SCRIPTS"
 
- kubectl cp "$NAMESPACE/$POD_NAME:$KEYCLOAK_BIN_PATH/kcadm.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh"
- kubectl cp "$NAMESPACE/$POD_NAME:$KEYCLOAK_BIN_PATH/kc.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kc.sh"
+ kubectl cp "$NAMESPACE/$POD_NAME:$CONTAINER_KEYCLOAK_BIN_PATH/kcadm.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh"
+ kubectl cp "$NAMESPACE/$POD_NAME:$CONTAINER_KEYCLOAK_BIN_PATH/kc.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kc.sh"
 
  chmod +x "${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh" "${LOCAL_KEYCLOAK_SCRIPTS}/kc.sh"
  echo "Scripts copied."
 }
+
+#############################################
+#         SCRIPT ENTRY POINT
+#############################################
 
 if ! get-keycloak-admin; then
  echo "Failure getting keycloak admin credentials"
  exit 1
 fi
 
-if ! get-keyclaok-scripts; then
+if ! get-keycloak-scripts; then
  echo "Failure fetching keycloak scripts"
  exit 1
 fi
