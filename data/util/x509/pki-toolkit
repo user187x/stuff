@@ -1,7 +1,40 @@
 #!/usr/bin/env bash
-
+#===============================================================================
+#  pki-toolkit.sh — Consolidated Local PKI & Host Provisioner
+#
+#  Replaces: pki-generate-certs-v0 .. v3, pki-provision-host, pki-provisioner-*
+#
+#  ZERO external TUI dependencies — pure bash/ANSI interface (no whiptail,
+#  no dialog). Requires only: bash 4+, openssl, awk, grep.
+#
+#  Merged capabilities:
+#    * Root CA generation (or reuse of an existing CA in the output dir)
+#    * Server certificate with SAN list (domain, wildcard, extra SANs, IP SANs)
+#    * Dedicated wildcard certificate (*.domain + domain)
+#    * N x client (mTLS) certificates with configurable CN
+#    * Named "service" certs (EKU = clientAuth + serverAuth, SAN = FQDN)
+#    * kubectl-friendly tls.crt / tls.key copies + secret command
+#    * Idempotent hosts managed block (re-runs replace, never duplicate)
+#      routing the base domain AND extra SANs to the target IP
+#    * Isolated hosts file copy in OUT_DIR (sudo-free, container-mountable)
+#    * Certificate chain verification
+#    * Private keys chmod 600 via umask; EUID-aware sudo (root needs none)
+#
+#  Interface modes (auto-detected):
+#    1. TTY          -> full-screen stage picker (arrows/space/numbers)
+#    2. Piped stdin  -> sequential plain-text y/n prompts
+#    3. --yes        -> fully non-interactive, env-var driven
+#
+#  Env overrides: DOMAIN, TARGET_IP, EXTRA_SANS, IP_SANS, DN_ORG, DN_OU,
+#    DN_COUNTRY, KEY_BITS, EXPIRE_DAYS, NUM_CLIENTS, OUT_DIR, SERVICE_CERTS,
+#    HOSTS_FILE, and DO_CA, DO_SERVER, DO_WILDCARD, DO_CLIENTS, DO_SERVICES,
+#    DO_K8S, DO_VERIFY, DO_LOCAL_HOSTS, DO_HOSTS  (each 1/0)
+#===============================================================================
 set -euo pipefail
 
+#------------------------------------------------------------------------------
+# Defaults
+#------------------------------------------------------------------------------
 OUT_DIR="${OUT_DIR:-${PWD}/certs}"
 DOMAIN="${DOMAIN:-xxx.com}"
 TARGET_IP="${TARGET_IP:-127.0.0.1}"
@@ -24,8 +57,28 @@ DO_K8S="${DO_K8S:-0}"
 DO_VERIFY="${DO_VERIFY:-1}"
 DO_LOCAL_HOSTS="${DO_LOCAL_HOSTS:-1}"
 DO_HOSTS="${DO_HOSTS:-0}"
+DO_USERS="${DO_USERS:-0}"
+
+# --- Key protection -----------------------------------------------------------
+# ENCRYPT_KEYS=1 encrypts every generated private key with AES-256.
+# P12_EXPORT=1 additionally bundles cert+key+CA chain into a .p12 for
+# browser / OS keystore import (always passphrase protected).
+ENCRYPT_KEYS="${ENCRYPT_KEYS:-0}"
+P12_EXPORT="${P12_EXPORT:-0}"
+CA_PASS="${PKI_CA_PASS:-}"      # passphrase for ca.key
+KEY_PASS="${PKI_KEY_PASS:-}"    # passphrase applied to NEWLY generated leaf keys
+P12_PASS="${PKI_P12_PASS:-}"    # passphrase for .p12 bundles
+UNLOCK_PASS="${PKI_KEY_PASS:-}" # passphrase used to READ pre-existing keys
+
+# --- User (person) certificate defaults --------------------------------------
+USER_NAMES="${USER_NAMES:-}" # comma separated: "jdoe:Jane Doe:jane@corp.dev,..."
+USER_OU="${USER_OU:-}"
+USER_EMAIL_DOMAIN="${USER_EMAIL_DOMAIN:-}"
+
+MODE="${MODE:-auto}" # auto | full | reissue
 
 HOSTS_FILE="${HOSTS_FILE:-/etc/hosts}"
+
 MARKER_BEG="# --- 🏁 ---"
 MARKER_END="# --- 🏴 ---"
 
@@ -36,6 +89,9 @@ ASSUME_YES=0
 TUI=0
 GENERATED=()
 
+#------------------------------------------------------------------------------
+# ANSI styling (auto-disabled when stdout is not a terminal)
+#------------------------------------------------------------------------------
 if [[ -t 1 ]]; then
  BOLD=$'\033[1m'
  DIM=$'\033[2m'
@@ -80,6 +136,9 @@ fit() {
  else printf '%s...' "${s:0:$((n - 3))}"; fi
 }
 
+# Ensure ${#var} counts CHARACTERS not bytes, so box math survives non-ASCII.
+[[ -z "${LC_ALL:-}" ]] && export LC_ALL="${LANG:-C.UTF-8}"
+
 # Strip ANSI so padding is computed from VISIBLE width, not byte count.
 strip_ansi() { printf '%s' "$1" | sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g'; }
 
@@ -99,6 +158,9 @@ banner() {
  hr
 }
 
+#------------------------------------------------------------------------------
+# CLI
+#------------------------------------------------------------------------------
 usage() {
  cat <<EOF
 Usage: $(basename "$0") [options]
@@ -107,12 +169,19 @@ Usage: $(basename "$0") [options]
   -o, --out DIR       Output directory                (default: ./certs)
   -d, --domain NAME   Base domain                     (default: test.local)
   -p, --plain         Force plain prompts (skip the full-screen picker)
+  -r, --reissue       Go straight to reissue mode (requires an existing CA)
+  -F, --full          Force full provisioning, ignore any existing PKI
+  -e, --encrypt       Passphrase protect private keys (AES-256)
+  -P, --p12           Also export PKCS#12 bundles
   -h, --help          Show this help
 
 Stages (each can be toggled on/off before anything is written):
   1 Root CA          2 Server cert     3 Wildcard cert
   4 Client mTLS      5 Service certs   6 kubectl tls files
-  7 Verify chain     8 Local hosts     9 System hosts
+  7 Verify chain     8 Local hosts     9 System hosts    0 User certs
+
+Passphrases for non-interactive runs come from PKI_CA_PASS, PKI_KEY_PASS
+and PKI_P12_PASS (never passed on the command line).
 EOF
 }
 
@@ -135,6 +204,22 @@ while [[ $# -gt 0 ]]; do
    FORCE_PLAIN=1
    shift
    ;;
+  -r | --reissue)
+   MODE="reissue"
+   shift
+   ;;
+  -F | --full)
+   MODE="full"
+   shift
+   ;;
+  -e | --encrypt)
+   ENCRYPT_KEYS=1
+   shift
+   ;;
+  -P | --p12)
+   P12_EXPORT=1
+   shift
+   ;;
   -h | --help)
    usage
    exit 0
@@ -147,6 +232,9 @@ while [[ $# -gt 0 ]]; do
  esac
 done
 
+#------------------------------------------------------------------------------
+# Dependencies — note whiptail/dialog are NOT required
+#------------------------------------------------------------------------------
 check_dependencies() {
  local missing=()
  for cmd in openssl awk grep; do
@@ -161,6 +249,9 @@ check_dependencies() {
  fi
 }
 
+#------------------------------------------------------------------------------
+# Plain prompt helpers (used in piped mode, and for detail questions in TUI)
+#------------------------------------------------------------------------------
 ask_input() {
  local prompt="$1" default="${2:-}" result
  if [[ "$ASSUME_YES" -eq 1 ]]; then
@@ -198,6 +289,209 @@ ask_yesno() {
  esac
 }
 
+#------------------------------------------------------------------------------
+# Passphrase handling
+#
+#  SECURITY: passphrases are handed to openssl via `env:VAR`, never `pass:...`
+#  on the command line — argv is world-readable through `ps`, the environment
+#  of a process is not. The vars are unset again as soon as the run finishes.
+#------------------------------------------------------------------------------
+MIN_PASS_LEN=4
+
+# read_secret <prompt> [confirm:1|0]  -> echoes the secret on stdout
+read_secret() {
+ local prompt="$1" confirm="${2:-1}" s1 s2 src=/dev/stdin
+ [[ "$TUI" -eq 1 ]] && src=/dev/tty
+ while true; do
+  read -r -s -p "  ${CYAN}?${NC} ${prompt}: " s1 <"$src"
+  echo >&2
+  if [[ ${#s1} -lt $MIN_PASS_LEN ]]; then
+   echo "  ${YELLOW}[!]${NC} Minimum ${MIN_PASS_LEN} characters." >&2
+   continue
+  fi
+  if [[ "$confirm" -eq 1 ]]; then
+   read -r -s -p "  ${CYAN}?${NC} Confirm: " s2 <"$src"
+   echo >&2
+   if [[ "$s1" != "$s2" ]]; then
+    echo "  ${YELLOW}[!]${NC} Passphrases did not match, try again." >&2
+    continue
+   fi
+  fi
+  printf '%s' "$s1"
+  return 0
+ done
+}
+
+# Export the passphrases openssl will read via env: references.
+publish_secrets() {
+ [[ -n "${CA_PASS:-}" ]] && export PKI_CA_PASS="$CA_PASS" || true
+ [[ -n "${KEY_PASS:-}" ]] && export PKI_KEY_PASS="$KEY_PASS" || true
+ [[ -n "${P12_PASS:-}" ]] && export PKI_P12_PASS="$P12_PASS" || true
+ [[ -n "${UNLOCK_PASS:-}" ]] && export PKI_UNLOCK_PASS="$UNLOCK_PASS" || true
+}
+wipe_secrets() {
+ unset PKI_CA_PASS PKI_KEY_PASS PKI_P12_PASS PKI_UNLOCK_PASS \
+  CA_PASS KEY_PASS P12_PASS UNLOCK_PASS 2>/dev/null || true
+}
+trap 'cleanup_tty; wipe_secrets' EXIT INT TERM
+
+# Argument fragments for openssl (empty when no passphrase in play)
+ca_passin() { [[ -n "${CA_PASS:-}" ]] && printf '%s' "-passin env:PKI_CA_PASS"; }
+key_passin() { [[ -n "${KEY_PASS:-}" ]] && printf '%s' "-passin env:PKI_KEY_PASS"; }
+
+# ensure_unlock <keyfile>
+#   Makes an EXISTING key readable: sets UNLOCK_PASS to something that opens it.
+#   Answering "no" to "encrypt new keys" must never lose the passphrase that
+#   unlocks keys already on disk, so the two are tracked separately.
+ensure_unlock() {
+ local f="$1" tries=0
+ UNLOCK_PASS=""
+ [[ -f "$f" ]] || return 0
+ is_key_encrypted "$f" || return 0
+
+ local cand
+ for cand in "${UNLOCK_PASS:-}" "${KEY_PASS:-}" "${PKI_KEY_PASS:-}" "${CA_PASS:-}"; do
+  [[ -z "$cand" ]] && continue
+  UNLOCK_PASS="$cand"
+  export PKI_UNLOCK_PASS="$UNLOCK_PASS"
+  openssl pkey -in "$f" -noout -passin env:PKI_UNLOCK_PASS >/dev/null 2>&1 && return 0
+ done
+ UNLOCK_PASS=""
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  err "${f} is encrypted and no working passphrase was supplied (PKI_KEY_PASS)."
+  return 1
+ fi
+ while ((tries < 3)); do
+  UNLOCK_PASS=$(read_secret "Passphrase for ${f}" 0)
+  export PKI_UNLOCK_PASS="$UNLOCK_PASS"
+  openssl pkey -in "$f" -noout -passin env:PKI_UNLOCK_PASS >/dev/null 2>&1 && return 0
+  err "Incorrect passphrase for ${f}."
+  tries=$((tries + 1))
+ done
+ UNLOCK_PASS=""
+ return 1
+}
+
+# is_key_encrypted <keyfile>
+is_key_encrypted() {
+ ! openssl pkey -in "$1" -noout -passin pass: >/dev/null 2>&1
+}
+
+# Prompt for, and verify, the passphrase of an existing encrypted CA key.
+unlock_ca_key() {
+ [[ ! -f "$CA_KEY" ]] && return 0
+ if ! is_key_encrypted "$CA_KEY"; then
+  CA_PASS=""
+  return 0
+ fi
+
+ if [[ -n "${CA_PASS:-}" ]]; then
+  export PKI_CA_PASS="$CA_PASS"
+  openssl pkey -in "$CA_KEY" -noout -passin env:PKI_CA_PASS >/dev/null 2>&1 && return 0
+  err "Supplied CA passphrase (PKI_CA_PASS) is incorrect."
+  [[ "$ASSUME_YES" -eq 1 ]] && exit 1
+ elif [[ "$ASSUME_YES" -eq 1 ]]; then
+  err "CA key is encrypted but no passphrase given. Set PKI_CA_PASS."
+  exit 1
+ fi
+
+ local tries=0
+ while ((tries < 3)); do
+  warn "The CA key (${CA_KEY}) is passphrase protected."
+  CA_PASS=$(read_secret "CA key passphrase" 0)
+  export PKI_CA_PASS="$CA_PASS"
+  if openssl pkey -in "$CA_KEY" -noout -passin env:PKI_CA_PASS >/dev/null 2>&1; then
+   info "CA key unlocked."
+   return 0
+  fi
+  err "Incorrect passphrase."
+  tries=$((tries + 1))
+ done
+ err "Too many failed attempts — cannot sign without the CA key."
+ exit 1
+}
+
+# Interactive collection of protection preferences (used by both modes).
+configure_protection() {
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  if [[ "$ENCRYPT_KEYS" -eq 1 && -z "$KEY_PASS" ]]; then
+   err "ENCRYPT_KEYS=1 requires PKI_KEY_PASS to be set in non-interactive mode."
+   exit 1
+  fi
+  [[ "$ENCRYPT_KEYS" -eq 1 && -z "$CA_PASS" ]] && CA_PASS="$KEY_PASS"
+  if [[ "$P12_EXPORT" -eq 1 && -z "$P12_PASS" ]]; then
+   P12_PASS="${KEY_PASS:-}"
+   [[ -z "$P12_PASS" ]] && {
+    err "P12_EXPORT=1 requires PKI_P12_PASS."
+    exit 1
+   }
+  fi
+  publish_secrets
+  return
+ fi
+
+ echo
+ if ask_yesno "Passphrase protect the private keys (AES-256)?" "$ENCRYPT_KEYS"; then
+  ENCRYPT_KEYS=1
+  KEY_PASS=$(read_secret "Passphrase for private keys")
+  if ask_yesno "Use a DIFFERENT passphrase for the CA key?" 0; then
+   CA_PASS=$(read_secret "Passphrase for the CA key")
+  else
+   CA_PASS="$KEY_PASS"
+  fi
+  warn "Encrypted keys must be unlocked by whatever consumes them."
+  warn "Servers (nginx/httpd) will prompt at startup unless configured."
+ else
+  # Only the NEW-key passphrase is cleared. CA_PASS and UNLOCK_PASS stay,
+  # since they may be needed to read the CA / existing keys.
+  ENCRYPT_KEYS=0
+  KEY_PASS=""
+ fi
+
+ if ask_yesno "Also export PKCS#12 (.p12) bundles for import into browsers/keystores?" "$P12_EXPORT"; then
+  P12_EXPORT=1
+  if [[ -n "$KEY_PASS" ]] && ask_yesno "Reuse the key passphrase for the .p12 files?" 1; then
+   P12_PASS="$KEY_PASS"
+  else
+   P12_PASS=$(read_secret "Passphrase for .p12 bundles")
+  fi
+ else
+  P12_EXPORT=0
+ fi
+ publish_secrets
+}
+
+#------------------------------------------------------------------------------
+# PKCS#12 bundle export:  cert + private key + CA chain, one importable file
+#------------------------------------------------------------------------------
+export_p12() {
+ local name="$1" friendly="${2:-$1}"
+ [[ ! -f "${name}.crt" || ! -f "${name}.key" ]] && return 0
+ if [[ -z "${P12_PASS:-}" ]]; then
+  warn "No .p12 passphrase set — skipping bundle for ${name}."
+  return 0
+ fi
+ ensure_unlock "${name}.key" || {
+  warn "Cannot read ${name}.key — no bundle."
+  return 0
+ }
+ local args=(pkcs12 -export -out "${name}.p12" -inkey "${name}.key"
+  -in "${name}.crt" -certfile "$CA_CRT" -name "$friendly"
+  -passout env:PKI_P12_PASS)
+ [[ -n "${UNLOCK_PASS:-}" ]] && args+=(-passin env:PKI_UNLOCK_PASS)
+ if openssl "${args[@]}" 2>/dev/null; then
+  chmod 600 "${name}.p12"
+  info "Bundle: ${name}.p12 ${DIM}(passphrase protected)${NC}"
+ else
+  warn "Could not create ${name}.p12"
+ fi
+}
+
+#------------------------------------------------------------------------------
+# Pure-bash full-screen stage picker (replaces whiptail --checklist)
+#   Up/Down or j/k : move      Space : toggle      1-9,0 : jump+toggle
+#   a / n : all / none         c : continue        e : settings     q : quit
+#------------------------------------------------------------------------------
 STAGE_LABEL=(
  "Root CA"
  "Server certificate"
@@ -208,6 +502,7 @@ STAGE_LABEL=(
  "Verify chain"
  "Local hosts file"
  "System hosts file"
+ "User (person) certs"
 )
 STAGE_HINT=(
  "ca.crt + ca.key (required to sign)"
@@ -219,12 +514,13 @@ STAGE_HINT=(
  "openssl verify against the CA"
  "hosts copy in out dir (no sudo)"
  "managed block in ${HOSTS_FILE} (sudo)"
+ "person certs w/ email SAN + .p12"
 )
 STAGE_ON=()
 
 load_stage_state() {
  STAGE_ON=("$DO_CA" "$DO_SERVER" "$DO_WILDCARD" "$DO_CLIENTS" "$DO_SERVICES"
-  "$DO_K8S" "$DO_VERIFY" "$DO_LOCAL_HOSTS" "$DO_HOSTS")
+  "$DO_K8S" "$DO_VERIFY" "$DO_LOCAL_HOSTS" "$DO_HOSTS" "$DO_USERS")
 }
 save_stage_state() {
  DO_CA="${STAGE_ON[0]}"
@@ -236,6 +532,7 @@ save_stage_state() {
  DO_VERIFY="${STAGE_ON[6]}"
  DO_LOCAL_HOSTS="${STAGE_ON[7]}"
  DO_HOSTS="${STAGE_ON[8]}"
+ DO_USERS="${STAGE_ON[9]}"
 }
 
 draw_stage_menu() {
@@ -263,7 +560,7 @@ draw_stage_menu() {
  done
  row ""
  hr
- row "${DIM}up/down move   space toggle   1-9 pick   a all   n none${NC}"
+ row "${DIM}up/down move   space toggle   1-9,0 pick   a all   n none${NC}"
  row "${DIM}c or Enter continue   e edit settings   q quit${NC}"
  hr
 }
@@ -283,8 +580,9 @@ stage_menu() {
    $'\033[A' | k) cursor=$(((cursor - 1 + n) % n)) ;;
    $'\033[B' | j) cursor=$(((cursor + 1) % n)) ;;
    ' ') STAGE_ON[$cursor]=$((1 - STAGE_ON[cursor])) ;;
-   [1-9])
-    local idx=$((key - 1))
+   [1-9] | 0)
+    local idx
+    [[ "$key" == "0" ]] && idx=9 || idx=$((key - 1))
     if [[ $idx -lt $n ]]; then
      cursor=$idx
      STAGE_ON[$idx]=$((1 - STAGE_ON[idx]))
@@ -315,6 +613,9 @@ stage_menu() {
  done
 }
 
+#------------------------------------------------------------------------------
+# Settings screen (plain sequential prompts under a drawn header)
+#------------------------------------------------------------------------------
 settings_screen() {
  [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
  banner
@@ -346,6 +647,9 @@ validate_globals() {
  fi
 }
 
+#------------------------------------------------------------------------------
+# Confirmation summary before anything is written
+#------------------------------------------------------------------------------
 confirm_plan() {
  local i on=()
  for i in "${!STAGE_LABEL[@]}"; do
@@ -359,6 +663,12 @@ confirm_plan() {
  row "Output dir ... $(fit "$OUT_DIR" 56)"
  row "Subject DN ... $(fit "$(build_subj "Server" "$DOMAIN")" 56)"
  row "Keys ......... RSA ${KEY_BITS}, valid ${EXPIRE_DAYS} days"
+ if [[ -n "${KEY_PASS:-}" ]]; then
+  row "Protection ... ${GREEN}AES-256 encrypted private keys${NC}"
+ else
+  row "Protection ... ${YELLOW}unencrypted private keys${NC}"
+ fi
+ [[ "$P12_EXPORT" -eq 1 ]] && row "Bundles ...... .p12 export enabled"
  if [[ ${#on[@]} -eq 0 ]]; then
   row "Will build ... ${YELLOW}nothing selected${NC}"
  else
@@ -369,6 +679,9 @@ confirm_plan() {
  echo
 }
 
+#------------------------------------------------------------------------------
+# DN builder
+#------------------------------------------------------------------------------
 build_subj() {
  local role="$1" cn="$2" subj=""
  [[ -n "$DN_COUNTRY" ]] && subj+="/C=${DN_COUNTRY}"
@@ -378,12 +691,22 @@ build_subj() {
  echo "$subj"
 }
 
+#------------------------------------------------------------------------------
+# SAN ext-file builder:  build_ext_file <file> <server|client|both> <dns> <ip>
+#------------------------------------------------------------------------------
 build_ext_file() {
- local file="$1" eku="$2" dns_csv="$3" ip_csv="${4:-}"
+ local file="$1" eku="$2" dns_csv="$3" ip_csv="${4:-}" email="${5:-}"
  {
   echo "authorityKeyIdentifier=keyid,issuer"
   echo "basicConstraints=CA:FALSE"
-  echo "keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment"
+  echo "subjectKeyIdentifier=hash"
+  case "$eku" in
+   user)
+    echo "keyUsage = critical, digitalSignature, keyEncipherment"
+    echo "extendedKeyUsage = clientAuth, emailProtection"
+    ;;
+   *) echo "keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment" ;;
+  esac
   case "$eku" in
    server) echo "extendedKeyUsage = serverAuth" ;;
    client) echo "extendedKeyUsage = clientAuth" ;;
@@ -413,40 +736,506 @@ build_ext_file() {
    i=$((i + 1))
   done
  fi
+ [[ -n "$email" ]] && echo "email.1 = $email" >>"$file"
+ # An empty alt_names section is invalid — give it something to hold.
+ grep -qE '^(DNS|IP|email)\.' "$file" || echo "DNS.1 = localhost" >>"$file"
+ return 0
 }
 
+#------------------------------------------------------------------------------
+# Generators
+#------------------------------------------------------------------------------
 generate_ca() {
  if [[ -f "$CA_CRT" && -f "$CA_KEY" ]]; then
   if ask_yesno "Existing CA found in ${OUT_DIR}. Reuse it? (No = overwrite)" 1; then
    info "Reusing existing CA: ${OUT_DIR}/${CA_CRT}"
+   unlock_ca_key
    return
   fi
+  warn "Overwriting the CA invalidates every certificate it signed."
+  ask_yesno "Really replace the existing CA?" 0 || {
+   unlock_ca_key
+   return
+  }
  fi
  info "Generating Root CA (${KEY_BITS}-bit, ${EXPIRE_DAYS} days)..."
- openssl genrsa -out "$CA_KEY" "$KEY_BITS" 2>/dev/null
- openssl req -x509 -new -nodes -key "$CA_KEY" -sha256 -days "$EXPIRE_DAYS" \
-  -out "$CA_CRT" -subj "$(build_subj "Root CA" "${DOMAIN} Root CA")"
+ if [[ -n "${CA_PASS:-}" ]]; then
+  openssl genrsa -aes256 -passout env:PKI_CA_PASS -out "$CA_KEY" "$KEY_BITS" 2>/dev/null
+  openssl req -x509 -new -key "$CA_KEY" -passin env:PKI_CA_PASS -sha256 \
+   -days "$EXPIRE_DAYS" -out "$CA_CRT" \
+   -subj "$(build_subj "Root CA" "${DOMAIN} Root CA")"
+  info "CA key is AES-256 encrypted."
+ else
+  openssl genrsa -out "$CA_KEY" "$KEY_BITS" 2>/dev/null
+  openssl req -x509 -new -nodes -key "$CA_KEY" -sha256 -days "$EXPIRE_DAYS" \
+   -out "$CA_CRT" -subj "$(build_subj "Root CA" "${DOMAIN} Root CA")"
+ fi
  GENERATED+=("$CA_CRT")
 }
 
+# generate_leaf <basename> <cn> <role> <eku|none> <dns-csv> <ip-csv> [subj-override] [email]
 generate_leaf() {
  local name="$1" cn="$2" role="$3" eku="$4" dns_csv="$5" ip_csv="${6:-}"
+ local subj_override="${7:-}" email="${8:-}"
  info "${role}: CN=${cn}  ->  ${name}.crt"
 
- openssl genrsa -out "${name}.key" "$KEY_BITS" 2>/dev/null
- openssl req -new -key "${name}.key" -out "${name}.csr" \
-  -subj "$(build_subj "$role" "$cn")"
+ # --- key ---------------------------------------------------------------
+ if [[ -n "${KEY_PASS:-}" ]]; then
+  openssl genrsa -aes256 -passout env:PKI_KEY_PASS -out "${name}.key" "$KEY_BITS" 2>/dev/null
+ else
+  openssl genrsa -out "${name}.key" "$KEY_BITS" 2>/dev/null
+ fi
 
- local x509_args=(-req -in "${name}.csr" -CA "$CA_CRT" -CAkey "$CA_KEY"
+ # --- CSR ---------------------------------------------------------------
+ local subj="${subj_override:-$(build_subj "$role" "$cn")}"
+ local req_args=(req -new -key "${name}.key" -out "${name}.csr" -subj "$subj")
+ [[ -n "${KEY_PASS:-}" ]] && req_args+=(-passin env:PKI_KEY_PASS)
+ openssl "${req_args[@]}"
+
+ # --- sign --------------------------------------------------------------
+ local x509_args=(x509 -req -in "${name}.csr" -CA "$CA_CRT" -CAkey "$CA_KEY"
   -CAcreateserial -out "${name}.crt" -days "$EXPIRE_DAYS" -sha256)
+ [[ -n "${CA_PASS:-}" ]] && x509_args+=(-passin env:PKI_CA_PASS)
  if [[ "$eku" != "none" ]]; then
-  build_ext_file "${name}-ext.cnf" "$eku" "$dns_csv" "$ip_csv"
+  build_ext_file "${name}-ext.cnf" "$eku" "$dns_csv" "$ip_csv" "$email"
   x509_args+=(-extfile "${name}-ext.cnf")
  fi
- openssl x509 "${x509_args[@]}" 2>/dev/null
+ openssl "${x509_args[@]}" 2>/dev/null
  GENERATED+=("${name}.crt")
+
+ [[ "$P12_EXPORT" -eq 1 ]] && export_p12 "$name" "$cn"
+ return 0
 }
 
+#------------------------------------------------------------------------------
+# User (person) certificates — full DN, email SAN, clientAuth + emailProtection.
+# These are what a developer imports into a browser or an OS keystore, so a
+# .p12 bundle is produced by default.
+#------------------------------------------------------------------------------
+generate_user_cert() {
+ local uid="$1" fullname="$2" email="$3"
+ local subj=""
+ [[ -n "$DN_COUNTRY" ]] && subj+="/C=${DN_COUNTRY}"
+ [[ -n "$DN_ORG" ]] && subj+="/O=${DN_ORG}"
+ [[ -n "$USER_OU" ]] && subj+="/OU=${USER_OU}"
+ subj+="/CN=${fullname}"
+ [[ -n "$uid" ]] && subj+="/UID=${uid}"
+ [[ -n "$email" ]] && subj+="/emailAddress=${email}"
+
+ local base="user-${uid}"
+ info "User DN: ${subj}"
+ generate_leaf "$base" "$fullname" "User" "user" "" "" "$subj" "$email"
+
+ # user certs are for keystore import — always bundle, even if P12_EXPORT=0
+ if [[ "$P12_EXPORT" -ne 1 && -n "${P12_PASS:-}" ]]; then
+  export_p12 "$base" "$fullname"
+ fi
+}
+
+#------------------------------------------------------------------------------
+# Existing-PKI inventory + reissue engine
+#
+#  A directory qualifies for reissue mode when it holds a usable CA keypair.
+#  Existing leaf certs are re-signed from their OWN embedded subject/SAN/EKU,
+#  so a reissue reproduces the certificate exactly with fresh validity dates.
+#------------------------------------------------------------------------------
+CERT_FILE=()
+CERT_CN=()
+CERT_EXP=()
+CERT_STATUS=()
+CERT_KIND=()
+CERT_SEL=()
+
+pki_dir_is_complete() {
+ local d="${1:-$OUT_DIR}"
+ [[ -f "${d}/${CA_CRT}" && -f "${d}/${CA_KEY}" ]] || return 1
+ openssl x509 -in "${d}/${CA_CRT}" -noout >/dev/null 2>&1 || return 1
+ return 0
+}
+
+cert_kind_of() {
+ local f="$1" eku sub
+ eku=$(openssl x509 -in "$f" -noout -ext extendedKeyUsage 2>/dev/null || true)
+ sub=$(openssl x509 -in "$f" -noout -subject 2>/dev/null || true)
+ if [[ "$eku" == *"E-mail Protection"* ]]; then
+  echo "user"
+ elif [[ "$eku" == *"Server Auth"* && "$eku" == *"Client Auth"* ]]; then
+  echo "service"
+ elif [[ "$eku" == *"Server Auth"* ]]; then
+  [[ "$sub" == *"CN = \*."* ]] && echo "wildcard" || echo "server"
+ elif [[ "$eku" == *"Client Auth"* ]]; then
+  echo "client"
+ else echo "other"; fi
+}
+
+scan_existing_certs() {
+ CERT_FILE=()
+ CERT_CN=()
+ CERT_EXP=()
+ CERT_STATUS=()
+ CERT_KIND=()
+ CERT_SEL=()
+ local f cn exp status kind
+ for f in *.crt; do
+  [[ -e "$f" ]] || continue
+  [[ "$f" == "$CA_CRT" || "$f" == "tls.crt" ]] && continue
+  [[ -f "${f%.crt}.key" ]] || continue # need the key to reissue
+  cn=$(openssl x509 -in "$f" -noout -subject 2>/dev/null |
+   sed -n 's/.*CN[[:space:]]*=[[:space:]]*\([^,/]*\).*/\1/p' | head -1)
+  exp=$(openssl x509 -in "$f" -noout -enddate 2>/dev/null | cut -d= -f2)
+  if ! openssl x509 -in "$f" -noout -checkend 0 >/dev/null 2>&1; then
+   status="EXPIRED"
+  elif ! openssl x509 -in "$f" -noout -checkend 2592000 >/dev/null 2>&1; then
+   status="expiring<30d"
+  else
+   status="valid"
+  fi
+  kind=$(cert_kind_of "$f")
+  CERT_FILE+=("$f")
+  CERT_CN+=("${cn:-?}")
+  CERT_EXP+=("$exp")
+  CERT_STATUS+=("$status")
+  CERT_KIND+=("$kind")
+  CERT_SEL+=(0)
+ done
+}
+
+# Pull the SAN list out of an existing cert so a reissue keeps it verbatim.
+sans_of() { # -> "dns_csv|ip_csv|email"
+ local f="$1" raw dns="" ip="" em="" part
+ raw=$(openssl x509 -in "$f" -noout -ext subjectAltName 2>/dev/null |
+  tail -n +2 | tr -d ' \n')
+ IFS=',' read -ra parts <<<"$raw"
+ for part in "${parts[@]:-}"; do
+  case "$part" in
+   DNS:*) dns+="${dns:+,}${part#DNS:}" ;;
+   IPAddress:*) ip+="${ip:+,}${part#IPAddress:}" ;;
+   email:*) em+="${em:+,}${part#email:}" ;;
+  esac
+ done
+ printf '%s|%s|%s' "$dns" "$ip" "$em"
+}
+
+eku_of() {
+ local f="$1" e
+ e=$(openssl x509 -in "$f" -noout -ext extendedKeyUsage 2>/dev/null || true)
+ if [[ "$e" == *"E-mail Protection"* ]]; then
+  echo "user"
+ elif [[ "$e" == *"Server Auth"* && "$e" == *"Client Auth"* ]]; then
+  echo "both"
+ elif [[ "$e" == *"Server Auth"* ]]; then
+  echo "server"
+ elif [[ "$e" == *"Client Auth"* ]]; then
+  echo "client"
+ else echo "none"; fi
+}
+
+archive_cert() {
+ local base="$1" stamp
+ stamp=$(date +%Y%m%d-%H%M%S)
+ mkdir -p archive
+ local f
+ for f in "${base}.crt" "${base}.key" "${base}.p12"; do
+  [[ -f "$f" ]] && cp -p "$f" "archive/${f%.*}-${stamp}.${f##*.}"
+ done
+ return 0
+}
+
+# reissue_cert <crtfile> <keep_key:1|0>
+reissue_cert() {
+ local file="$1" keep_key="${2:-0}"
+ local base="${file%.crt}" # separate stmt: `local` expands all words first
+ local subj eku sanparts dns ipl em
+
+ subj=$(openssl x509 -in "$file" -noout -subject 2>/dev/null |
+  sed 's/^subject=//; s/^ *//')
+ # normalise "C = US, O = X, CN = y"  ->  "/C=US/O=X/CN=y"
+ subj="/$(echo "$subj" | sed 's/ *, */\//g; s/ *= */=/g')"
+ eku=$(eku_of "$file")
+ sanparts=$(sans_of "$file")
+ dns="${sanparts%%|*}"
+ sanparts="${sanparts#*|}"
+ ipl="${sanparts%%|*}"
+ em="${sanparts#*|}"
+
+ archive_cert "$base"
+ info "Reissuing ${base} ${DIM}(${eku}, ${EXPIRE_DAYS}d)${NC}"
+
+ local sign_passin=""
+ if [[ "$keep_key" -eq 1 && -f "${base}.key" ]]; then
+  info "  keeping existing private key"
+  ensure_unlock "${base}.key" || {
+   err "  cannot unlock ${base}.key — skipped."
+   return 1
+  }
+  [[ -n "${UNLOCK_PASS:-}" ]] && sign_passin="env:PKI_UNLOCK_PASS"
+ else
+  if [[ -n "${KEY_PASS:-}" ]]; then
+   openssl genrsa -aes256 -passout env:PKI_KEY_PASS -out "${base}.key" "$KEY_BITS" 2>/dev/null
+   sign_passin="env:PKI_KEY_PASS"
+  else
+   openssl genrsa -out "${base}.key" "$KEY_BITS" 2>/dev/null
+  fi
+ fi
+
+ local req_args=(req -new -key "${base}.key" -out "${base}.csr" -subj "$subj")
+ [[ -n "$sign_passin" ]] && req_args+=(-passin "$sign_passin")
+ if ! openssl "${req_args[@]}" 2>/dev/null; then
+  err "  CSR failed for ${base} (wrong key passphrase?)"
+  return 1
+ fi
+
+ local x509_args=(x509 -req -in "${base}.csr" -CA "$CA_CRT" -CAkey "$CA_KEY"
+  -CAcreateserial -out "${base}.crt" -days "$EXPIRE_DAYS" -sha256)
+ [[ -n "${CA_PASS:-}" ]] && x509_args+=(-passin env:PKI_CA_PASS)
+ if [[ "$eku" != "none" ]]; then
+  build_ext_file "${base}-ext.cnf" "$eku" "$dns" "$ipl" "$em"
+  x509_args+=(-extfile "${base}-ext.cnf")
+ fi
+ openssl "${x509_args[@]}" 2>/dev/null
+ rm -f "${base}.csr"
+ GENERATED+=("${base}.crt")
+ [[ -n "${P12_PASS:-}" ]] && export_p12 "$base" "$(openssl x509 -in "${base}.crt" -noout -subject | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p')"
+ return 0
+}
+#------------------------------------------------------------------------------
+# Reissue screen — multi-select over the certs already in the directory
+#------------------------------------------------------------------------------
+draw_reissue_menu() {
+ local cursor="$1" i mark line ca_exp ca_state
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ ca_exp=$(openssl x509 -in "$CA_CRT" -noout -enddate 2>/dev/null | cut -d= -f2)
+ if openssl x509 -in "$CA_CRT" -noout -checkend 0 >/dev/null 2>&1; then
+  ca_state="${GREEN}valid${NC}"
+ else
+  ca_state="${RED}EXPIRED${NC}"
+ fi
+ row "${BOLD}Existing PKI detected${NC} in $(fit "$OUT_DIR" 40)"
+ row "CA expires: $(fit "$ca_exp" 32)  [${ca_state}]$([[ -n "${CA_PASS:-}" ]] && printf ' %s' "${YELLOW}encrypted${NC}")"
+ hr
+ if [[ ${#CERT_FILE[@]} -eq 0 ]]; then
+  row "${YELLOW}No reissuable leaf certificates found.${NC}"
+  row "${DIM}(a cert needs its matching .key file to be reissued)${NC}"
+ else
+  row "${BOLD}$(printf '%-5s %-26s %-12s %-14s %s' '' 'Certificate' 'Type' 'Expires' 'Status')${NC}"
+  for i in "${!CERT_FILE[@]}"; do
+   if [[ "${CERT_SEL[$i]}" -eq 1 ]]; then mark="${GREEN}[x]${NC}"; else mark="${DIM}[ ]${NC}"; fi
+   local st="${CERT_STATUS[$i]}" stc=""
+   case "$st" in
+    EXPIRED) stc="${RED}" ;;
+    expiring*) stc="${YELLOW}" ;;
+    *) stc="${GREEN}" ;;
+   esac
+   line=$(printf '%s %-26s %-12s %-14s %s' "$mark" \
+    "$(fit "${CERT_FILE[$i]}" 26)" "${CERT_KIND[$i]}" \
+    "$(echo "${CERT_EXP[$i]}" | awk '{print $1" "$2" "$4}')" \
+    "${stc}${st}${NC}")
+   if [[ "$i" -eq "$cursor" ]]; then row "${REV}>${NC} ${line}"; else row "  ${line}"; fi
+  done
+ fi
+ hr
+ row "${DIM}space/1-9 select   a all   x expired+expiring   n none${NC}"
+ row "${DIM}r reissue selected   u new USER cert   c new client cert${NC}"
+ row "${DIM}p export .p12 for selected   f full provisioning   q quit${NC}"
+ hr
+}
+
+# returns 0 done, 3 switch to full provisioning, 1 quit
+reissue_menu() {
+ local cursor=0 key rest n
+ while true; do
+  n=${#CERT_FILE[@]}
+  ((cursor >= n)) && cursor=0
+  draw_reissue_menu "$cursor"
+  printf '%s' "$HIDE_CUR"
+  IFS= read -rsn1 key </dev/tty || key=""
+  if [[ "$key" == $'\033' ]]; then
+   read -rsn2 -t 0.05 rest </dev/tty || rest=""
+   key+="$rest"
+  fi
+  printf '%s' "$SHOW_CUR"
+  case "$key" in
+   $'\033[A' | k) ((n > 0)) && cursor=$(((cursor - 1 + n) % n)) ;;
+   $'\033[B' | j) ((n > 0)) && cursor=$(((cursor + 1) % n)) ;;
+   ' ') ((n > 0)) && CERT_SEL[$cursor]=$((1 - CERT_SEL[cursor])) ;;
+   [1-9])
+    local idx=$((key - 1))
+    if ((idx < n)); then
+     cursor=$idx
+     CERT_SEL[$idx]=$((1 - CERT_SEL[idx]))
+    fi
+    ;;
+   a)
+    local i
+    for i in "${!CERT_SEL[@]}"; do CERT_SEL[$i]=1; done
+    ;;
+   n)
+    local i
+    for i in "${!CERT_SEL[@]}"; do CERT_SEL[$i]=0; done
+    ;;
+   x)
+    local i
+    for i in "${!CERT_SEL[@]}"; do
+     [[ "${CERT_STATUS[$i]}" == "valid" ]] && CERT_SEL[$i]=0 || CERT_SEL[$i]=1
+    done
+    ;;
+   r)
+    do_reissue_selected
+    scan_existing_certs
+    ;;
+   u)
+    do_new_user_cert
+    scan_existing_certs
+    ;;
+   c)
+    do_new_client_cert
+    scan_existing_certs
+    ;;
+   p)
+    do_export_selected
+    scan_existing_certs
+    ;;
+   f) return 3 ;;
+   q) return 0 ;;
+  esac
+ done
+}
+
+pause_key() {
+ echo
+ read -rsn1 -p "  ${DIM}press any key to return to the list${NC}" _ </dev/tty || true
+ echo
+}
+
+selected_indices() {
+ local i out=()
+ for i in "${!CERT_SEL[@]}"; do [[ "${CERT_SEL[$i]}" -eq 1 ]] && out+=("$i"); done
+ echo "${out[@]:-}"
+}
+
+do_reissue_selected() {
+ local idxs
+ idxs=$(selected_indices)
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}Reissue${NC}"
+ hr
+ echo
+ if [[ -z "$idxs" ]]; then
+  warn "Nothing selected."
+  pause_key
+  return
+ fi
+ EXPIRE_DAYS=$(ask_input "New validity in days:" "$EXPIRE_DAYS")
+ local keep=0
+ ask_yesno "Keep the existing private keys? (No = generate fresh keys)" 1 && keep=1
+ if [[ "$keep" -eq 0 ]] && [[ -z "${KEY_PASS:-}" ]] && ask_yesno "Passphrase protect the new keys?" 0; then
+  KEY_PASS=$(read_secret "Passphrase for new private keys")
+  publish_secrets
+ fi
+ local i
+ for i in $idxs; do
+  reissue_cert "${CERT_FILE[$i]}" "$keep" || true
+ done
+ echo
+ info "Old copies saved under ${OUT_DIR}/archive/"
+ pause_key
+}
+
+do_new_user_cert() {
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}New user certificate${NC}"
+ hr
+ echo
+ local uid full email
+ uid=$(ask_input "Username / UID:" "")
+ [[ -z "$uid" ]] && {
+  warn "Username required."
+  pause_key
+  return
+ }
+ full=$(ask_input "Full name (CN):" "$uid")
+ local defmail=""
+ [[ -n "$USER_EMAIL_DOMAIN" ]] && defmail="${uid}@${USER_EMAIL_DOMAIN}"
+ email=$(ask_input "Email address (SAN + DN):" "$defmail")
+ USER_OU=$(ask_input "Organizational Unit (OU):" "$USER_OU")
+ EXPIRE_DAYS=$(ask_input "Validity in days:" "$EXPIRE_DAYS")
+ if [[ -z "${KEY_PASS:-}" ]] && ask_yesno "Passphrase protect this user's key?" 1; then
+  KEY_PASS=$(read_secret "Passphrase for the user key")
+  publish_secrets
+ fi
+ if [[ -z "${P12_PASS:-}" ]] && ask_yesno "Export a .p12 bundle for keystore import?" 1; then
+  if [[ -n "${KEY_PASS:-}" ]] && ask_yesno "Reuse the key passphrase for the .p12?" 1; then
+   P12_PASS="$KEY_PASS"
+  else
+   P12_PASS=$(read_secret "Passphrase for the .p12")
+  fi
+  publish_secrets
+ fi
+ echo
+ generate_user_cert "$uid" "$full" "$email"
+ pause_key
+}
+
+do_new_client_cert() {
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}New client certificate${NC}"
+ hr
+ echo
+ local cn base
+ cn=$(ask_input "CN / FQDN for the client:" "client.${DOMAIN}")
+ [[ -z "$cn" ]] && {
+  warn "CN required."
+  pause_key
+  return
+ }
+ base=$(ask_input "Output basename:" "client-${cn%%.*}")
+ EXPIRE_DAYS=$(ask_input "Validity in days:" "$EXPIRE_DAYS")
+ if [[ -z "${KEY_PASS:-}" ]] && ask_yesno "Passphrase protect this key?" 0; then
+  KEY_PASS=$(read_secret "Passphrase for the private key")
+  publish_secrets
+ fi
+ echo
+ generate_leaf "$base" "$cn" "Client" "client" "$cn" ""
+ pause_key
+}
+
+do_export_selected() {
+ local idxs
+ idxs=$(selected_indices)
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}Export PKCS#12 bundles${NC}"
+ hr
+ echo
+ if [[ -z "$idxs" ]]; then
+  warn "Nothing selected."
+  pause_key
+  return
+ fi
+ if [[ -z "${P12_PASS:-}" ]]; then
+  P12_PASS=$(read_secret "Passphrase for the .p12 bundle(s)")
+  publish_secrets
+ fi
+ # An encrypted source key must be unlocked to build the bundle.
+ local i base
+ for i in $idxs; do
+  base="${CERT_FILE[$i]%.crt}"
+  if [[ -z "${KEY_PASS:-}" ]] && is_key_encrypted "${base}.key"; then
+   KEY_PASS=$(read_secret "Passphrase for ${base}.key" 0)
+   publish_secrets
+  fi
+  export_p12 "$base" "${CERT_CN[$i]}"
+ done
+ pause_key
+}
+
+#------------------------------------------------------------------------------
+# Hosts management — idempotent marker block
+#------------------------------------------------------------------------------
 SUDO=""
 init_sudo() {
  if [[ $EUID -ne 0 ]]; then
@@ -533,15 +1322,157 @@ update_system_hosts() {
  apply_hosts_block "$HOSTS_FILE" 1
 }
 
-main() {
+#------------------------------------------------------------------------------
+# Reissue: non-TTY / piped variant + shared summary
+#------------------------------------------------------------------------------
+reissue_plain() {
+ banner
+ row "${BOLD}Existing PKI - reissue mode${NC}"
+ hr
+ local i
+ if [[ ${#CERT_FILE[@]} -gt 0 ]]; then
+  for i in "${!CERT_FILE[@]}"; do
+   row "$(printf '%2d. %-26s %-10s %s' $((i + 1)) "${CERT_FILE[$i]}" \
+    "${CERT_KIND[$i]}" "${CERT_STATUS[$i]}")"
+  done
+ else
+  row "${DIM}no reissuable certificates found${NC}"
+ fi
+ hr
+ echo
 
+ configure_protection
+
+ if [[ ${#CERT_FILE[@]} -gt 0 ]] && ask_yesno "Reissue existing certificates?" 1; then
+  local which keep=0
+  which=$(ask_input "Which? (all / expired / comma-separated numbers):" "expired")
+  EXPIRE_DAYS=$(ask_input "New validity in days:" "$EXPIRE_DAYS")
+  ask_yesno "Keep existing private keys?" 1 && keep=1
+  case "$which" in
+   all) for i in "${!CERT_FILE[@]}"; do CERT_SEL[$i]=1; done ;;
+   expired) for i in "${!CERT_FILE[@]}"; do
+    [[ "${CERT_STATUS[$i]}" == "valid" ]] && CERT_SEL[$i]=0 || CERT_SEL[$i]=1
+   done ;;
+   *)
+    IFS=',' read -ra nums <<<"$which"
+    local nnum
+    for nnum in "${nums[@]}"; do
+     nnum="$(echo "$nnum" | xargs)"
+     [[ "$nnum" =~ ^[0-9]+$ ]] && CERT_SEL[$((nnum - 1))]=1
+    done
+    ;;
+  esac
+  for i in "${!CERT_SEL[@]}"; do
+   [[ "${CERT_SEL[$i]}" -eq 1 ]] && reissue_cert "${CERT_FILE[$i]}" "$keep" || true
+  done
+ fi
+
+ if ask_yesno "Create new USER (person) certificates?" 0; then
+  local ucount u uid full email
+  USER_OU=$(ask_input "Organizational Unit (OU):" "$USER_OU")
+  USER_EMAIL_DOMAIN=$(ask_input "Email domain:" "${USER_EMAIL_DOMAIN:-$DOMAIN}")
+  ucount=$(ask_input "How many?" "1")
+  [[ "$ucount" =~ ^[0-9]+$ ]] || ucount=1
+  for ((u = 1; u <= ucount; u++)); do
+   uid=$(ask_input "User #${u} username/UID:" "user${u}")
+   full=$(ask_input "User #${u} full name (CN):" "$uid")
+   email=$(ask_input "User #${u} email:" "${uid}@${USER_EMAIL_DOMAIN}")
+   generate_user_cert "$uid" "$full" "$email"
+  done
+ fi
+
+ if ask_yesno "Create new client (mTLS) certificates?" 0; then
+  local ccount c cn base
+  ccount=$(ask_input "How many?" "1")
+  [[ "$ccount" =~ ^[0-9]+$ ]] || ccount=1
+  for ((c = 1; c <= ccount; c++)); do
+   cn=$(ask_input "Client #${c} CN:" "client${c}.${DOMAIN}")
+   base=$(ask_input "Client #${c} basename:" "client-${cn%%.*}")
+   generate_leaf "$base" "$cn" "Client" "client" "$cn" ""
+  done
+ fi
+}
+
+reissue_summary() {
+ echo
+ hr
+ row "${GREEN}${BOLD}Reissue complete${NC}"
+ hr
+ row "Directory: $(fit "$OUT_DIR" 62)"
+ if [[ ${#GENERATED[@]} -gt 0 ]]; then
+  row "Issued/updated ${#GENERATED[@]} certificate(s):"
+  local c
+  for c in "${GENERATED[@]}"; do row "  ${GREEN}*${NC} $c"; done
+ else
+  row "${DIM}No certificates were changed.${NC}"
+ fi
+ [[ -d archive ]] && row "Previous copies: ${OUT_DIR}/archive/"
+ hr
+ if compgen -G "*.p12" >/dev/null; then
+  echo
+  echo -e "${BOLD}Import a bundle${NC}"
+  echo "  # Linux/Firefox: Settings > Privacy > Certificates > Your Certificates > Import"
+  echo "  # macOS:  security import <file>.p12 -k ~/Library/Keychains/login.keychain-db"
+  echo "  # verify: openssl pkcs12 -info -in <file>.p12 -noout"
+ fi
+ echo
+}
+
+#------------------------------------------------------------------------------
+# Main
+#------------------------------------------------------------------------------
+main() {
  check_dependencies
  load_stage_state
+
+ #--- Reissue mode: existing PKI in the target directory -------------------
+ # Offered before anything is asked about building from scratch, so a dev
+ # topping up an existing test PKI never risks clobbering their CA.
+ if [[ "$MODE" != "full" ]] && pki_dir_is_complete "$OUT_DIR"; then
+  if [[ "$MODE" == "reissue" ]] ||
+   { [[ "$ASSUME_YES" -eq 0 ]] &&
+    {
+     [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+     banner
+     row "${BOLD}A complete PKI already exists here${NC}"
+     row "$(fit "$OUT_DIR" 68)"
+     hr
+     row "${GREEN}r${NC} Reissue / add certificates ${DIM}(keeps the current CA)${NC}"
+     row "${YELLOW}f${NC} Full provisioning ${DIM}(may replace the CA)${NC}"
+     row "${DIM}q Quit${NC}"
+     hr
+     echo
+     ask_yesno "Enter reissue mode?" 1
+    }; }; then
+   cd "$OUT_DIR"
+   umask 077
+   unlock_ca_key
+   scan_existing_certs
+   if [[ "$TUI" -eq 1 ]]; then
+    set +e
+    reissue_menu
+    local rrc=$?
+    set -e
+    if [[ $rrc -ne 3 ]]; then
+     reissue_summary
+     exit 0
+    fi
+    cd - >/dev/null
+   else
+    reissue_plain
+    reissue_summary
+    exit 0
+   fi
+  else
+   cd - >/dev/null 2>&1 || true
+  fi
+ fi
 
  if [[ "$ASSUME_YES" -eq 0 ]]; then
   if [[ "$TUI" -eq 1 ]]; then
    settings_screen
    validate_globals
+   configure_protection
    while true; do
     load_stage_state 2>/dev/null || true
     set +e
@@ -574,14 +1505,17 @@ main() {
    ask_yesno "Dedicated wildcard certificate?" "$DO_WILDCARD" && DO_WILDCARD=1 || DO_WILDCARD=0
    ask_yesno "Client (mTLS) certificates?" "$DO_CLIENTS" && DO_CLIENTS=1 || DO_CLIENTS=0
    ask_yesno "Named service certificates?" "$DO_SERVICES" && DO_SERVICES=1 || DO_SERVICES=0
+   ask_yesno "User (person) certificates?" "$DO_USERS" && DO_USERS=1 || DO_USERS=0
    ask_yesno "kubectl tls.crt/tls.key copies?" "$DO_K8S" && DO_K8S=1 || DO_K8S=0
    ask_yesno "Verify chain at the end?" "$DO_VERIFY" && DO_VERIFY=1 || DO_VERIFY=0
    ask_yesno "Isolated local hosts file?" "$DO_LOCAL_HOSTS" && DO_LOCAL_HOSTS=1 || DO_LOCAL_HOSTS=0
    ask_yesno "Update system ${HOSTS_FILE}?" "$DO_HOSTS" && DO_HOSTS=1 || DO_HOSTS=0
+   configure_protection
    load_stage_state
   fi
  else
   validate_globals
+  configure_protection
  fi
 
  if [[ "$ASSUME_YES" -eq 0 ]]; then
@@ -608,7 +1542,7 @@ main() {
  elif [[ -f "$CA_CRT" && -f "$CA_KEY" ]]; then
   info "Skipped. Using existing CA in ${OUT_DIR}."
  else
-  err "No CA present in ${OUT_DIR} — nothing can be signed. Aborting."
+  err "No CA present in ${OUT_DIR} - nothing can be signed. Aborting."
   exit 1
  fi
 
@@ -671,6 +1605,44 @@ main() {
   info "Skipped."
  fi
 
+ #--- User (person) certs --------------------------------------------------
+ title "User certificates"
+ if [[ "$DO_USERS" -eq 1 ]]; then
+  USER_OU=$(ask_input "Organizational Unit for users (OU):" "$USER_OU")
+  USER_EMAIL_DOMAIN=$(ask_input "Email domain for users:" "${USER_EMAIL_DOMAIN:-$DOMAIN}")
+  if [[ -z "$USER_NAMES" ]]; then
+   local ucount uid full email
+   ucount=$(ask_input "How many user certificates?" "1")
+   [[ "$ucount" =~ ^[0-9]+$ ]] || {
+    err "Must be an integer."
+    exit 1
+   }
+   local u
+   for ((u = 1; u <= ucount; u++)); do
+    uid=$(ask_input "User #${u} username/UID:" "user${u}")
+    full=$(ask_input "User #${u} full name (CN):" "$uid")
+    email=$(ask_input "User #${u} email:" "${uid}@${USER_EMAIL_DOMAIN}")
+    generate_user_cert "$uid" "$full" "$email"
+   done
+  else
+   # USER_NAMES="uid:Full Name:email,uid2:Name2:email2"
+   local spec uid full email
+   IFS=',' read -ra uarr <<<"$USER_NAMES"
+   for spec in "${uarr[@]}"; do
+    spec="$(echo "$spec" | xargs)"
+    [[ -z "$spec" ]] && continue
+    uid="${spec%%:*}"
+    full="$(echo "$spec" | cut -d: -f2)"
+    email="$(echo "$spec" | cut -d: -f3)"
+    [[ -z "$full" ]] && full="$uid"
+    [[ -z "$email" && -n "$USER_EMAIL_DOMAIN" ]] && email="${uid}@${USER_EMAIL_DOMAIN}"
+    generate_user_cert "$uid" "$full" "$email"
+   done
+  fi
+ else
+  info "Skipped."
+ fi
+
  #--- k8s ------------------------------------------------------------------
  title "Kubernetes TLS files"
  K8S_DONE=0
@@ -727,7 +1699,13 @@ main() {
   case "$f" in
    *.key)
     col="$YELLOW"
-    note="private key (600)"
+    if is_key_encrypted "$f"; then
+     note="private key (600, AES-256)"
+    else note="private key (600, unencrypted)"; fi
+    ;;
+   *.p12)
+    col="$CYAN"
+    note="PKCS#12 bundle (600)"
     ;;
    *.crt)
     col="$GREEN"
