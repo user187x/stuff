@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUT_DIR="${PWD}/certs"
+HOSTS_FILE="/etc/hosts"
+
+MARKER_BEG="# --- 🏁 ---"
+MARKER_END="# --- 🏴 ---"
+
+# Terminal colors for better readability
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+# ===================================================
+# Dependency Check
+# ===================================================
+for cmd in openssl grep awk sudo; do
+ if ! command -v "$cmd" >/dev/null 2>&1; then
+  echo "❌ Error: Required command '$cmd' is not installed."
+  exit 1
+ fi
+done
+
+echo -e "${CYAN}===================================================${NC}"
+echo -e "${CYAN} 🔒 Unified Local PKI & Host Provisioner${NC}"
+echo -e "${CYAN}===================================================${NC}"
+
+# ===================================================
+# Interactive Configuration Prompts
+# ===================================================
+read -p "Enter the target Domain [xxx.com]: " DOMAIN
+DOMAIN=${DOMAIN:-xxx.com}
+
+read -p "Enter the target IP address [127.0.0.1]: " TARGET_IP
+TARGET_IP=${TARGET_IP:-127.0.0.1}
+
+# Ask for wildcard first to intelligently build SANs
+read -p "Include a Wildcard SAN (*.$DOMAIN)? (y/N): " WANT_WILDCARD
+WANT_WILDCARD=${WANT_WILDCARD:-N}
+
+if [[ "$WANT_WILDCARD" =~ ^[Yy]$ ]]; then
+ echo -e "    ${YELLOW}-> Note: *.$DOMAIN will automatically be added to the certificate.${NC}"
+ echo -e "    ${YELLOW}-> Note: /etc/hosts does NOT support wildcards. Explicitly list subdomains below if you need local routing.${NC}"
+fi
+
+read -p "Additional explicit SANs (comma separated, e.g., dev.local,api.local) []: " EXTRA_SANS
+
+read -p "How many mTLS client certificates do you need? [0]: " NUM_CLIENTS
+NUM_CLIENTS=${NUM_CLIENTS:-0}
+
+read -p "Update system /etc/hosts to map endpoints to $TARGET_IP? (y/N): " UPDATE_HOSTS
+UPDATE_HOSTS=${UPDATE_HOSTS:-N}
+
+# ===================================================
+# PKI Generation
+# ===================================================
+mkdir -p "$OUT_DIR"
+cd "$OUT_DIR"
+
+echo -e "\n${GREEN}[+] 1. Generating Root CA...${NC}"
+openssl genrsa -out ca.key 4096
+openssl req -x509 -new -nodes -key ca.key -sha256 -days 365 \
+ -out ca.crt -subj "/O=Local Testing CA/CN=${DOMAIN} Root CA"
+
+echo -e "\n${GREEN}[+] 2. Generating Server Certificate for ${DOMAIN}...${NC}"
+openssl genrsa -out server.key 4096
+openssl req -new -key server.key -out server.csr -subj "/O=Local Testing/CN=${DOMAIN}"
+
+# Build Server Extensions
+cat >server-ext.cnf <<EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = ${DOMAIN}
+EOF
+
+count=2
+
+# Intelligently inject Wildcard SAN if requested
+if [[ "$WANT_WILDCARD" =~ ^[Yy]$ ]]; then
+ echo "DNS.$count = *.${DOMAIN}" >>server-ext.cnf
+ count=$((count + 1))
+fi
+
+# Inject Additional SANs dynamically
+if [ -n "$EXTRA_SANS" ]; then
+ IFS=',' read -ra ADDR <<<"$EXTRA_SANS"
+ for san in "${ADDR[@]}"; do
+  san=$(echo "$san" | xargs) # Trim whitespace
+  echo "DNS.$count = $san" >>server-ext.cnf
+  count=$((count + 1))
+ done
+fi
+
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+ -out server.crt -days 365 -sha256 -extfile server-ext.cnf
+
+# Conditional: Client Certs
+if [ "$NUM_CLIENTS" -gt 0 ]; then
+ echo -e "\n${GREEN}[+] 3. Generating Client Certificates...${NC}"
+
+ echo -e "${YELLOW}Tip: You can use standard names like 'api-client' or 'metrics-collector'.${NC}"
+ for ((i = 1; i <= NUM_CLIENTS; i++)); do
+  read -p "    Name for client cert #$i [client-$i]: " cname
+  cname=${cname:-client-$i}
+
+  echo "    -> Generating $cname"
+  openssl genrsa -out "${cname}.key" 4096
+  openssl req -new -key "${cname}.key" -out "${cname}.csr" -subj "/O=Local Dev Client/CN=${cname}.${DOMAIN}"
+
+  cat >"${cname}-ext.cnf" <<EOF
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth, serverAuth
+subjectAltName = DNS:${cname}.${DOMAIN}
+EOF
+  openssl x509 -req -in "${cname}.csr" -CA ca.crt -CAkey ca.key -CAcreateserial \
+   -out "${cname}.crt" -days 365 -sha256 -extfile "${cname}-ext.cnf"
+ done
+else
+ echo -e "\n[-] Skipping mTLS Client Certificates."
+fi
+
+rm -f ca.srl
+
+echo -e "\n${GREEN}[+] 4. Verifying Certificates...${NC}"
+openssl verify -CAfile ca.crt *.crt
+
+# ===================================================
+# Local & System hosts File Management
+# ===================================================
+echo -e "\n${GREEN}[+] 5. Generating local isolated hosts file...${NC}"
+LOCAL_HOSTS="${OUT_DIR}/hosts"
+cp "$HOSTS_FILE" "$LOCAL_HOSTS"
+
+# Create a temporary block file for the new hosts entries
+TMP_BLOCK=$(mktemp)
+trap 'rm -f "$TMP_BLOCK"' EXIT
+
+echo "$MARKER_BEG" >"$TMP_BLOCK"
+echo "$TARGET_IP $DOMAIN" >>"$TMP_BLOCK"
+
+# Route explicitly defined SANs to the target IP inside the block
+if [ -n "$EXTRA_SANS" ]; then
+ IFS=',' read -ra ADDR <<<"$EXTRA_SANS"
+ for san in "${ADDR[@]}"; do
+  san=$(echo "$san" | xargs)
+  echo "$TARGET_IP $san" >>"$TMP_BLOCK"
+ done
+fi
+echo "$MARKER_END" >>"$TMP_BLOCK"
+
+# Apply block to the local copied hosts file in the certs directory
+if grep -q "$MARKER_BEG" "$LOCAL_HOSTS"; then
+ TMP_LOCAL_HOSTS=$(mktemp)
+ awk -v beg="$MARKER_BEG" -v end="$MARKER_END" -v block="$TMP_BLOCK" '
+        $0 == beg {
+            while ((getline line < block) > 0) print line
+            skip=1
+            next
+        }
+        $0 == end {
+            skip=0
+            next
+        }
+        !skip { print }
+    ' "$LOCAL_HOSTS" >"$TMP_LOCAL_HOSTS" && mv "$TMP_LOCAL_HOSTS" "$LOCAL_HOSTS"
+else
+ cat "$TMP_BLOCK" >>"$LOCAL_HOSTS"
+fi
+
+echo "    ✅ Created complete testing hosts file at: ${LOCAL_HOSTS}"
+
+# Conditionally apply the same block logic to the system's actual /etc/hosts
+if [[ "$UPDATE_HOSTS" =~ ^[Yy]$ ]]; then
+ echo -e "\n${GREEN}[+] 6. Updating system ${HOSTS_FILE}...${NC}"
+ if [[ $EUID -ne 0 ]]; then
+  echo -e "    Requesting administrator privileges to update ${HOSTS_FILE}"
+  SUDO='sudo'
+  $SUDO -v
+ else
+  SUDO=''
+ fi
+
+ if $SUDO grep -q "$MARKER_BEG" "$HOSTS_FILE"; then
+  TMP_SYS_HOSTS=$(mktemp)
+  $SUDO awk -v beg="$MARKER_BEG" -v end="$MARKER_END" -v block="$TMP_BLOCK" '
+            $0 == beg {
+                while ((getline line < block) > 0) print line
+                skip=1
+                next
+            }
+            $0 == end {
+                skip=0
+                next
+            }
+            !skip { print }
+        ' "$HOSTS_FILE" >"$TMP_SYS_HOSTS" && $SUDO mv "$TMP_SYS_HOSTS" "$HOSTS_FILE"
+  $SUDO chmod 644 "$HOSTS_FILE"
+ else
+  cat "$TMP_BLOCK" | $SUDO tee -a "$HOSTS_FILE" >/dev/null
+ fi
+ echo "    ✅ System ${HOSTS_FILE} updated!"
+else
+ echo -e "\n[-] Skipping system /etc/hosts update."
+fi
+
+# ===================================================
+# Summary and Outputs
+# ===================================================
+echo -e "\n${CYAN}===================================================${NC}"
+echo -e "✅ Provisioning Complete! All assets saved to: ${OUT_DIR}"
+
+if [ "$NUM_CLIENTS" -gt 0 ]; then
+ echo -e "\n${YELLOW}Test Command (mTLS):${NC}"
+ echo "$ curl -v https://${DOMAIN} --cacert certs/ca.crt --cert certs/client-1.crt --key certs/client-1.key"
+fi
+
+echo -e "\n${YELLOW}Kubernetes Integration:${NC}"
+echo "Run this to secure ingress routes to tools like the Calico dashboard:"
+echo "$ kubectl create secret tls cluster-tls \\"
+echo "    --cert=${OUT_DIR}/server.crt \\"
+echo "    --key=${OUT_DIR}/server.key \\"
+echo "    --namespace <namespace>"
+echo

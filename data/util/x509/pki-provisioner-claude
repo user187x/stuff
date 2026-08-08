@@ -1,0 +1,541 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#------------------------------------------------------------------------------
+# Defaults (every one overridable via env or interactive prompts)
+#------------------------------------------------------------------------------
+OUT_DIR="${OUT_DIR:-${PWD}/certs}"
+DOMAIN="${DOMAIN:-xxx.com}"
+TARGET_IP="${TARGET_IP:-127.0.0.1}"
+EXTRA_SANS="${EXTRA_SANS:-}" # comma separated DNS names
+IP_SANS="${IP_SANS:-}"       # comma separated IPs (target IP offered)
+DN_ORG="${DN_ORG:-}"
+DN_OU="${DN_OU:-}"
+DN_COUNTRY="${DN_COUNTRY:-}"
+KEY_BITS="${KEY_BITS:-4096}" # 2048 | 4096
+EXPIRE_DAYS="${EXPIRE_DAYS:-365}"
+NUM_CLIENTS="${NUM_CLIENTS:-1}"
+SERVICE_CERTS="${SERVICE_CERTS:-}" # e.g. "api-client.test.local,metrics-collector.local"
+
+DO_CA="${DO_CA:-1}"
+DO_SERVER="${DO_SERVER:-1}"
+DO_WILDCARD="${DO_WILDCARD:-0}"
+DO_CLIENTS="${DO_CLIENTS:-1}"
+DO_SERVICES="${DO_SERVICES:-0}"
+DO_K8S="${DO_K8S:-0}"
+DO_HOSTS="${DO_HOSTS:-0}"
+DO_LOCAL_HOSTS="${DO_LOCAL_HOSTS:-1}"
+DO_VERIFY="${DO_VERIFY:-1}"
+
+# Terminal colors (disabled automatically when stdout is not a TTY)
+if [[ -t 1 ]]; then
+ GREEN='\033[0;32m'
+ CYAN='\033[0;36m'
+ YELLOW='\033[0;33m'
+ NC='\033[0m'
+else
+ GREEN=''
+ CYAN=''
+ YELLOW=''
+ NC=''
+fi
+
+HOSTS_FILE="${HOSTS_FILE:-/etc/hosts}"
+MARKER_BEG="# --- BEGIN Local PKI Toolkit block ---"
+MARKER_END="# --- END Local PKI Toolkit block ---"
+WT_TITLE="Local PKI Toolkit"
+CA_CRT="ca.crt"
+CA_KEY="ca.key"
+
+ASSUME_YES=0
+USE_WHIPTAIL=0
+GENERATED=() # certs created this run (for verification + summary)
+
+#------------------------------------------------------------------------------
+# CLI
+#------------------------------------------------------------------------------
+usage() {
+ cat <<EOF
+Usage: $(basename "$0") [options]
+
+  -y, --yes          Non-interactive: accept all defaults / env overrides
+  -o, --out DIR      Output directory                 (default: ./certs)
+  -d, --domain NAME  Base domain                      (default: test.local)
+  -h, --help         Show this help
+
+Interactive mode asks, stage by stage, whether to create:
+  CA -> server cert -> wildcard cert -> client certs -> service certs
+     -> kubectl tls copies -> verification -> /etc/hosts entry
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+ case "$1" in
+  -y | --yes)
+   ASSUME_YES=1
+   shift
+   ;;
+  -o | --out)
+   OUT_DIR="$2"
+   shift 2
+   ;;
+  -d | --domain)
+   DOMAIN="$2"
+   shift 2
+   ;;
+  -h | --help)
+   usage
+   exit 0
+   ;;
+  *)
+   echo "Unknown option: $1"
+   usage
+   exit 1
+   ;;
+ esac
+done
+
+#------------------------------------------------------------------------------
+# Dependency check  (from v2)
+#------------------------------------------------------------------------------
+check_dependencies() {
+ local missing=()
+ for cmd in openssl awk grep; do
+  command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+ done
+ if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "ERROR: missing required command(s): ${missing[*]}" >&2
+  exit 1
+ fi
+ # whiptail is optional — fall back to plain read prompts
+ if [[ "$ASSUME_YES" -eq 0 ]] && command -v whiptail >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+  USE_WHIPTAIL=1
+ fi
+}
+
+#------------------------------------------------------------------------------
+# Prompt helpers — whiptail when possible, read otherwise (v1/v2 + provision-host)
+#------------------------------------------------------------------------------
+ask_input() {
+ local prompt="$1" default="${2:-}" result
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  echo "$default"
+  return
+ fi
+ if [[ "$USE_WHIPTAIL" -eq 1 ]]; then
+  result=$(whiptail --title "$WT_TITLE" --inputbox "$prompt" 10 70 "$default" 3>&1 1>&2 2>&3) || exit 1
+  echo "$result"
+ else
+  read -r -p " (?) ${prompt} [${default}]: " result
+  echo "${result:-$default}"
+ fi
+}
+
+# ask_yesno "prompt" default(1|0) -> returns 0 for yes
+ask_yesno() {
+ local prompt="$1" default="${2:-1}" ans
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  [[ "$default" -eq 1 ]] && return 0 || return 1
+ fi
+ if [[ "$USE_WHIPTAIL" -eq 1 ]]; then
+  local args=(--title "$WT_TITLE" --yesno "$prompt" 10 70)
+  [[ "$default" -eq 0 ]] && args+=(--defaultno)
+  whiptail "${args[@]}" && return 0 || return 1
+ else
+  local hint="Y/n"
+  [[ "$default" -eq 0 ]] && hint="y/N"
+  read -r -p " (?) ${prompt} [${hint}]: " ans
+  ans="${ans:-}"
+  case "${ans,,}" in
+   y | yes) return 0 ;;
+   n | no) return 1 ;;
+   "") [[ "$default" -eq 1 ]] && return 0 || return 1 ;;
+   *) [[ "$default" -eq 1 ]] && return 0 || return 1 ;;
+  esac
+ fi
+}
+
+info() { echo -e "  ${GREEN}[+]${NC} $*"; }
+warn() { echo -e "  ${YELLOW}[!]${NC} $*"; }
+title() { echo -e "\n${CYAN}=== $* ===${NC}"; }
+
+# EUID-aware privilege escalation: no sudo needed (or required) when root
+SUDO=""
+init_sudo() {
+ if [[ $EUID -ne 0 ]]; then
+  if ! command -v sudo >/dev/null 2>&1; then
+   warn "Not root and 'sudo' is unavailable — cannot modify ${HOSTS_FILE}."
+   return 1
+  fi
+  SUDO="sudo"
+  $SUDO -v || return 1
+ fi
+ return 0
+}
+
+#------------------------------------------------------------------------------
+# DN builder — merges the /O=/OU=/C=/CN= styles across scripts
+#------------------------------------------------------------------------------
+build_subj() {
+ local role="$1" cn="$2" subj=""
+ [[ -n "$DN_COUNTRY" ]] && subj+="/C=${DN_COUNTRY}"
+ [[ -n "$DN_ORG" ]] && subj+="/O=${DN_ORG} ${role}"
+ [[ -n "$DN_OU" ]] && subj+="/OU=${DN_OU}"
+ subj+="/CN=${cn}"
+ echo "$subj"
+}
+
+#------------------------------------------------------------------------------
+# SAN ext-file builder
+#   build_ext_file <file> <eku: server|client|both> <dns-csv> <ip-csv>
+#------------------------------------------------------------------------------
+build_ext_file() {
+ local file="$1" eku="$2" dns_csv="$3" ip_csv="${4:-}"
+ {
+  echo "authorityKeyIdentifier=keyid,issuer"
+  echo "basicConstraints=CA:FALSE"
+  echo "keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment"
+  case "$eku" in
+   server) echo "extendedKeyUsage = serverAuth" ;;
+   client) echo "extendedKeyUsage = clientAuth" ;;
+   both) echo "extendedKeyUsage = clientAuth, serverAuth" ;;
+  esac
+  echo "subjectAltName = @alt_names"
+  echo "[alt_names]"
+ } >"$file"
+
+ local i=1 san
+ if [[ -n "$dns_csv" ]]; then
+  IFS=',' read -ra arr <<<"$dns_csv"
+  for san in "${arr[@]}"; do
+   san="$(echo "$san" | xargs)" # trim whitespace (v2)
+   [[ -z "$san" ]] && continue
+   echo "DNS.$i = $san" >>"$file"
+   i=$((i + 1))
+  done
+ fi
+ i=1
+ if [[ -n "$ip_csv" ]]; then
+  IFS=',' read -ra arr <<<"$ip_csv"
+  for san in "${arr[@]}"; do
+   san="$(echo "$san" | xargs)"
+   [[ -z "$san" ]] && continue
+   echo "IP.$i = $san" >>"$file"
+   i=$((i + 1))
+  done
+ fi
+}
+
+#------------------------------------------------------------------------------
+# Core generators (DRY — merged from v0's helper, v1/v2 generate_cert)
+#------------------------------------------------------------------------------
+generate_ca() {
+ if [[ -f "$CA_CRT" && -f "$CA_KEY" ]]; then
+  if ask_yesno "An existing CA was found in ${OUT_DIR}. Reuse it (No = overwrite)?" 1; then
+   info "Reusing existing CA: ${OUT_DIR}/${CA_CRT}"
+   return
+  fi
+ fi
+ info "Generating Root Certificate Authority (${KEY_BITS}-bit, ${EXPIRE_DAYS} days)..."
+ openssl genrsa -out "$CA_KEY" "$KEY_BITS" 2>/dev/null
+ openssl req -x509 -new -nodes -key "$CA_KEY" -sha256 -days "$EXPIRE_DAYS" \
+  -out "$CA_CRT" -subj "$(build_subj "Root CA" "${DOMAIN} Root CA")"
+ GENERATED+=("$CA_CRT")
+}
+
+# generate_leaf <basename> <cn> <role-label> <eku|none> <dns-csv> <ip-csv>
+generate_leaf() {
+ local name="$1" cn="$2" role="$3" eku="$4" dns_csv="$5" ip_csv="${6:-}"
+ info "Generating ${role} certificate: CN=${cn}  ->  ${name}.crt"
+
+ openssl genrsa -out "${name}.key" "$KEY_BITS" 2>/dev/null
+ openssl req -new -key "${name}.key" -out "${name}.csr" \
+  -subj "$(build_subj "$role" "$cn")"
+
+ local x509_args=(-req -in "${name}.csr" -CA "$CA_CRT" -CAkey "$CA_KEY"
+  -CAcreateserial -out "${name}.crt" -days "$EXPIRE_DAYS" -sha256)
+
+ if [[ "$eku" != "none" ]]; then
+  build_ext_file "${name}-ext.cnf" "$eku" "$dns_csv" "$ip_csv"
+  x509_args+=(-extfile "${name}-ext.cnf")
+ fi
+
+ openssl x509 "${x509_args[@]}" 2>/dev/null
+ GENERATED+=("${name}.crt")
+}
+
+#------------------------------------------------------------------------------
+# Hosts management — idempotent marker-block strategy
+#   Re-runs REPLACE the managed block instead of appending duplicates or
+#   merely warning. Base domain AND all extra DNS SANs are routed to the
+#   target IP (wildcard entries are skipped: invalid in hosts files).
+#------------------------------------------------------------------------------
+HOSTS_BLOCK="" # path to temp file containing the managed block
+
+build_hosts_block() {
+ HOSTS_BLOCK=$(mktemp)
+ {
+  echo "$MARKER_BEG"
+  echo "${TARGET_IP} ${DOMAIN}"
+  if [[ -n "$EXTRA_SANS" ]]; then
+   local san
+   IFS=',' read -ra arr <<<"$EXTRA_SANS"
+   for san in "${arr[@]}"; do
+    san="$(echo "$san" | xargs)"
+    [[ -z "$san" || "$san" == \** ]] && continue
+    echo "${TARGET_IP} ${san}"
+   done
+  fi
+  echo "$MARKER_END"
+ } >"$HOSTS_BLOCK"
+}
+
+# apply_hosts_block <target-file> <use-sudo: 1|0>
+# Replaces an existing managed block in-place, or appends one if absent.
+apply_hosts_block() {
+ local target="$1" priv="${2:-0}" S=""
+ [[ "$priv" -eq 1 ]] && S="$SUDO"
+
+ if $S grep -qF "$MARKER_BEG" "$target" 2>/dev/null; then
+  local tmp
+  tmp=$(mktemp)
+  $S awk -v beg="$MARKER_BEG" -v end="$MARKER_END" -v block="$HOSTS_BLOCK" '
+            $0 == beg { while ((getline line < block) > 0) print line; skip=1; next }
+            $0 == end { skip=0; next }
+            !skip { print }
+        ' "$target" >"$tmp"
+  if [[ "$priv" -eq 1 ]]; then
+   $S cp "$tmp" "$target" && $S chmod 644 "$target"
+   rm -f "$tmp"
+  else
+   mv "$tmp" "$target"
+  fi
+  info "Replaced existing managed block in ${target}."
+ else
+  if [[ "$priv" -eq 1 ]]; then
+   $S tee -a "$target" <"$HOSTS_BLOCK" >/dev/null
+  else
+   cat "$HOSTS_BLOCK" >>"$target"
+  fi
+  info "Appended managed block to ${target}."
+ fi
+}
+
+# Standalone hosts copy in OUT_DIR — usable without sudo, mountable into
+# containers:  docker run -v ${OUT_DIR}/hosts:/etc/hosts ...
+generate_local_hosts() {
+ local local_hosts="${OUT_DIR}/hosts"
+ if [[ -r "$HOSTS_FILE" ]]; then
+  cp "$HOSTS_FILE" "$local_hosts"
+ else
+  printf '127.0.0.1 localhost\n::1 localhost\n' >"$local_hosts"
+ fi
+ apply_hosts_block "$local_hosts" 0
+ info "Isolated testing hosts file ready: ${local_hosts}"
+}
+
+update_system_hosts() {
+ if ! init_sudo; then
+  warn "Skipping system hosts update. Copy the block from ${OUT_DIR}/hosts manually."
+  return 0
+ fi
+ # Surface pre-existing unmanaged mappings so the dev knows about conflicts
+ local existing_ip
+ existing_ip=$($SUDO awk -v dom="$DOMAIN" \
+  '{for(i=2;i<=NF;i++) if($i==dom){print $1; exit}}' "$HOSTS_FILE" 2>/dev/null || true)
+ if [[ -n "$existing_ip" && "$existing_ip" != "$TARGET_IP" ]]; then
+  warn "Note: '${DOMAIN}' also maps to ${existing_ip} outside the managed block."
+ fi
+ apply_hosts_block "$HOSTS_FILE" 1
+}
+
+#------------------------------------------------------------------------------
+# Main flow
+#------------------------------------------------------------------------------
+main() {
+ check_dependencies
+
+ echo "==================================================="
+ echo "  Local PKI Toolkit — consolidated provisioner"
+ echo "==================================================="
+
+ #--- Global configuration -------------------------------------------------
+ if [[ "$ASSUME_YES" -eq 0 ]]; then
+  OUT_DIR=$(ask_input "Output directory for all generated files:" "$OUT_DIR")
+  DOMAIN=$(ask_input "Base domain (server cert CN, e.g. test.local):" "$DOMAIN")
+  DN_ORG=$(ask_input "DN Organization (O=), blank to omit:" "$DN_ORG")
+  DN_OU=$(ask_input "DN Organizational Unit (OU=), blank to omit:" "$DN_OU")
+  DN_COUNTRY=$(ask_input "DN Country code (C=, 2 letters), blank to omit:" "$DN_COUNTRY")
+  KEY_BITS=$(ask_input "RSA key size (2048 = faster, 4096 = stronger):" "$KEY_BITS")
+  EXPIRE_DAYS=$(ask_input "Certificate validity in days:" "$EXPIRE_DAYS")
+ fi
+
+ if ! [[ "$KEY_BITS" =~ ^(2048|3072|4096)$ ]]; then
+  echo "ERROR: key size must be 2048, 3072 or 4096." >&2
+  exit 1
+ fi
+ if ! [[ "$EXPIRE_DAYS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: validity days must be an integer." >&2
+  exit 1
+ fi
+
+ mkdir -p "$OUT_DIR"
+ cd "$OUT_DIR"
+
+ # Security: private keys must never be world-readable. umask 077 makes
+ # every file openssl writes owner-only; public certs are relaxed at the end.
+ umask 077
+
+ #--- Stage 1: Root CA -----------------------------------------------------
+ title "Stage 1/8 — Root CA"
+ if ask_yesno "Create (or reuse) the Root CA? (Required for every other stage)" "$DO_CA"; then
+  generate_ca
+ else
+  if [[ ! -f "$CA_CRT" || ! -f "$CA_KEY" ]]; then
+   echo "ERROR: no CA present in ${OUT_DIR} — cannot sign anything. Aborting." >&2
+   exit 1
+  fi
+  info "Skipped. Using existing CA in ${OUT_DIR}."
+ fi
+
+ #--- Stage 2: Server certificate -----------------------------------------
+ title "Stage 2/8 — Server certificate (${DOMAIN})"
+ if ask_yesno "Create the main server certificate for '${DOMAIN}'?" "$DO_SERVER"; then
+  local sans="${DOMAIN}"
+  local ip_sans="$IP_SANS"
+
+  if ask_yesno "Include wildcard SAN (*.${DOMAIN}) on this server cert?" 0; then
+   sans+=",*.${DOMAIN}"
+  fi
+  EXTRA_SANS=$(ask_input "Additional DNS SANs (comma separated, blank for none):" "$EXTRA_SANS")
+  [[ -n "$EXTRA_SANS" ]] && sans+=",${EXTRA_SANS}"
+
+  if ask_yesno "Add an IP SAN (useful for hitting the service by raw IP)?" 0; then
+   ip_sans=$(ask_input "IP SANs (comma separated):" "${TARGET_IP}")
+  fi
+
+  generate_leaf "server" "$DOMAIN" "Server" "server" "$sans" "$ip_sans"
+ else
+  info "Skipped server certificate."
+ fi
+
+ #--- Stage 3: Dedicated wildcard certificate ------------------------------
+ title "Stage 3/8 — Dedicated wildcard certificate (*.${DOMAIN})"
+ if ask_yesno "Create a separate wildcard certificate (*.${DOMAIN} + ${DOMAIN})?" "$DO_WILDCARD"; then
+  generate_leaf "server-wildcard" "*.${DOMAIN}" "Wildcard" "server" "*.${DOMAIN},${DOMAIN}" ""
+ else
+  info "Skipped wildcard certificate."
+ fi
+
+ #--- Stage 4: Client (mTLS) certificates ----------------------------------
+ title "Stage 4/8 — Client (mTLS) certificates"
+ if ask_yesno "Create client certificates for mTLS?" "$DO_CLIENTS"; then
+  NUM_CLIENTS=$(ask_input "How many client certificates?" "$NUM_CLIENTS")
+  if ! [[ "$NUM_CLIENTS" =~ ^[0-9]+$ ]]; then
+   echo "ERROR: client count must be an integer." >&2
+   exit 1
+  fi
+  for ((i = 1; i <= NUM_CLIENTS; i++)); do
+   local default_cn="client${i}.${DOMAIN}"
+   local cn
+   cn=$(ask_input "CN for client #${i}:" "$default_cn")
+   generate_leaf "client-${i}" "$cn" "Client" "client" "$cn" ""
+  done
+ else
+  info "Skipped client certificates."
+ fi
+
+ #--- Stage 5: Named service certs (client+server EKU, from v0 helper) -----
+ title "Stage 5/8 — Named service certificates (EKU: clientAuth + serverAuth)"
+ if ask_yesno "Create named service certs (e.g. api-client.${DOMAIN}, metrics-collector.local)?" "$DO_SERVICES"; then
+  SERVICE_CERTS=$(ask_input "Service names (comma separated FQDNs):" \
+   "${SERVICE_CERTS:-api-client.${DOMAIN},metrics-collector.local}")
+  IFS=',' read -ra svc_arr <<<"$SERVICE_CERTS"
+  for svc in "${svc_arr[@]}"; do
+   svc="$(echo "$svc" | xargs)"
+   [[ -z "$svc" ]] && continue
+   generate_leaf "$svc" "$svc" "Service" "both" "$svc" ""
+  done
+ else
+  info "Skipped service certificates."
+ fi
+
+ #--- Stage 6: kubectl-friendly tls.crt / tls.key (from v3) ----------------
+ title "Stage 6/8 — Kubernetes TLS secret files (tls.crt / tls.key)"
+ if [[ -f server.crt ]] && ask_yesno "Copy server cert to tls.crt/tls.key for 'kubectl create secret tls'?" "$DO_K8S"; then
+  cp server.crt tls.crt
+  cp server.key tls.key
+  info "Created tls.crt and tls.key."
+  K8S_DONE=1
+ else
+  K8S_DONE=0
+  [[ -f server.crt ]] && info "Skipped Kubernetes copies." ||
+   info "Skipped (no server.crt available)."
+ fi
+
+ #--- Stage 7: Verification ------------------------------------------------
+ title "Stage 7/8 — Verification"
+ local leafs=()
+ for c in "${GENERATED[@]}"; do
+  [[ "$c" == "$CA_CRT" ]] && continue
+  leafs+=("$c")
+ done
+ if [[ ${#leafs[@]} -gt 0 ]] && ask_yesno "Verify all generated certificates against the CA?" "$DO_VERIFY"; then
+  openssl verify -CAfile "$CA_CRT" "${leafs[@]}"
+ else
+  info "Skipped verification."
+ fi
+
+ #--- Stage 8: hosts mapping (local isolated file + optional system) -------
+ title "Stage 8/8 — Hosts mapping (${DOMAIN} + extra SANs -> IP)"
+ local want_local=0 want_system=0
+ if ask_yesno "Generate isolated hosts file in ${OUT_DIR}? (no sudo, container-mountable)" "$DO_LOCAL_HOSTS"; then
+  want_local=1
+ fi
+ if ask_yesno "Also update the system ${HOSTS_FILE}? (idempotent managed block, needs sudo)" "$DO_HOSTS"; then
+  want_system=1
+ fi
+ if [[ $want_local -eq 1 || $want_system -eq 1 ]]; then
+  TARGET_IP=$(ask_input "Target IP address for '${DOMAIN}' and extra SANs:" "$TARGET_IP")
+  build_hosts_block
+  [[ $want_local -eq 1 ]] && generate_local_hosts
+  [[ $want_system -eq 1 ]] && update_system_hosts
+ else
+  info "Skipped all hosts mapping."
+ fi
+
+ #--- Cleanup + hardening + Summary ----------------------------------------
+ rm -f ca.srl *.csr "${HOSTS_BLOCK:-/nonexistent}" 2>/dev/null || true
+
+ # Keys stay 600; certs, ext configs and the hosts file are safe to share.
+ chmod 600 ./*.key 2>/dev/null || true
+ chmod 644 ./*.crt ./*.cnf 2>/dev/null || true
+ [[ -f hosts ]] && chmod 644 hosts
+
+ echo
+ echo "==================================================="
+ echo "  PKI Provisioning Complete"
+ echo "==================================================="
+ echo "  Output directory : ${OUT_DIR}"
+ echo "  Files created:"
+ ls -1 "$OUT_DIR" | sed 's/^/    - /'
+ echo
+ echo "  Test commands:"
+ if [[ -f server.crt ]]; then
+  if [[ -f client-1.crt ]]; then
+   echo "    curl -v https://${DOMAIN} --cacert ${OUT_DIR}/ca.crt \\"
+   echo "         --cert ${OUT_DIR}/client-1.crt --key ${OUT_DIR}/client-1.key"
+  else
+   echo "    curl -v https://${DOMAIN} --cacert ${OUT_DIR}/ca.crt"
+  fi
+  echo "    openssl x509 -in ${OUT_DIR}/server.crt -noout -text | less"
+ fi
+ if [[ "${K8S_DONE:-0}" -eq 1 ]]; then
+  echo "    kubectl create secret tls cluster-tls \\"
+  echo "        --cert=${OUT_DIR}/tls.crt --key=${OUT_DIR}/tls.key --namespace <namespace>"
+ fi
+ echo
+}
+
+main "$@"
