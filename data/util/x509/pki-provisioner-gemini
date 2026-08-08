@@ -24,7 +24,7 @@ for cmd in openssl grep awk sudo; do
 done
 
 echo -e "${CYAN}===================================================${NC}"
-echo -e "${CYAN} 🔒 Unified Local PKI & Host Provisioner${NC}"
+echo -e "${CYAN}              🔒 PKI Provisioner                   ${NC}"
 echo -e "${CYAN}===================================================${NC}"
 
 # ===================================================
@@ -41,13 +41,12 @@ read -p "Include a Wildcard SAN (*.$DOMAIN)? (y/N): " WANT_WILDCARD
 WANT_WILDCARD=${WANT_WILDCARD:-N}
 
 if [[ "$WANT_WILDCARD" =~ ^[Yy]$ ]]; then
- echo -e "    ${YELLOW}-> Note: *.$DOMAIN will automatically be added to the certificate.${NC}"
- echo -e "    ${YELLOW}-> Note: /etc/hosts does NOT support wildcards. Explicitly list subdomains below if you need local routing.${NC}"
+ echo -e " (i)${YELLOW} *.$DOMAIN will automatically be added to the certificate.${NC}"
 fi
 
-read -p "Additional explicit SANs (comma separated, e.g., dev.local,api.local) []: " EXTRA_SANS
+read -p "Additional explicit SANs? ie. (dev.local,api.local) []: " EXTRA_SANS
 
-read -p "How many mTLS client certificates do you need? [0]: " NUM_CLIENTS
+read -p "How many mTLS client certificates? [0]: " NUM_CLIENTS
 NUM_CLIENTS=${NUM_CLIENTS:-0}
 
 read -p "Update system /etc/hosts to map endpoints to $TARGET_IP? (y/N): " UPDATE_HOSTS
@@ -61,12 +60,13 @@ cd "$OUT_DIR"
 
 echo -e "\n${GREEN}[+] 1. Generating Root CA...${NC}"
 openssl genrsa -out ca.key 4096
+# Fixed missing forward slash in -subj argument here:
 openssl req -x509 -new -nodes -key ca.key -sha256 -days 365 \
- -out ca.crt -subj "/O=Local Testing CA/CN=${DOMAIN} Root CA"
+ -out ca.crt -subj "/CN=${DOMAIN} Root CA"
 
 echo -e "\n${GREEN}[+] 2. Generating Server Certificate for ${DOMAIN}...${NC}"
 openssl genrsa -out server.key 4096
-openssl req -new -key server.key -out server.csr -subj "/O=Local Testing/CN=${DOMAIN}"
+openssl req -new -key server.key -out server.csr -subj "/CN=${DOMAIN}"
 
 # Build Server Extensions
 cat >server-ext.cnf <<EOF
@@ -104,14 +104,14 @@ openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 if [ "$NUM_CLIENTS" -gt 0 ]; then
  echo -e "\n${GREEN}[+] 3. Generating Client Certificates...${NC}"
 
- echo -e "${YELLOW}Tip: You can use standard names like 'api-client' or 'metrics-collector'.${NC}"
+ echo -e "${YELLOW}Tip: You can use standard names ie. 'api-client'.${NC}"
  for ((i = 1; i <= NUM_CLIENTS; i++)); do
-  read -p "    Name for client cert #$i [client-$i]: " cname
-  cname=${cname:-client-$i}
+  read -p "    Name for client cert #$i [xxx]: " cname
+  cname=${cname:-xxx}
 
   echo "    -> Generating $cname"
   openssl genrsa -out "${cname}.key" 4096
-  openssl req -new -key "${cname}.key" -out "${cname}.csr" -subj "/O=Local Dev Client/CN=${cname}.${DOMAIN}"
+  openssl req -new -key "${cname}.key" -out "${cname}.csr" -subj "/CN=${cname}.${DOMAIN}"
 
   cat >"${cname}-ext.cnf" <<EOF
 basicConstraints = CA:FALSE
@@ -218,7 +218,7 @@ echo -e "✅ Provisioning Complete! All assets saved to: ${OUT_DIR}"
 
 if [ "$NUM_CLIENTS" -gt 0 ]; then
  echo -e "\n${YELLOW}Test Command (mTLS):${NC}"
- echo "$ curl -v https://${DOMAIN} --cacert certs/ca.crt --cert certs/client-1.crt --key certs/client-1.key"
+ echo "$ curl -v https://${DOMAIN} --cacert certs/ca.crt --cert certs/xxx.crt --key certs/xxx.key"
 fi
 
 echo -e "\n${YELLOW}Kubernetes Integration:${NC}"
