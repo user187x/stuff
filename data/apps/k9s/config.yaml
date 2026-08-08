@@ -1,4 +1,6 @@
 k9s:
+  defaultView: "pods all"
+  cluster: minikube
   body:
     fgColor: default
     bgColor: default
