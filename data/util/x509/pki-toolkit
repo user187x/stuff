@@ -1,0 +1,772 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+OUT_DIR="${OUT_DIR:-${PWD}/certs}"
+DOMAIN="${DOMAIN:-xxx.com}"
+TARGET_IP="${TARGET_IP:-127.0.0.1}"
+EXTRA_SANS="${EXTRA_SANS:-}"
+IP_SANS="${IP_SANS:-}"
+DN_ORG="${DN_ORG:-}"
+DN_OU="${DN_OU:-}"
+DN_COUNTRY="${DN_COUNTRY:-}"
+KEY_BITS="${KEY_BITS:-4096}"
+EXPIRE_DAYS="${EXPIRE_DAYS:-365}"
+NUM_CLIENTS="${NUM_CLIENTS:-1}"
+SERVICE_CERTS="${SERVICE_CERTS:-}"
+
+DO_CA="${DO_CA:-1}"
+DO_SERVER="${DO_SERVER:-1}"
+DO_WILDCARD="${DO_WILDCARD:-0}"
+DO_CLIENTS="${DO_CLIENTS:-1}"
+DO_SERVICES="${DO_SERVICES:-0}"
+DO_K8S="${DO_K8S:-0}"
+DO_VERIFY="${DO_VERIFY:-1}"
+DO_LOCAL_HOSTS="${DO_LOCAL_HOSTS:-1}"
+DO_HOSTS="${DO_HOSTS:-0}"
+
+HOSTS_FILE="${HOSTS_FILE:-/etc/hosts}"
+MARKER_BEG="# --- 🏁 ---"
+MARKER_END="# --- 🏴 ---"
+
+CA_CRT="ca.crt"
+CA_KEY="ca.key"
+
+ASSUME_YES=0
+TUI=0
+GENERATED=()
+
+if [[ -t 1 ]]; then
+ BOLD=$'\033[1m'
+ DIM=$'\033[2m'
+ NC=$'\033[0m'
+ RED=$'\033[0;31m'
+ GREEN=$'\033[0;32m'
+ YELLOW=$'\033[0;33m'
+ BLUE=$'\033[0;34m'
+ CYAN=$'\033[0;36m'
+ REV=$'\033[7m'
+ HIDE_CUR=$'\033[?25l'
+ SHOW_CUR=$'\033[?25h'
+else
+ BOLD=''
+ DIM=''
+ NC=''
+ RED=''
+ GREEN=''
+ YELLOW=''
+ BLUE=''
+ CYAN=''
+ REV=''
+ HIDE_CUR=''
+ SHOW_CUR=''
+fi
+
+cleanup_tty() { printf '%s' "$SHOW_CUR"; }
+trap cleanup_tty EXIT INT TERM
+
+info() { echo -e "  ${GREEN}[+]${NC} $*"; }
+warn() { echo -e "  ${YELLOW}[!]${NC} $*"; }
+err() { echo -e "  ${RED}[x]${NC} $*" >&2; }
+title() { echo -e "\n${CYAN}${BOLD}=== $* ===${NC}"; }
+
+W=78 # UI width
+
+# Truncate a PLAIN (un-colored) string to n visible chars so rows never overflow.
+fit() {
+ local s="$1" n="$2"
+ if [[ ${#s} -le $n ]]; then
+  printf '%s' "$s"
+ else printf '%s...' "${s:0:$((n - 3))}"; fi
+}
+
+# Strip ANSI so padding is computed from VISIBLE width, not byte count.
+strip_ansi() { printf '%s' "$1" | sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g'; }
+
+hr() { printf "${CYAN}+%s+${NC}\n" "$(printf '%*s' $((W - 2)) '' | tr ' ' '-')"; }
+
+row() {
+ local text="${1:-}" plain vis pad
+ plain=$(strip_ansi "$text")
+ vis=${#plain}
+ pad=$((W - 4 - vis))
+ ((pad < 0)) && pad=0
+ printf "${CYAN}|${NC} %s%*s ${CYAN}|${NC}\n" "$text" "$pad" ""
+}
+banner() {
+ hr
+ row "${BOLD}Local PKI Toolkit${NC}  ${DIM}consolidated cert + host provisioner${NC}"
+ hr
+}
+
+usage() {
+ cat <<EOF
+Usage: $(basename "$0") [options]
+
+  -y, --yes           Non-interactive: use defaults / env vars, no prompts
+  -o, --out DIR       Output directory                (default: ./certs)
+  -d, --domain NAME   Base domain                     (default: test.local)
+  -p, --plain         Force plain prompts (skip the full-screen picker)
+  -h, --help          Show this help
+
+Stages (each can be toggled on/off before anything is written):
+  1 Root CA          2 Server cert     3 Wildcard cert
+  4 Client mTLS      5 Service certs   6 kubectl tls files
+  7 Verify chain     8 Local hosts     9 System hosts
+EOF
+}
+
+FORCE_PLAIN=0
+while [[ $# -gt 0 ]]; do
+ case "$1" in
+  -y | --yes)
+   ASSUME_YES=1
+   shift
+   ;;
+  -o | --out)
+   OUT_DIR="$2"
+   shift 2
+   ;;
+  -d | --domain)
+   DOMAIN="$2"
+   shift 2
+   ;;
+  -p | --plain)
+   FORCE_PLAIN=1
+   shift
+   ;;
+  -h | --help)
+   usage
+   exit 0
+   ;;
+  *)
+   err "Unknown option: $1"
+   usage
+   exit 1
+   ;;
+ esac
+done
+
+check_dependencies() {
+ local missing=()
+ for cmd in openssl awk grep; do
+  command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+ done
+ if [[ ${#missing[@]} -gt 0 ]]; then
+  err "Missing required command(s): ${missing[*]}"
+  exit 1
+ fi
+ if [[ "$ASSUME_YES" -eq 0 && "$FORCE_PLAIN" -eq 0 && -t 0 && -t 1 ]]; then
+  TUI=1
+ fi
+}
+
+ask_input() {
+ local prompt="$1" default="${2:-}" result
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  echo "$default"
+  return
+ fi
+ local shown="$default"
+ [[ -z "$shown" ]] && shown="none"
+ if [[ "$TUI" -eq 1 ]]; then
+  # -e gives readline editing (arrows, ctrl-w, history) without prefilling,
+  # so an empty Enter always means "keep the shown default".
+  read -r -e -p "  ${CYAN}?${NC} ${prompt} ${DIM}[${shown}]${NC} " result </dev/tty
+ else
+  read -r -p "  ? ${prompt} [${shown}]: " result
+ fi
+ echo "${result:-$default}"
+}
+
+ask_yesno() {
+ local prompt="$1" default="${2:-1}" ans hint
+ if [[ "$ASSUME_YES" -eq 1 ]]; then
+  [[ "$default" -eq 1 ]] && return 0 || return 1
+ fi
+ hint="Y/n"
+ [[ "$default" -eq 0 ]] && hint="y/N"
+ if [[ "$TUI" -eq 1 ]]; then
+  read -r -p "  ${CYAN}?${NC} ${prompt} ${DIM}[${hint}]${NC} " ans </dev/tty
+ else
+  read -r -p "  ? ${prompt} [${hint}]: " ans
+ fi
+ case "${ans,,}" in
+  y | yes) return 0 ;;
+  n | no) return 1 ;;
+  *) [[ "$default" -eq 1 ]] && return 0 || return 1 ;;
+ esac
+}
+
+STAGE_LABEL=(
+ "Root CA"
+ "Server certificate"
+ "Wildcard certificate"
+ "Client certs (mTLS)"
+ "Named service certs"
+ "kubectl tls.crt/tls.key"
+ "Verify chain"
+ "Local hosts file"
+ "System hosts file"
+)
+STAGE_HINT=(
+ "ca.crt + ca.key (required to sign)"
+ "server.crt for base domain + SANs"
+ "separate cert: *.domain + domain"
+ "client-N.crt, clientAuth EKU only"
+ "dual-EKU certs for named FQDNs"
+ "tls.crt/tls.key for k8s secrets"
+ "openssl verify against the CA"
+ "hosts copy in out dir (no sudo)"
+ "managed block in ${HOSTS_FILE} (sudo)"
+)
+STAGE_ON=()
+
+load_stage_state() {
+ STAGE_ON=("$DO_CA" "$DO_SERVER" "$DO_WILDCARD" "$DO_CLIENTS" "$DO_SERVICES"
+  "$DO_K8S" "$DO_VERIFY" "$DO_LOCAL_HOSTS" "$DO_HOSTS")
+}
+save_stage_state() {
+ DO_CA="${STAGE_ON[0]}"
+ DO_SERVER="${STAGE_ON[1]}"
+ DO_WILDCARD="${STAGE_ON[2]}"
+ DO_CLIENTS="${STAGE_ON[3]}"
+ DO_SERVICES="${STAGE_ON[4]}"
+ DO_K8S="${STAGE_ON[5]}"
+ DO_VERIFY="${STAGE_ON[6]}"
+ DO_LOCAL_HOSTS="${STAGE_ON[7]}"
+ DO_HOSTS="${STAGE_ON[8]}"
+}
+
+draw_stage_menu() {
+ local cursor="$1" i mark line
+ printf '\033[H\033[2J' # home + clear
+ banner
+ row "Domain: ${BOLD}${DOMAIN}${NC}   Keys: ${KEY_BITS}-bit   Valid: ${EXPIRE_DAYS}d"
+ row "Output: ${DIM}$(fit "$OUT_DIR" 60)${NC}"
+ hr
+ row "${BOLD}Select what to build${NC}"
+ row ""
+ for i in "${!STAGE_LABEL[@]}"; do
+  if [[ "${STAGE_ON[$i]}" -eq 1 ]]; then
+   mark="${GREEN}[x]${NC}"
+  else
+   mark="${DIM}[ ]${NC}"
+  fi
+  line=$(printf "%s %d. %-23s %s" "$mark" $((i + 1)) "${STAGE_LABEL[$i]}" \
+   "${DIM}$(fit "${STAGE_HINT[$i]}" 38)${NC}")
+  if [[ "$i" -eq "$cursor" ]]; then
+   row "${REV}>${NC} ${line}"
+  else
+   row "  ${line}"
+  fi
+ done
+ row ""
+ hr
+ row "${DIM}up/down move   space toggle   1-9 pick   a all   n none${NC}"
+ row "${DIM}c or Enter continue   e edit settings   q quit${NC}"
+ hr
+}
+
+# returns: 0 continue, 2 edit settings, 1 quit
+stage_menu() {
+ local cursor=0 key rest n=${#STAGE_LABEL[@]}
+ printf '%s' "$HIDE_CUR"
+ while true; do
+  draw_stage_menu "$cursor"
+  IFS= read -rsn1 key </dev/tty || key=""
+  if [[ "$key" == $'\033' ]]; then
+   read -rsn2 -t 0.05 rest </dev/tty || rest=""
+   key+="$rest"
+  fi
+  case "$key" in
+   $'\033[A' | k) cursor=$(((cursor - 1 + n) % n)) ;;
+   $'\033[B' | j) cursor=$(((cursor + 1) % n)) ;;
+   ' ') STAGE_ON[$cursor]=$((1 - STAGE_ON[cursor])) ;;
+   [1-9])
+    local idx=$((key - 1))
+    if [[ $idx -lt $n ]]; then
+     cursor=$idx
+     STAGE_ON[$idx]=$((1 - STAGE_ON[idx]))
+    fi
+    ;;
+   a)
+    local i
+    for i in "${!STAGE_ON[@]}"; do STAGE_ON[$i]=1; done
+    ;;
+   n)
+    local i
+    for i in "${!STAGE_ON[@]}"; do STAGE_ON[$i]=0; done
+    STAGE_ON[0]=1
+    ;; # CA is needed to sign anything
+   c | "")
+    printf '%s' "$SHOW_CUR"
+    return 0
+    ;;
+   e)
+    printf '%s' "$SHOW_CUR"
+    return 2
+    ;;
+   q)
+    printf '%s' "$SHOW_CUR"
+    return 1
+    ;;
+  esac
+ done
+}
+
+settings_screen() {
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}Global settings${NC} ${DIM}(Enter keeps the shown value)${NC}"
+ hr
+ echo
+ OUT_DIR=$(ask_input "Output directory ...............:" "$OUT_DIR")
+ DOMAIN=$(ask_input "Base domain (server CN) ........:" "$DOMAIN")
+ DN_ORG=$(ask_input "DN Organization  O= ............:" "$DN_ORG")
+ DN_OU=$(ask_input "DN Org Unit      OU= ...........:" "$DN_OU")
+ DN_COUNTRY=$(ask_input "DN Country       C= (2 letters) :" "$DN_COUNTRY")
+ KEY_BITS=$(ask_input "RSA key size (2048/3072/4096) ..:" "$KEY_BITS")
+ EXPIRE_DAYS=$(ask_input "Validity in days ...............:" "$EXPIRE_DAYS")
+ echo
+}
+
+validate_globals() {
+ if ! [[ "$KEY_BITS" =~ ^(2048|3072|4096)$ ]]; then
+  err "Key size must be 2048, 3072 or 4096 (got '${KEY_BITS}')."
+  exit 1
+ fi
+ if ! [[ "$EXPIRE_DAYS" =~ ^[0-9]+$ && "$EXPIRE_DAYS" -gt 0 ]]; then
+  err "Validity days must be a positive integer (got '${EXPIRE_DAYS}')."
+  exit 1
+ fi
+ if [[ -z "$DOMAIN" ]]; then
+  err "Domain cannot be empty."
+  exit 1
+ fi
+}
+
+confirm_plan() {
+ local i on=()
+ for i in "${!STAGE_LABEL[@]}"; do
+  [[ "${STAGE_ON[$i]}" -eq 1 ]] && on+=("${STAGE_LABEL[$i]}")
+ done
+ [[ "$TUI" -eq 1 ]] && printf '\033[H\033[2J'
+ banner
+ row "${BOLD}Review plan${NC}"
+ hr
+ row "Domain ....... ${BOLD}${DOMAIN}${NC}"
+ row "Output dir ... $(fit "$OUT_DIR" 56)"
+ row "Subject DN ... $(fit "$(build_subj "Server" "$DOMAIN")" 56)"
+ row "Keys ......... RSA ${KEY_BITS}, valid ${EXPIRE_DAYS} days"
+ if [[ ${#on[@]} -eq 0 ]]; then
+  row "Will build ... ${YELLOW}nothing selected${NC}"
+ else
+  row "Will build ... ${#on[@]} stage(s):"
+  for i in "${on[@]}"; do row "               ${GREEN}*${NC} ${i}"; done
+ fi
+ hr
+ echo
+}
+
+build_subj() {
+ local role="$1" cn="$2" subj=""
+ [[ -n "$DN_COUNTRY" ]] && subj+="/C=${DN_COUNTRY}"
+ [[ -n "$DN_ORG" ]] && subj+="/O=${DN_ORG} ${role}"
+ [[ -n "$DN_OU" ]] && subj+="/OU=${DN_OU}"
+ subj+="/CN=${cn}"
+ echo "$subj"
+}
+
+build_ext_file() {
+ local file="$1" eku="$2" dns_csv="$3" ip_csv="${4:-}"
+ {
+  echo "authorityKeyIdentifier=keyid,issuer"
+  echo "basicConstraints=CA:FALSE"
+  echo "keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment"
+  case "$eku" in
+   server) echo "extendedKeyUsage = serverAuth" ;;
+   client) echo "extendedKeyUsage = clientAuth" ;;
+   both) echo "extendedKeyUsage = clientAuth, serverAuth" ;;
+  esac
+  echo "subjectAltName = @alt_names"
+  echo "[alt_names]"
+ } >"$file"
+
+ local i=1 san
+ if [[ -n "$dns_csv" ]]; then
+  IFS=',' read -ra arr <<<"$dns_csv"
+  for san in "${arr[@]}"; do
+   san="$(echo "$san" | xargs)"
+   [[ -z "$san" ]] && continue
+   echo "DNS.$i = $san" >>"$file"
+   i=$((i + 1))
+  done
+ fi
+ i=1
+ if [[ -n "$ip_csv" ]]; then
+  IFS=',' read -ra arr <<<"$ip_csv"
+  for san in "${arr[@]}"; do
+   san="$(echo "$san" | xargs)"
+   [[ -z "$san" ]] && continue
+   echo "IP.$i = $san" >>"$file"
+   i=$((i + 1))
+  done
+ fi
+}
+
+generate_ca() {
+ if [[ -f "$CA_CRT" && -f "$CA_KEY" ]]; then
+  if ask_yesno "Existing CA found in ${OUT_DIR}. Reuse it? (No = overwrite)" 1; then
+   info "Reusing existing CA: ${OUT_DIR}/${CA_CRT}"
+   return
+  fi
+ fi
+ info "Generating Root CA (${KEY_BITS}-bit, ${EXPIRE_DAYS} days)..."
+ openssl genrsa -out "$CA_KEY" "$KEY_BITS" 2>/dev/null
+ openssl req -x509 -new -nodes -key "$CA_KEY" -sha256 -days "$EXPIRE_DAYS" \
+  -out "$CA_CRT" -subj "$(build_subj "Root CA" "${DOMAIN} Root CA")"
+ GENERATED+=("$CA_CRT")
+}
+
+generate_leaf() {
+ local name="$1" cn="$2" role="$3" eku="$4" dns_csv="$5" ip_csv="${6:-}"
+ info "${role}: CN=${cn}  ->  ${name}.crt"
+
+ openssl genrsa -out "${name}.key" "$KEY_BITS" 2>/dev/null
+ openssl req -new -key "${name}.key" -out "${name}.csr" \
+  -subj "$(build_subj "$role" "$cn")"
+
+ local x509_args=(-req -in "${name}.csr" -CA "$CA_CRT" -CAkey "$CA_KEY"
+  -CAcreateserial -out "${name}.crt" -days "$EXPIRE_DAYS" -sha256)
+ if [[ "$eku" != "none" ]]; then
+  build_ext_file "${name}-ext.cnf" "$eku" "$dns_csv" "$ip_csv"
+  x509_args+=(-extfile "${name}-ext.cnf")
+ fi
+ openssl x509 "${x509_args[@]}" 2>/dev/null
+ GENERATED+=("${name}.crt")
+}
+
+SUDO=""
+init_sudo() {
+ if [[ $EUID -ne 0 ]]; then
+  if ! command -v sudo >/dev/null 2>&1; then
+   warn "Not root and 'sudo' unavailable — cannot modify ${HOSTS_FILE}."
+   return 1
+  fi
+  SUDO="sudo"
+  $SUDO -v || return 1
+ fi
+ return 0
+}
+
+HOSTS_BLOCK=""
+build_hosts_block() {
+ HOSTS_BLOCK=$(mktemp)
+ {
+  echo "$MARKER_BEG"
+  echo "${TARGET_IP} ${DOMAIN}"
+  if [[ -n "$EXTRA_SANS" ]]; then
+   local san
+   IFS=',' read -ra arr <<<"$EXTRA_SANS"
+   for san in "${arr[@]}"; do
+    san="$(echo "$san" | xargs)"
+    [[ -z "$san" || "$san" == \** ]] && continue # wildcards invalid in hosts
+    echo "${TARGET_IP} ${san}"
+   done
+  fi
+  echo "$MARKER_END"
+ } >"$HOSTS_BLOCK"
+}
+
+apply_hosts_block() {
+ local target="$1" priv="${2:-0}" S=""
+ [[ "$priv" -eq 1 ]] && S="$SUDO"
+
+ if $S grep -qF "$MARKER_BEG" "$target" 2>/dev/null; then
+  local tmp
+  tmp=$(mktemp)
+  $S awk -v beg="$MARKER_BEG" -v end="$MARKER_END" -v block="$HOSTS_BLOCK" '
+            $0 == beg { while ((getline line < block) > 0) print line; skip=1; next }
+            $0 == end { skip=0; next }
+            !skip { print }
+        ' "$target" >"$tmp"
+  if [[ "$priv" -eq 1 ]]; then
+   $S cp "$tmp" "$target" && $S chmod 644 "$target"
+   rm -f "$tmp"
+  else
+   mv "$tmp" "$target"
+  fi
+  info "Replaced existing managed block in ${target}."
+ else
+  if [[ "$priv" -eq 1 ]]; then
+   $S tee -a "$target" <"$HOSTS_BLOCK" >/dev/null
+  else
+   cat "$HOSTS_BLOCK" >>"$target"
+  fi
+  info "Appended managed block to ${target}."
+ fi
+}
+
+generate_local_hosts() {
+ local local_hosts="${OUT_DIR}/hosts"
+ if [[ -r "$HOSTS_FILE" ]]; then
+  cp "$HOSTS_FILE" "$local_hosts"
+ else
+  printf '127.0.0.1 localhost\n::1 localhost\n' >"$local_hosts"
+ fi
+ apply_hosts_block "$local_hosts" 0
+ info "Isolated hosts file ready: ${local_hosts}"
+}
+
+update_system_hosts() {
+ if ! init_sudo; then
+  warn "Skipping system hosts update. Copy the block from ${OUT_DIR}/hosts manually."
+  return 0
+ fi
+ local existing_ip
+ existing_ip=$($SUDO awk -v dom="$DOMAIN" \
+  '{for(i=2;i<=NF;i++) if($i==dom){print $1; exit}}' "$HOSTS_FILE" 2>/dev/null || true)
+ if [[ -n "$existing_ip" && "$existing_ip" != "$TARGET_IP" ]]; then
+  warn "Note: '${DOMAIN}' also maps to ${existing_ip} outside the managed block."
+ fi
+ apply_hosts_block "$HOSTS_FILE" 1
+}
+
+main() {
+
+ check_dependencies
+ load_stage_state
+
+ if [[ "$ASSUME_YES" -eq 0 ]]; then
+  if [[ "$TUI" -eq 1 ]]; then
+   settings_screen
+   validate_globals
+   while true; do
+    load_stage_state 2>/dev/null || true
+    set +e
+    stage_menu
+    local rc=$?
+    set -e
+    case $rc in
+     0)
+      save_stage_state
+      break
+      ;;
+     2)
+      settings_screen
+      validate_globals
+      ;;
+     1)
+      echo "Aborted."
+      exit 0
+      ;;
+    esac
+   done
+  else
+   # Piped / non-TTY interactive: sequential prompts
+   banner
+   settings_screen
+   validate_globals
+   echo "  Select stages:"
+   ask_yesno "Root CA (create or reuse)?" "$DO_CA" && DO_CA=1 || DO_CA=0
+   ask_yesno "Server certificate for '${DOMAIN}'?" "$DO_SERVER" && DO_SERVER=1 || DO_SERVER=0
+   ask_yesno "Dedicated wildcard certificate?" "$DO_WILDCARD" && DO_WILDCARD=1 || DO_WILDCARD=0
+   ask_yesno "Client (mTLS) certificates?" "$DO_CLIENTS" && DO_CLIENTS=1 || DO_CLIENTS=0
+   ask_yesno "Named service certificates?" "$DO_SERVICES" && DO_SERVICES=1 || DO_SERVICES=0
+   ask_yesno "kubectl tls.crt/tls.key copies?" "$DO_K8S" && DO_K8S=1 || DO_K8S=0
+   ask_yesno "Verify chain at the end?" "$DO_VERIFY" && DO_VERIFY=1 || DO_VERIFY=0
+   ask_yesno "Isolated local hosts file?" "$DO_LOCAL_HOSTS" && DO_LOCAL_HOSTS=1 || DO_LOCAL_HOSTS=0
+   ask_yesno "Update system ${HOSTS_FILE}?" "$DO_HOSTS" && DO_HOSTS=1 || DO_HOSTS=0
+   load_stage_state
+  fi
+ else
+  validate_globals
+ fi
+
+ if [[ "$ASSUME_YES" -eq 0 ]]; then
+  confirm_plan
+  ask_yesno "Proceed and write these files?" 1 || {
+   echo "Aborted."
+   exit 0
+  }
+ fi
+
+ mkdir -p "$OUT_DIR"
+ cd "$OUT_DIR"
+ umask 077 # private keys are owner-only from the moment of creation
+
+ echo
+ hr
+ row "${BOLD}Building${NC}"
+ hr
+
+ #--- Root CA --------------------------------------------------------------
+ title "Root CA"
+ if [[ "$DO_CA" -eq 1 ]]; then
+  generate_ca
+ elif [[ -f "$CA_CRT" && -f "$CA_KEY" ]]; then
+  info "Skipped. Using existing CA in ${OUT_DIR}."
+ else
+  err "No CA present in ${OUT_DIR} — nothing can be signed. Aborting."
+  exit 1
+ fi
+
+ #--- Server certificate ---------------------------------------------------
+ title "Server certificate"
+ if [[ "$DO_SERVER" -eq 1 ]]; then
+  local sans="${DOMAIN}" ip_sans="$IP_SANS"
+  if ask_yesno "Include wildcard SAN (*.${DOMAIN}) on the server cert?" 0; then
+   sans+=",*.${DOMAIN}"
+  fi
+  EXTRA_SANS=$(ask_input "Additional DNS SANs (comma separated):" "$EXTRA_SANS")
+  [[ -n "$EXTRA_SANS" ]] && sans+=",${EXTRA_SANS}"
+  if ask_yesno "Add IP SAN(s)?" 0; then
+   ip_sans=$(ask_input "IP SANs (comma separated):" "${TARGET_IP}")
+  fi
+  generate_leaf "server" "$DOMAIN" "Server" "server" "$sans" "$ip_sans"
+ else
+  info "Skipped."
+ fi
+
+ #--- Wildcard -------------------------------------------------------------
+ title "Wildcard certificate"
+ if [[ "$DO_WILDCARD" -eq 1 ]]; then
+  generate_leaf "server-wildcard" "*.${DOMAIN}" "Wildcard" "server" \
+   "*.${DOMAIN},${DOMAIN}" ""
+ else
+  info "Skipped."
+ fi
+
+ #--- Clients --------------------------------------------------------------
+ title "Client (mTLS) certificates"
+ if [[ "$DO_CLIENTS" -eq 1 ]]; then
+  NUM_CLIENTS=$(ask_input "How many client certificates?" "$NUM_CLIENTS")
+  if ! [[ "$NUM_CLIENTS" =~ ^[0-9]+$ ]]; then
+   err "Client count must be an integer."
+   exit 1
+  fi
+  local i cn
+  for ((i = 1; i <= NUM_CLIENTS; i++)); do
+   cn=$(ask_input "CN for client #${i}:" "client${i}.${DOMAIN}")
+   generate_leaf "client-${i}" "$cn" "Client" "client" "$cn" ""
+  done
+ else
+  info "Skipped."
+ fi
+
+ #--- Service certs --------------------------------------------------------
+ title "Named service certificates"
+ if [[ "$DO_SERVICES" -eq 1 ]]; then
+  SERVICE_CERTS=$(ask_input "Service FQDNs (comma separated):" \
+   "${SERVICE_CERTS:-api-client.${DOMAIN},metrics-collector.local}")
+  local svc
+  IFS=',' read -ra svc_arr <<<"$SERVICE_CERTS"
+  for svc in "${svc_arr[@]}"; do
+   svc="$(echo "$svc" | xargs)"
+   [[ -z "$svc" ]] && continue
+   generate_leaf "$svc" "$svc" "Service" "both" "$svc" ""
+  done
+ else
+  info "Skipped."
+ fi
+
+ #--- k8s ------------------------------------------------------------------
+ title "Kubernetes TLS files"
+ K8S_DONE=0
+ if [[ "$DO_K8S" -eq 1 && -f server.crt ]]; then
+  cp server.crt tls.crt
+  cp server.key tls.key
+  info "Created tls.crt and tls.key."
+  K8S_DONE=1
+ elif [[ "$DO_K8S" -eq 1 ]]; then
+  warn "No server.crt available — skipped."
+ else
+  info "Skipped."
+ fi
+
+ #--- Verify ---------------------------------------------------------------
+ title "Verification"
+ local leafs=() c
+ for c in "${GENERATED[@]:-}"; do
+  [[ -z "$c" || "$c" == "$CA_CRT" ]] && continue
+  leafs+=("$c")
+ done
+ if [[ "$DO_VERIFY" -eq 1 && ${#leafs[@]} -gt 0 ]]; then
+  openssl verify -CAfile "$CA_CRT" "${leafs[@]}"
+ else
+  info "Skipped."
+ fi
+
+ #--- Hosts ----------------------------------------------------------------
+ title "Hosts mapping"
+ if [[ "$DO_LOCAL_HOSTS" -eq 1 || "$DO_HOSTS" -eq 1 ]]; then
+  TARGET_IP=$(ask_input "Target IP for '${DOMAIN}' and extra SANs:" "$TARGET_IP")
+  build_hosts_block
+  [[ "$DO_LOCAL_HOSTS" -eq 1 ]] && generate_local_hosts
+  [[ "$DO_HOSTS" -eq 1 ]] && update_system_hosts
+ else
+  info "Skipped."
+ fi
+
+ #--- Cleanup + hardening --------------------------------------------------
+ rm -f ca.srl ./*.csr "${HOSTS_BLOCK:-/nonexistent}" 2>/dev/null || true
+ chmod 600 ./*.key 2>/dev/null || true
+ chmod 644 ./*.crt ./*.cnf 2>/dev/null || true
+ [[ -f hosts ]] && chmod 644 hosts
+
+ #--- Summary --------------------------------------------------------------
+ echo
+ hr
+ row "${GREEN}${BOLD}Provisioning complete${NC}"
+ hr
+ row "Output: $(fit "$OUT_DIR" 62)"
+ hr
+ local f note col
+ while read -r f; do
+  case "$f" in
+   *.key)
+    col="$YELLOW"
+    note="private key (600)"
+    ;;
+   *.crt)
+    col="$GREEN"
+    note="certificate (644)"
+    ;;
+   hosts)
+    col="$BLUE"
+    note="hosts file for containers"
+    ;;
+   *.cnf)
+    col="$DIM"
+    note="openssl extensions"
+    ;;
+   *)
+    col=""
+    note=""
+    ;;
+  esac
+  row "$(printf '  %s%-26s%s %s%s%s' "$col" "$f" "$NC" "$DIM" "$note" "$NC")"
+ done < <(ls -1 "$OUT_DIR")
+ hr
+ echo
+ echo -e "${BOLD}Test commands${NC}"
+ if [[ -f server.crt ]]; then
+  if [[ -f client-1.crt ]]; then
+   echo "  curl -v https://${DOMAIN} --cacert ${OUT_DIR}/ca.crt \\"
+   echo "       --cert ${OUT_DIR}/client-1.crt --key ${OUT_DIR}/client-1.key"
+  else
+   echo "  curl -v https://${DOMAIN} --cacert ${OUT_DIR}/ca.crt"
+  fi
+  echo "  openssl x509 -in ${OUT_DIR}/server.crt -noout -text | less"
+ fi
+ [[ -f "${OUT_DIR}/hosts" ]] &&
+  echo "  docker run -v ${OUT_DIR}/hosts:/etc/hosts:ro ..."
+ if [[ "${K8S_DONE:-0}" -eq 1 ]]; then
+  echo "  kubectl create secret tls cluster-tls \\"
+  echo "      --cert=${OUT_DIR}/tls.crt --key=${OUT_DIR}/tls.key --namespace <ns>"
+ fi
+ echo
+}
+
+main "$@"
