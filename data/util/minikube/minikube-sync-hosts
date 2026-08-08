@@ -14,7 +14,7 @@ GREEN='\033[1;32m'
 NC='\033[0m' # No Color
 
 echo
-echo "[+] Querying Cluster External IPs..."
+echo "Querying Minikube Cluster's External IPs..."
 echo
 
 # Check if kubectl is available for the current user
@@ -27,7 +27,7 @@ fi
 LB_SERVICES=$(kubectl get svc -A --field-selector spec.type=LoadBalancer -o jsonpath='{range .items[?(@.status.loadBalancer.ingress)]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.loadBalancer.ingress[0].ip}{"\n"}{end}')
 
 if [[ -z "$LB_SERVICES" ]]; then
- echo "[-] No LoadBalancer IPs found. Ensure your cluster is running and 'minikube tunnel' is active." >&2
+ echo "No LoadBalancer IPs found. Ensure your cluster is running and 'minikube tunnel' is active." >&2
  exit 1
 fi
 
@@ -78,7 +78,7 @@ echo
 
 # Verify root privileges before modifying /etc/hosts
 if [[ $EUID -ne 0 ]]; then
- echo "[+] Requesting administrator privileges to update $HOSTS_FILE..."
+ echo -e "Requesting administrator privileges to update \e[92m$HOSTS_FILE\e[0m"
  echo
  SUDO='sudo'
  # Force sudo to prompt for a password interactively right here
@@ -112,5 +112,5 @@ else
  cat "$TMP_BLOCK" | $SUDO tee -a "$HOSTS_FILE" >/dev/null
 fi
 
-echo "[+] Successfully updated $HOSTS_FILE with cluster external IPs!"
+echo -e "Successfully updated \e[92m$HOSTS_FILE\e[0m with cluster external IPs"
 echo

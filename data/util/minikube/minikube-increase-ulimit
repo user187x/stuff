@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo "Adding to the host system..."
+
+echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf
+echo "fs.inotify.max_user_instances=8192" | sudo tee -a /etc/sysctl.conf
+
+# Apply the changes to the host immediately (optional but recommended)
+sudo sysctl -p
+
+echo "Updating minikube resources..."
+# Pass the commands in quotes so they execute inside the minikube VM
+minikube ssh "sudo sysctl fs.inotify.max_user_watches=524288 && sudo sysctl fs.inotify.max_user_instances=8192"
+
+echo "Minikube resources updated!"

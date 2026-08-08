@@ -1,0 +1,11 @@
+project: default
+source:
+  repoURL: https://repo.helmforge.dev
+  targetRevision: 1.5.0
+  chart: guacamole
+destination:
+  server: https://kubernetes.default.svc
+  namespace: guacamole
+syncPolicy:
+  syncOptions:
+    - CreateNamespace=true
