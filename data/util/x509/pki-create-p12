@@ -11,24 +11,23 @@ DAYS_VALID=365
 
 # Prompt with a default value so pressing 'Enter' keeps ./x509-certs
 read -e -i "${OUTPUT_DIR}" -p "Export Path: " OUTPUT_DIR
-
 mkdir -p "${OUTPUT_DIR}" >/dev/null 2>&1
 
 echo "🔒 Generating certificate and private key for $DOMAIN..."
 openssl req -x509 -newkey rsa:2048 -nodes \
--keyout "${OUTPUT_DIR}/${OUTPUT_KEY}" \
--out "${OUTPUT_DIR}/${OUTPUT_CRT}" \
--days "$DAYS_VALID" \
--subj "/C=US/ST=Local/L=Dev/O=Development/CN=$DOMAIN" \
-2>/dev/null
+ -keyout "${OUTPUT_DIR}/${OUTPUT_KEY}" \
+ -out "${OUTPUT_DIR}/${OUTPUT_CRT}" \
+ -days "$DAYS_VALID" \
+ -subj "/C=US/ST=Local/L=Dev/O=Development/CN=$DOMAIN" \
+ 2>/dev/null
 
 echo "📦 Packaging into PKCS#12 format ($OUTPUT_P12)..."
 openssl pkcs12 -export \
--out "${OUTPUT_DIR}/${OUTPUT_P12}" \
--inkey "${OUTPUT_DIR}/${OUTPUT_KEY}" \
--in "${OUTPUT_DIR}/${OUTPUT_CRT}" \
--passout "pass:$PASSWORD" \
--name "$DOMAIN"
+ -out "${OUTPUT_DIR}/${OUTPUT_P12}" \
+ -inkey "${OUTPUT_DIR}/${OUTPUT_KEY}" \
+ -in "${OUTPUT_DIR}/${OUTPUT_CRT}" \
+ -passout "pass:$PASSWORD" \
+ -name "$DOMAIN"
 
 echo "✅ Success! Created ${OUTPUT_DIR}/${OUTPUT_P12}"
 echo "🔑 The keystore password is: $PASSWORD"

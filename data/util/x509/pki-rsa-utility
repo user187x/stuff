@@ -1,0 +1,137 @@
+#!/bin/bash
+
+# ==============================================================================
+# rsa-password-utility
+# Dedicated utility to add, update, remove, or check passwords for RSA/SSH keys.
+# ==============================================================================
+
+set -e # Exit immediately on unhandled errors
+
+# 1. Parse Arguments
+OPERATION="encrypt"
+
+while [[ "$#" -gt 0 ]]; do
+ case $1 in
+  -d | --decrypt)
+   OPERATION="decrypt"
+   shift
+   ;;
+  -e | --encrypt)
+   OPERATION="encrypt"
+   shift
+   ;;
+  -c | --check)
+   OPERATION="check"
+   shift
+   ;;
+  -h | --help)
+   echo "Usage: $0 [-e|-d|-c] [path-to-rsa-file]"
+   echo "Options:"
+   echo "  -e, --encrypt   Add or update a password (default)"
+   echo "  -d, --decrypt   Remove the password (decrypt)"
+   echo "  -c, --check     Check if the key is password-protected"
+   exit 0
+   ;;
+  -*)
+   echo "Error: Unknown option '$1'"
+   echo "Use $0 --help for usage."
+   exit 1
+   ;;
+  *)
+   if [[ -z "$INPUT_FILE" ]]; then
+    INPUT_FILE="$1"
+   else
+    echo "Error: Unexpected argument '$1'"
+    exit 1
+   fi
+   shift
+   ;;
+ esac
+done
+
+# 2. Handle Input & Validation
+# Fallback to the interactive prompt if no file was provided in the arguments
+if [[ -z "$INPUT_FILE" ]]; then
+ read -erp "Enter path to RSA file: " INPUT_FILE
+fi
+
+if [[ ! -f "$INPUT_FILE" ]]; then
+ echo "Error: File '$INPUT_FILE' not found."
+ exit 1
+fi
+
+# Verify it contains an RSA or OpenSSH header
+if ! grep -Eq "OPENSSH PRIVATE KEY|RSA PRIVATE KEY" "$INPUT_FILE"; then
+ echo "Error: '$INPUT_FILE' does not appear to be an RSA or OpenSSH private key."
+ exit 1
+fi
+
+# 3. Handle Status Check
+if [[ "$OPERATION" == "check" ]]; then
+ if ssh-keygen -y -P "" -f "$INPUT_FILE" >/dev/null 2>&1; then
+  echo "🔓 Status: UNPROTECTED. The RSA key '$INPUT_FILE' does not have a password."
+  exit 0
+ else
+  echo "🔒 Status: PROTECTED. The RSA key '$INPUT_FILE' is password-protected."
+  exit 0
+ fi
+fi
+
+# 4. Setup Paths and Variables
+rsa_dir=$(dirname "$INPUT_FILE")
+rsa_file=$(basename "$INPUT_FILE")
+
+if [[ "$OPERATION" == "encrypt" ]]; then
+ OUTPUT_FILE="${rsa_file%.*}_secured${rsa_file##${rsa_file%.*}}"
+else
+ OUTPUT_FILE="${rsa_file%.*}_unsecured${rsa_file##${rsa_file%.*}}"
+fi
+
+# Copy the file to prevent destructive overwriting
+cp "$INPUT_FILE" "${rsa_dir}/${OUTPUT_FILE}"
+chmod 600 "${rsa_dir}/${OUTPUT_FILE}"
+
+echo "🔑 Processing RSA/OpenSSH key..."
+
+# 5. Execute Modification in Subshell
+(
+ cd "${rsa_dir}"
+
+ if [[ "$OPERATION" == "encrypt" ]]; then
+  echo "Operation: ADD or UPDATE password."
+  # Prompts for old (if any), then new password twice
+  if ssh-keygen -p -f "${OUTPUT_FILE}"; then
+   SUCCESS=true
+  else
+   SUCCESS=false
+  fi
+ else
+  echo "Operation: REMOVE password."
+  # -N "" explicitly sets the new password to blank, bypassing the new password prompts.
+  # You will only be prompted for the old password if one currently exists.
+  if ssh-keygen -p -N "" -f "${OUTPUT_FILE}"; then
+   SUCCESS=true
+  else
+   SUCCESS=false
+  fi
+ fi
+
+ # Pass the success state out of the subshell
+ if [ "$SUCCESS" = true ]; then
+  exit 0
+ else
+  exit 1
+ fi
+)
+
+# 6. Cleanup & Reporting
+if [ $? -eq 0 ]; then
+ echo "---------------------------------------------------"
+ echo "Complete! Modified RSA key saved to: ${rsa_dir}/${OUTPUT_FILE}"
+ echo "Permissions restricted to 600."
+ echo "---------------------------------------------------"
+else
+ echo "Error: Modification aborted or failed. Ensure the correct password was provided."
+ rm -f "${rsa_dir}/${OUTPUT_FILE}"
+ exit 1
+fi

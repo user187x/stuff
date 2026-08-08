@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
 
 DOMAIN="xxx.com"
 EXPIRE=365
 OUTPUT_DIR="${PWD}/certs"
 
-# Ensure the output directory exists
 mkdir -p "$OUTPUT_DIR"
 
-# HELPER FUNCTION: Generate an additional client/service certificate
-# Usage: make_client_cert "client-subdomain.xxx.com"
-# ==============================================================================
 function make_client_cert {
 
  local CLIENT_NAME="$1"
@@ -21,10 +18,7 @@ function make_client_cert {
  echo "Helper: Generating Certificate for -> ${CLIENT_NAME}"
  echo "--------------------------------------------------"
 
- # 1. Generate Private Key
  openssl genrsa -out "$CLIENT_KEY" 2048
-
- # 2. Generate CSR and Sign with the existing CA
  openssl x509 -req -sha256 -days "$EXPIRE" \
   -in <(openssl req -new -key "$CLIENT_KEY" -subj "/CN=${CLIENT_NAME}") \
   -CA "${OUTPUT_DIR}/ca.crt" \
@@ -43,10 +37,6 @@ EOF
  echo "Created: ${CLIENT_CRT}"
  echo "Created: ${CLIENT_KEY}"
 }
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
 
 echo "=== 1. Generating CA Key and Certificate ==="
 openssl req \
@@ -81,14 +71,10 @@ EOF
  ) \
  -out "${OUTPUT_DIR}/tls.crt"
 
-# ==============================================================================
-# DEMO: Using the helper function for extra clients
-# ==============================================================================
 echo -e "\n=== 4. Using Helper Function for Extra Clients ==="
 make_client_cert "api-client.${DOMAIN}"
 make_client_cert "metrics-collector.local"
 
-# Cleanup tracking file
 rm -f "${OUTPUT_DIR}/ca.srl"
 
 echo
@@ -96,4 +82,5 @@ echo "PKI Generation Complete"
 echo "========================"
 echo "All assets saved to: ${OUTPUT_DIR}"
 ls -1 "$OUTPUT_DIR"
+
 echo
