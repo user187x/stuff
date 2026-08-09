@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# Target the specific backup file located in your subdirectory
+ZIP_FILE="cluster-backup/cluster-backup-2026.08.07-03.26.zip"
+EXTRACT_DIR="/tmp/velero-upload-temp"
+
+# Automatically derive the backup name from the zip filename
+# This strips the directory and '.zip' so Velero recognizes it (e.g., 'cluster-backup-2026.08.07-03.26')
+BACKUP_NAME=$(basename "$ZIP_FILE" .zip)
+
+# MinIO internal cluster configuration
+MINIO_URL="http://minio:9000"
+MINIO_USER="admin"
+MINIO_PASS="changeIt!"
+NAMESPACE="minio"
+POD_NAME="mc-uploader"
+
+# The target bucket is 'cluster-backup' as defined in your environment
+BUCKET_DESTINATION="myminio/cluster-backup/backups/$BACKUP_NAME/"
+
+if [ ! -f "$ZIP_FILE" ]; then
+ echo "Error: File '$ZIP_FILE' not found."
+ exit 1
+fi
+
+echo "Extracting $ZIP_FILE locally..."
+mkdir -p "$EXTRACT_DIR"
+# Unzip the contents to the temporary directory
+unzip -q "$ZIP_FILE" -d "$EXTRACT_DIR"
+
+echo "Starting temporary MinIO client pod..."
+kubectl run $POD_NAME --image=minio/mc:latest --restart=Never -n $NAMESPACE -- sleep 3600
+
+echo "Waiting for pod to become ready..."
+kubectl wait --for=condition=Ready pod/$POD_NAME -n $NAMESPACE --timeout=60s
+
+echo "Transferring extracted data to the cluster..."
+# Copy the unzipped directory into the temporary pod
+kubectl cp "$EXTRACT_DIR" $NAMESPACE/$POD_NAME:/tmp/upload-data
+
+echo "Uploading payload to MinIO..."
+# Authenticate and recursively copy the data to the S3 bucket path
+kubectl exec $POD_NAME -n $NAMESPACE -- /bin/sh -c "mc alias set myminio $MINIO_URL $MINIO_USER $MINIO_PASS && mc cp --recursive /tmp/upload-data/ $BUCKET_DESTINATION"
+
+echo "Cleaning up local and cluster resources..."
+kubectl delete pod $POD_NAME -n $NAMESPACE
+rm -rf "$EXTRACT_DIR"
+
+echo "Upload complete. Run 'velero backup get' to confirm Velero sees the backup."
