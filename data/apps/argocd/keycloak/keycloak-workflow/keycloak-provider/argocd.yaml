@@ -122,7 +122,7 @@ spec:
           - apiVersion: gateway.networking.k8s.io/v1
             kind: HTTPRoute
             metadata:
-              name: keycloak-route
+              name: keycloak
               namespace: keycloak
               annotations:
                 argocd.argoproj.io/sync-wave: "1"

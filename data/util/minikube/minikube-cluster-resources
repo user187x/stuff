@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo -e "\e[96mMinikube Cluster Resources\e[0m"
+kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.capacity.cpu,MEMORY:.status.capacity.memory | awk 'NR==1 {printf "%-20s %-10s %s\n", $1, $2, "MEMORY (GiB)"} NR>1 { mem=$3; sub("Ki", "", mem); printf "%-20s %-10s %.2f GiB\n", $1, $2, mem/1048576 }'
+
+#echo "Cluster Resources"
+#kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.capacity.cpu,MEMORY:.status.capacity.memory
+
+# Docker Alternative
+#docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" | awk 'NR==1 || /coder-shroder/'

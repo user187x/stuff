@@ -307,7 +307,7 @@ items:
       version: v1alpha1
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      name: argocd-route
+      name: argocd
       namespace: argocd
       status: Synced
       version: v1
@@ -1919,7 +1919,7 @@ items:
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"cloudbeaver","namespace":"argocd"},"spec":{"destination":{"namespace":"cloudbeaver","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"cloudbeaver","helm":{"values":"extraObjects:\n  - apiVersion: gateway.networking.k8s.io/v1\n    kind: HTTPRoute\n    metadata:\n      name: cloudbeaver-route\n    spec:\n      parentRefs:\n        - name: traefik-gateway\n          namespace: traefik\n      hostnames:\n        - \"cloudbeaver.xxx.local\"\n      rules:\n        - matches:\n            - path:\n                type: PathPrefix\n                value: /\n          backendRefs:\n            - name: cloudbeaver\n              port: 8978\n"},"repoURL":"https://avistotelecom.github.io/charts/","targetRevision":"1.1.7"},"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}
+        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"cloudbeaver","namespace":"argocd"},"spec":{"destination":{"namespace":"cloudbeaver","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"cloudbeaver","helm":{"values":"extraObjects:\n  - apiVersion: gateway.networking.k8s.io/v1\n    kind: HTTPRoute\n    metadata:\n      name: cloudbeaver\n    spec:\n      parentRefs:\n        - name: traefik-gateway\n          namespace: traefik\n      hostnames:\n        - \"cloudbeaver.xxx.local\"\n      rules:\n        - matches:\n            - path:\n                type: PathPrefix\n                value: /\n          backendRefs:\n            - name: cloudbeaver\n              port: 8978\n"},"repoURL":"https://avistotelecom.github.io/charts/","targetRevision":"1.1.7"},"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}
     creationTimestamp: "2026-07-29T14:13:46Z"
     generation: 811
     name: cloudbeaver
@@ -1939,7 +1939,7 @@ items:
             - apiVersion: gateway.networking.k8s.io/v1
               kind: HTTPRoute
               metadata:
-                name: cloudbeaver-route
+                name: cloudbeaver
               spec:
                 parentRefs:
                   - name: traefik-gateway
@@ -1986,7 +1986,7 @@ items:
                   - apiVersion: gateway.networking.k8s.io/v1
                     kind: HTTPRoute
                     metadata:
-                      name: cloudbeaver-route
+                      name: cloudbeaver
                     spec:
                       parentRefs:
                         - name: traefik-gateway
@@ -2032,7 +2032,7 @@ items:
                 - apiVersion: gateway.networking.k8s.io/v1
                   kind: HTTPRoute
                   metadata:
-                    name: cloudbeaver-route
+                    name: cloudbeaver
                   spec:
                     parentRefs:
                       - name: traefik-gateway
@@ -2086,7 +2086,7 @@ items:
                 - apiVersion: gateway.networking.k8s.io/v1
                   kind: HTTPRoute
                   metadata:
-                    name: cloudbeaver-route
+                    name: cloudbeaver
                   spec:
                     parentRefs:
                       - name: traefik-gateway
@@ -5263,7 +5263,7 @@ items:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
                 metadata:
-                  name: headlamp-route
+                  name: headlamp
                   namespace: headlamp
                   annotations:
                     argocd.argoproj.io/sync-wave: "1"
@@ -5351,7 +5351,7 @@ items:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
                 metadata:
-                  name: headlamp-route
+                  name: headlamp
                   namespace: headlamp
                   annotations:
                     argocd.argoproj.io/sync-wave: "1"

@@ -15,7 +15,7 @@ spec:
           - apiVersion: gateway.networking.k8s.io/v1
             kind: HTTPRoute
             metadata:
-              name: cloudbeaver-route
+              name: cloudbeaver
             spec:
               parentRefs:
                 - name: traefik-gateway

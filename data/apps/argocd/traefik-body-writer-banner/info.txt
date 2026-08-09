@@ -1,4 +1,4 @@
-Name:         excalidraw-route
+Name:         excalidraw
 Namespace:    excalidraw
 Labels:       <none>
 Annotations:  <none>
@@ -18,7 +18,7 @@ Spec:
     Name:   traefik-gateway
   Rules:
     Backend Refs:
-      Group:   
+      Group:
       Kind:    Service
       Name:    excalidraw-excalidraw
       Port:    80

@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Define color codes
+BRIGHT_WHITE='\033[1;37m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+NC='\033[0m' # No Color (resets the color back to default)
+
+CURRENT="$PWD"
+
+echo
+read -rp "Enter String to match: " input
+read -erp "Enter top directory to start search (enter=$PWD) : " ROOT
+
+directory="${ROOT:-$CURRENT}"
+
+mapfile -t files < <(grep --color=never -irl "$input" "$directory")
+
+if [[ ${#files[@]} -eq 0 ]]; then
+ echo "No matching files found for '$input' in '$directory'."
+ exit 0
+fi
+
+echo -e "\n Matching files:"
+echo -e " ---------------"
+for file in "${files[@]}"; do
+ echo -e " • ${GREEN}$file${NC}"
+done
+
+echo -e "\n Total files found: ${GREEN}${#files[@]}${NC}"
+echo -e " Search Term: '\e[96m$input\e[0m'"
+
+echo -e "
+ Edit Navigation:
+ ----------------
+ • ${YELLOW}:n${NC} or ${YELLOW}:next${NC}               - Moves to the next file in the list.
+ • ${YELLOW}:N${NC} or ${YELLOW}:prev${NC}               - Moves to the previous file.
+ • ${YELLOW}:ls${NC}                       - Shows the list of all files you currently have open.
+ • ${YELLOW}:b <number>${NC}               - Jumps directly to a specific buffer number from the :ls output.
+ • ${YELLOW}:qa${NC}                       - Quits all files at once.
+
+ Search/Edit Tip:
+ ----------------
+ • ${YELLOW}:%s/<term>/<replace>/cgi${NC}  - Interactive find & replace (case-insensitive).
+"
+
+echo -en " ${BRIGHT_WHITE}(?)${NC} Begin Editing? (y/n) "
+read -r response
+
+if [[ "$response" == "y" || "$response" == "Y" ]]; then
+ vim "${files[@]}"
+else
+ echo -e " \e[91m 🠮\e[0m Aborting..."
+fi

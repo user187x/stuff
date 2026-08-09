@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+if command -v jq &> /dev/null; then
+    PROFILES=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[].Name')
+else
+    # Parse the table: ignore headers and separator lines, strip whitespace from the 2nd column
+    PROFILES=$(minikube profile list 2>/dev/null | awk -F'|' '/^\|/ && !/Profile/ { if ($2 ~ /[a-zA-Z0-9]/) { gsub(/ /, "", $2); print $2 } }')
+fi
+
+if [[ -z "$PROFILES" ]]; then
+    echo "No Minikube contexts found or Minikube is not running."
+    exit 1
+fi
+
+# Pipe the list into fzf for interactive selection
+SELECTED=$(echo "$PROFILES" | fzf \
+    --prompt="Select Minikube Context > " \
+    --height=40% \
+    --layout=reverse \
+    --border)
+
+# Exit gracefully if the user escapes out of fzf (Ctrl+C or ESC)
+if [[ -z "$SELECTED" ]]; then
+    echo "Selection canceled."
+    exit 0
+fi
+
+# Set both the minikube active profile and the kubectl context
+echo "Switching Minikube profile to '$SELECTED'..."
+minikube profile "$SELECTED"
+
+echo "Switching kubectl context to '$SELECTED'..."
+kubectl config use-context "$SELECTED"
+
+echo "Context switched successfully."
