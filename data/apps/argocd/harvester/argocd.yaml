@@ -1,0 +1,281 @@
+# =============================================================================
+# argocd.yaml — Harvester (with KubeVirt) full-stack install via ArgoCD
+# =============================================================================
+# Target      : minikube cluster with ArgoCD + Traefik Gateway API
+#               (GatewayClass/Gateway "traefik-gateway" in namespace "traefik")
+# Chart repos  : PRIMARY  -> https://charts.harvesterhci.io
+#                  Official Harvester Helm repository. Helm resolves all
+#                  harvesterhci.io sub-charts from here at v1.8.2:
+#                  harvester-network-controller, harvester-networkfs-manager,
+#                  harvester-node-disk-manager, harvester-load-balancer,
+#                  harvester-node-manager.
+#                NOTE: the top-level "harvester" and "harvester-crd" charts are
+#                  NOT published to charts.harvesterhci.io (the repo only hosts
+#                  component/add-on charts). The main chart is distributed from
+#                  git only, so the two Applications below source it from
+#                  https://github.com/harvester/harvester @ tag v1.8.2
+#                  (path deploy/charts/harvester), exactly as Harvester's own
+#                  Helm-install docs do. Its dependencies still pull from
+#                  charts.harvesterhci.io, charts.longhorn.io and
+#                  kube-vip.github.io during ArgoCD's `helm dependency build`.
+#
+# The harvester chart bundles as sub-charts:
+#                 - kubevirt-operator + kubevirt CR   (tags.kubevirt)
+#                 - cdi (Containerized Data Importer)
+#                 - longhorn (storage)
+#                 - whereabouts (IPAM)
+#                 - harvester-network-controller
+#                 - csi-snapshotter
+#
+# Apply with:  kubectl apply -n argocd -f argocd.yaml
+#
+# BEFORE APPLYING — adjust these to your environment:
+#   1. HOSTNAME: search/replace "harvester.xxx.local" with a host that matches
+#      your wildcard TLS cert + /etc/hosts entry (points at the tunnel IP).
+#   2. NODE REQUIREMENTS: the node needs hardware virtualization (/dev/kvm) for
+#      KubeVirt (minikube --driver=kvm2 or bare-metal docker driver) and
+#      open-iscsi for Longhorn.
+#   3. REPLICAS: values below are tuned for a single-node minikube
+#      (replicas: 1, Longhorn replica count 1). For a real multi-node
+#      production cluster set them back to 3.
+# =============================================================================
+---
+# -----------------------------------------------------------------------------
+# 1. AppProject — scoped project for the Harvester stack
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: harvester
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Harvester HCI stack (KubeVirt, CDI, Longhorn, networking)
+  sourceRepos:
+    - https://charts.harvesterhci.io               # PRIMARY: official Harvester chart repo (all harvesterhci.io sub-charts)
+    - https://github.com/harvester/harvester       # main harvester + harvester-crd charts (not published to the Helm repo)
+    - https://charts.longhorn.io
+    - https://kube-vip.github.io/helm-charts
+    - https://bedag.github.io/helm-charts        # "raw" chart used to render the HTTPRoute
+  destinations:
+    - namespace: harvester-system
+      server: https://kubernetes.default.svc
+    - namespace: longhorn-system
+      server: https://kubernetes.default.svc
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
+  # Harvester installs CRDs, ClusterRoles, webhooks, PSPs, APIServices, etc.
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true
+---
+# -----------------------------------------------------------------------------
+# 2. Application — Harvester CRDs (must land before the main chart)
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harvester-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: harvester
+  source:
+    repoURL: https://github.com/harvester/harvester
+    targetRevision: v1.8.2
+    path: deploy/charts/harvester-crd
+    helm:
+      releaseName: harvester-crd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harvester-system
+  syncPolicy:
+    automated:
+      prune: false          # never auto-prune CRDs — pruning deletes all CRs with them
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # Harvester/KubeVirt CRDs exceed client-side apply annotation limits
+      - Replace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harvester
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: harvester
+  source:
+    repoURL: https://github.com/harvester/harvester
+    targetRevision: v1.8.2
+    path: deploy/charts/harvester
+    helm:
+      releaseName: harvester
+      valuesObject:
+        # ---- KubeVirt: operator + KubeVirt CR sub-charts -------------------
+        tags:
+          kubevirt: true
+
+        # ---- CDI (image import / DataVolumes) ------------------------------
+        cdi:
+          enabled: true
+
+        # ---- Longhorn storage ----------------------------------------------
+        longhorn:
+          enabled: true
+          persistence:
+            defaultClass: true
+            defaultClassReplicaCount: 1        # PROD multi-node: 3
+          defaultSettings:
+            defaultReplicaCount: 1             # PROD multi-node: 3
+            createDefaultDiskLabeledNodes: false
+
+        # ---- Harvester networking stack ------------------------------------
+        whereabouts:
+          enabled: true
+        harvester-network-controller:
+          enabled: true
+        harvester-networkfs-manager:
+          enabled: true
+        harvester-node-disk-manager:
+          enabled: false                       # enable on bare metal with extra disks
+        csi-snapshotter:
+          enabled: true
+        harvester-load-balancer:
+          enabled: false                       # minikube tunnel provides LB; enable + kube-vip on bare metal
+        kube-vip:
+          enabled: false
+
+        # ---- Harvester apiserver / UI ---------------------------------------
+        replicas: 1                            # PROD multi-node: 3
+        webhook:
+          replicas: 1                          # PROD multi-node: 3
+        service:
+          harvester:
+            asClusterService: true
+            type: ClusterIP                    # exposed via Traefik Gateway HTTPRoute below
+            httpsPort: 8443
+            httpPort: 8080                     # open plain-HTTP port; TLS terminates at the
+                                               # Traefik Gateway using your wildcard cert
+            sessionAffinity: ClientIP
+
+        # Not running embedded inside Rancher on this cluster
+        rancherEmbedded: false
+        enableLonghornNetworkPolicy: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harvester-system
+  ignoreDifferences:
+    # KubeVirt operator mutates its own CR/webhooks at runtime
+    - group: kubevirt.io
+      kind: KubeVirt
+      jsonPointers:
+        - /spec/customizeComponents
+        - /status
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 10                # operator-driven install converges over several minutes
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harvester-gateway-route
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: harvester
+  source:
+    repoURL: https://bedag.github.io/helm-charts
+    chart: raw
+    targetRevision: 2.0.0
+    helm:
+      releaseName: harvester-gateway-route
+      valuesObject:
+        resources:
+          - apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: harvester
+              namespace: harvester-system
+            spec:
+              parentRefs:
+                - group: gateway.networking.k8s.io
+                  kind: Gateway
+                  name: traefik-gateway
+                  namespace: traefik
+              hostnames:
+                - harvester.xxx.local
+              rules:
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    - name: harvester
+                      group: ""
+                      namespace: harvester-system
+                      kind: Service
+                      port: 8080
+                      weight: 1
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harvester-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
