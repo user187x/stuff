@@ -1,162 +1,209 @@
 #!/bin/bash
 
+set -e # Exit immediately on unhandled errors
+
+# ==============================================================================
+# function to pull the listed domain from the server certificate
+# ==============================================================================
+function check_pem_domain {
+ local CRT_FILE="$1"
+
+ # Fallback to interactive prompt if no file was passed
+ if [[ -z "$CRT_FILE" ]]; then
+  read -erp "Enter server.crt path: " CRT_FILE
+ fi
+
+ if [[ ! -f "$CRT_FILE" ]]; then
+  echo "Error: File '$CRT_FILE' not found."
+  exit 1
+ fi
+
+ echo "Examining certificate: $CRT_FILE"
+ openssl x509 -in "$CRT_FILE" -noout -ext subjectAltName
+}
+
 # ==============================================================================
 # pki-password-utility
 # Universal Private Key Manager (PKI & SSH)
 # Adds, updates, removes, or checks passwords from PEM and OpenSSH format keys.
 # ==============================================================================
+function manage_password {
+ local OPERATION="encrypt"
+ local INPUT_FILE=""
 
-set -e # Exit immediately on unhandled errors
-
-# 1. Parse Arguments
-OPERATION="encrypt"
-
-while [[ "$#" -gt 0 ]]; do
- case $1 in
-  -d | --decrypt)
-   OPERATION="decrypt"
-   shift
-   ;;
-  -e | --encrypt)
-   OPERATION="encrypt"
-   shift
-   ;;
-  -c | --check)
-   OPERATION="check"
-   shift
-   ;;
-  -h | --help)
-   echo "Usage: $0 [-e|-d|-c] <path-to-key-file>"
-   echo "Options:"
-   echo "  -e, --encrypt   Add or update a password (default)"
-   echo "  -d, --decrypt   Remove the password (decrypt)"
-   echo "  -c, --check     Check if the key is password-protected"
-   exit 0
-   ;;
-  -*)
-   echo "Error: Unknown option '$1'"
-   echo "Use $0 --help for usage."
-   exit 1
-   ;;
-  *)
-   if [[ -z "$INPUT_FILE" ]]; then
-    INPUT_FILE="$1"
-   else
-    echo "Error: Unexpected argument '$1'"
+ while [[ "$#" -gt 0 ]]; do
+  case $1 in
+   -d | --decrypt)
+    OPERATION="decrypt"
+    shift
+    ;;
+   -e | --encrypt)
+    OPERATION="encrypt"
+    shift
+    ;;
+   -c | --check)
+    OPERATION="check"
+    shift
+    ;;
+   -h | --help)
+    echo "Usage: $0 manage-password [-e|-d|-c] <path-to-key-file>"
+    echo "Options:"
+    echo "  -e, --encrypt   Add or update a password (default)"
+    echo "  -d, --decrypt   Remove the password (decrypt)"
+    echo "  -c, --check     Check if the key is password-protected"
+    exit 0
+    ;;
+   -*)
+    echo "Error: Unknown option '$1'"
+    echo "Use $0 manage-password --help for usage."
     exit 1
+    ;;
+   *)
+    if [[ -z "$INPUT_FILE" ]]; then
+     INPUT_FILE="$1"
+    else
+     echo "Error: Unexpected argument '$1'"
+     exit 1
+    fi
+    shift
+    ;;
+  esac
+ done
+
+ if [ -z "$INPUT_FILE" ]; then
+  echo "Usage: $0 manage-password [-e|-d|-c] <path-to-key-file>"
+  exit 1
+ fi
+
+ if [ ! -f "$INPUT_FILE" ]; then
+  echo "Error: File '$INPUT_FILE' not found."
+  exit 1
+ fi
+
+ # 2. Analyze the Key Format and Route to the Correct Tool
+ if grep -q "OPENSSH PRIVATE KEY" "$INPUT_FILE"; then
+
+  if [[ "$OPERATION" == "check" ]]; then
+   # Suppress output and test if generating the public key works with an empty passphrase
+   if ssh-keygen -y -P "" -f "$INPUT_FILE" >/dev/null 2>&1; then
+    echo "🔓 Status: UNPROTECTED. The OpenSSH key '$INPUT_FILE' does not have a password."
+    exit 0
+   else
+    echo "🔒 Status: PROTECTED. The OpenSSH key '$INPUT_FILE' is password-protected."
+    exit 0
    fi
-   shift
-   ;;
- esac
-done
-
-if [ -z "$INPUT_FILE" ]; then
- echo "Usage: $0 [-e|-d|-c] <path-to-key-file>"
- exit 1
-fi
-
-if [ ! -f "$INPUT_FILE" ]; then
- echo "Error: File '$INPUT_FILE' not found."
- exit 1
-fi
-
-# 2. Analyze the Key Format and Route to the Correct Tool
-if grep -q "OPENSSH PRIVATE KEY" "$INPUT_FILE"; then
-
- if [[ "$OPERATION" == "check" ]]; then
-  # Suppress output and test if generating the public key works with an empty passphrase
-  if ssh-keygen -y -P "" -f "$INPUT_FILE" >/dev/null 2>&1; then
-   echo "🔓 Status: UNPROTECTED. The OpenSSH key '$INPUT_FILE' does not have a password."
-   exit 0
-  else
-   echo "🔒 Status: PROTECTED. The OpenSSH key '$INPUT_FILE' is password-protected."
-   exit 0
   fi
- fi
 
- echo "🔑 Detected OpenSSH format key (e.g., modern id_rsa or id_ed25519)."
+  echo "🔑 Detected OpenSSH format key (e.g., modern id_rsa or id_ed25519)."
 
- if [[ "$OPERATION" == "encrypt" ]]; then
-  OUTPUT_FILE="${INPUT_FILE%.*}_secured${INPUT_FILE##${INPUT_FILE%.*}}"
- else
-  OUTPUT_FILE="${INPUT_FILE%.*}_unsecured${INPUT_FILE##${INPUT_FILE%.*}}"
- fi
-
- # ssh-keygen modifies files in place, so we copy it first for safety
- cp "$INPUT_FILE" "$OUTPUT_FILE"
- chmod 600 "$OUTPUT_FILE"
-
- if [[ "$OPERATION" == "encrypt" ]]; then
-  echo "Operation: ADD or UPDATE password."
-  echo "Using native ssh-keygen to secure..."
- else
-  echo "Operation: REMOVE password."
-  echo "Using native ssh-keygen (Tip: Enter current password, then leave the new password blank)..."
- fi
-
- # Using if catches the exit code so 'set -e' doesn't kill the script prematurely on failure
- if ssh-keygen -p -f "$OUTPUT_FILE"; then
-  echo "---------------------------------------------------"
-  echo "Success! Modified SSH key saved to: $OUTPUT_FILE"
-  echo "Permissions restricted to 600."
-  echo "---------------------------------------------------"
- else
-  echo "Error: SSH key modification aborted or failed."
-  rm -f "$OUTPUT_FILE"
-  exit 1
- fi
-
-elif grep -q "PRIVATE KEY" "$INPUT_FILE"; then
-
- if [[ "$OPERATION" == "check" ]]; then
-  # Test if openssl can read the private key structure using an empty passphrase
-  if openssl pkey -in "$INPUT_FILE" -passin pass:"" -noout >/dev/null 2>&1; then
-   echo "🔓 Status: UNPROTECTED. The PKI key '$INPUT_FILE' does not have a password."
-   exit 0
+  if [[ "$OPERATION" == "encrypt" ]]; then
+   OUTPUT_FILE="${INPUT_FILE%.*}_secured${INPUT_FILE##${INPUT_FILE%.*}}"
   else
-   echo "🔒 Status: PROTECTED. The PKI key '$INPUT_FILE' is password-protected (or malformed)."
-   exit 0
+   OUTPUT_FILE="${INPUT_FILE%.*}_unsecured${INPUT_FILE##${INPUT_FILE%.*}}"
   fi
- fi
 
- echo "🔐 Detected standard PKI PEM format key."
-
- if [[ "$OPERATION" == "encrypt" ]]; then
-  OUTPUT_FILE="${INPUT_FILE%.*}_secured${INPUT_FILE##${INPUT_FILE%.*}}"
-  echo "Operation: ADD or UPDATE password."
-  echo "Using OpenSSL (AES-256) to secure..."
-
-  if openssl pkey -in "$INPUT_FILE" -out "$OUTPUT_FILE" -aes256; then
-   SUCCESS=true
-  else
-   SUCCESS=false
-  fi
- else
-  OUTPUT_FILE="${INPUT_FILE%.*}_unsecured${INPUT_FILE##${INPUT_FILE%.*}}"
-  echo "Operation: REMOVE password."
-  echo "Using OpenSSL to decrypt..."
-
-  if openssl pkey -in "$INPUT_FILE" -out "$OUTPUT_FILE"; then
-   SUCCESS=true
-  else
-   SUCCESS=false
-  fi
- fi
-
- if [ "$SUCCESS" = true ]; then
+  # ssh-keygen modifies files in place, so we copy it first for safety
+  cp "$INPUT_FILE" "$OUTPUT_FILE"
   chmod 600 "$OUTPUT_FILE"
-  echo "---------------------------------------------------"
-  echo "Success! Modified PKI key saved to: $OUTPUT_FILE"
-  echo "Permissions restricted to 600."
-  echo "---------------------------------------------------"
+
+  if [[ "$OPERATION" == "encrypt" ]]; then
+   echo "Operation: ADD or UPDATE password."
+   echo "Using native ssh-keygen to secure..."
+  else
+   echo "Operation: REMOVE password."
+   echo "Using native ssh-keygen (Tip: Enter current password, then leave the new password blank)..."
+  fi
+
+  # Using if catches the exit code so 'set -e' doesn't kill the script prematurely on failure
+  if ssh-keygen -p -f "$OUTPUT_FILE"; then
+   echo "---------------------------------------------------"
+   echo "Success! Modified SSH key saved to: $OUTPUT_FILE"
+   echo "Permissions restricted to 600."
+   echo "---------------------------------------------------"
+  else
+   echo "Error: SSH key modification aborted or failed."
+   rm -f "$OUTPUT_FILE"
+   exit 1
+  fi
+
+ elif grep -q "PRIVATE KEY" "$INPUT_FILE"; then
+
+  if [[ "$OPERATION" == "check" ]]; then
+   # Test if openssl can read the private key structure using an empty passphrase
+   if openssl pkey -in "$INPUT_FILE" -passin pass:"" -noout >/dev/null 2>&1; then
+    echo "🔓 Status: UNPROTECTED. The PKI key '$INPUT_FILE' does not have a password."
+    exit 0
+   else
+    echo "🔒 Status: PROTECTED. The PKI key '$INPUT_FILE' is password-protected (or malformed)."
+    exit 0
+   fi
+  fi
+
+  echo "🔐 Detected standard PKI PEM format key."
+
+  if [[ "$OPERATION" == "encrypt" ]]; then
+   OUTPUT_FILE="${INPUT_FILE%.*}_secured${INPUT_FILE##${INPUT_FILE%.*}}"
+   echo "Operation: ADD or UPDATE password."
+   echo "Using OpenSSL (AES-256) to secure..."
+
+   if openssl pkey -in "$INPUT_FILE" -out "$OUTPUT_FILE" -aes256; then
+    SUCCESS=true
+   else
+    SUCCESS=false
+   fi
+  else
+   OUTPUT_FILE="${INPUT_FILE%.*}_unsecured${INPUT_FILE##${INPUT_FILE%.*}}"
+   echo "Operation: REMOVE password."
+   echo "Using OpenSSL to decrypt..."
+
+   if openssl pkey -in "$INPUT_FILE" -out "$OUTPUT_FILE"; then
+    SUCCESS=true
+   else
+    SUCCESS=false
+   fi
+  fi
+
+  if [ "$SUCCESS" = true ]; then
+   chmod 600 "$OUTPUT_FILE"
+   echo "---------------------------------------------------"
+   echo "Success! Modified PKI key saved to: $OUTPUT_FILE"
+   echo "Permissions restricted to 600."
+   echo "---------------------------------------------------"
+  else
+   echo "Error: OpenSSL process failed. Ensure the correct password was provided."
+   rm -f "$OUTPUT_FILE"
+   exit 1
+  fi
+
  else
-  echo "Error: OpenSSL process failed. Ensure the correct password was provided."
-  rm -f "$OUTPUT_FILE"
+  echo "Error: No recognized private key found in '$INPUT_FILE'."
+  echo "Ensure the file contains a standard 'PRIVATE KEY' or 'OPENSSH PRIVATE KEY' header."
   exit 1
  fi
+}
 
-else
- echo "Error: No recognized private key found in '$INPUT_FILE'."
- echo "Ensure the file contains a standard 'PRIVATE KEY' or 'OPENSSH PRIVATE KEY' header."
+#######################################################
+#            SCRIPT ENTRY POINT
+#######################################################
+
+if [ "$#" -lt 1 ]; then
+ echo "Usage: $0 {check-domain|manage-password} [options]"
  exit 1
 fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+ check-domain)
+  check_pem_domain "$@"
+  ;;
+ manage-password)
+  manage_password "$@"
+  ;;
+ *)
+  echo "Error: Unknown command '$COMMAND'"
+  echo "Usage: $0 {check-domain|manage-password} [options]"
+  exit 1
+  ;;
+esac

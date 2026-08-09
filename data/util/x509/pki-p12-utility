@@ -1,15 +1,14 @@
 #!/bin/bash
 
 # --- Configuration ---
-DOMAIN="localhost"
+DOMAIN="xxx.com"
 PASSWORD="changeIt!"
-OUTPUT_DIR="./x509-certs"
+OUTPUT_DIR="./certs"
 OUTPUT_P12="xxx.p12"
 OUTPUT_KEY="xxx.key"
 OUTPUT_CRT="xxx.crt"
 DAYS_VALID=365
 
-# Prompt with a default value so pressing 'Enter' keeps ./x509-certs
 read -e -i "${OUTPUT_DIR}" -p "Export Path: " OUTPUT_DIR
 mkdir -p "${OUTPUT_DIR}" >/dev/null 2>&1
 
@@ -18,7 +17,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
  -keyout "${OUTPUT_DIR}/${OUTPUT_KEY}" \
  -out "${OUTPUT_DIR}/${OUTPUT_CRT}" \
  -days "$DAYS_VALID" \
- -subj "/C=US/ST=Local/L=Dev/O=Development/CN=$DOMAIN" \
+ -subj "/CN=$DOMAIN" \
  2>/dev/null
 
 echo "📦 Packaging into PKCS#12 format ($OUTPUT_P12)..."
