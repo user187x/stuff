@@ -1,3 +1,16 @@
 #!/bin/bash
 
-velero restore describe $BACKUP_NAME
+BACKUP_NAME=$(velero backup get | tail -n +2 | head -n 1 | awk '{print $1}')
+
+if [ -z "$BACKUP_NAME" ]; then
+ echo "Error: No Velero backups found."
+ exit 1
+fi
+
+echo "Initiating restore from backup: $BACKUP_NAME"
+
+RESTORE_NAME="cluster-restore-$(date +%Y%m%d%H%M%S)"
+
+velero restore create "$RESTORE_NAME" --from-backup "$BACKUP_NAME"
+
+echo "Restore '$RESTORE_NAME' created successfully."
