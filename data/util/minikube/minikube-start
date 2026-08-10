@@ -129,21 +129,50 @@ fi
 echo -e "\nChecking available Kubernetes versions..."
 version=$(curl -s https://api.github.com/repos/kubernetes/kubernetes/releases?per_page=100 | jq -r '.[].tag_name' | grep '^v1\.' | sort -V | fzf --prompt="K8s Version > " --reverse)
 
-# --- 4. Execution ---
+# --- 4. Export and Execution ---
+EXPORT_FILE="start_${name}_cluster.sh"
+echo -e "\n\e[1mExporting configuration to ${EXPORT_FILE}...\e[0m"
+
+# Generate the executable script
+cat <<EOF >"$EXPORT_FILE"
+#!/bin/bash
+# Auto-generated Minikube startup script for cluster: $name
+
+# Address rootless docker requirement if the Docker driver is in use
+if [[ "$selected_driver" == "docker" ]] && command -v docker &>/dev/null; then
+    if [[ "\$MINIKUBE_ROOTLESS" == "true" ]] || docker context ls | grep -q "rootless"; then
+        echo -e "\n[\!] Enforcing rootless Docker context to resolve driver constraints..."
+        docker context use rootless || true
+    fi
+fi
+
 echo -e "\n\e[1mStarting Minikube cluster '$name'...\e[0m\n"
 
-# Print the command executing for transparency
 set -x
-minikube start -p "$name" \
- --nodes="${nodes}" \
- --memory="${memory}g" \
- --cpus="${cpu}" \
- --disk-size="${disk}g" \
- --driver="${selected_driver}" \
- --container-runtime="${selected_runtime}" \
- ${version:+--kubernetes-version="$version"} \
- $GPU_FLAG \
+minikube start -p "$name" \\
+ --nodes="${nodes}" \\
+ --memory="${memory}g" \\
+ --cpus="${cpu}" \\
+ --disk-size="${disk}g" \\
+ --driver="${selected_driver}" \\
+ --container-runtime="${selected_runtime}" \\
+ ${version:+--kubernetes-version="$version"} \\
+ $GPU_FLAG \\
  $ADDONS_FLAG
 set +x
+EOF
+
+# Make the exported file executable
+chmod +x "$EXPORT_FILE"
+
+echo -e "\e[92mConfiguration saved successfully.\e[0m"
+echo -e "\n\e[1mExecuting ${EXPORT_FILE}...\e[0m\n"
+
+# Run the generated script
+./"$EXPORT_FILE"
 
 echo -e "\n\e[92mMinikube cluster setup complete!\e[0m"
+
+echo
+echo -e "If issue with 'using rootless Docker...' present set '\e[93mminikube config set rootless true\e[0m'"
+echo

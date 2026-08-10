@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo -e "\n\e[1mStarting Minikube cluster 'minikube'...\e[0m\n"
+
+minikube start -p "minikube" \
+ --nodes="3" \
+ --memory="16g" \
+ --cpus="12" \
+ --disk-size="40g" \
+ --driver="docker" \
+ --container-runtime="docker" \
+ --kubernetes-version=v1.36.3 \
+ --gpus=all \
+ --addons=dashboard,default-storageclass,headlamp,kubetail,logviewer,metrics-server,nvidia-device-plugin,nvidia-driver-installer,nvidia-gpu-device-plugin \
+ --force
