@@ -20,7 +20,7 @@ metadata:
   {{- include "blender.labels" . | nindent 4 }}
 spec:
   hostnames:
-  - blender.xxx.local
+  - blender.xxx.com
   parentRefs:
   - name: traefik-gateway
     namespace: traefik

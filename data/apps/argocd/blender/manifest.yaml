@@ -83,7 +83,7 @@ spec:
     - name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "blender.xxx.local"
+    - "blender.xxx.com"
   rules:
     - matches:
         - path:

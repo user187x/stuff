@@ -7,7 +7,7 @@
 # ==============================================================================
 
 # Keycloak settings
-KC_URL="https://keycloak.xxx.local"
+KC_URL="https://keycloak.xxx.com"
 KC_ADMIN_USER="admin"
 KC_ADMIN_PASS="UZvKgGeaDuJemXVJ7XdsSfhbWkZrSpNd"
 KC_REALM="master"
@@ -15,7 +15,7 @@ KC_CLIENT_ID="headlamp"
 
 # Headlamp settings
 HEADLAMP_NAMESPACE="headlamp"
-HEADLAMP_URL="https://headlamp.xxx.local"
+HEADLAMP_URL="https://headlamp.xxx.com"
 HEADLAMP_OIDC_SCOPES="openid,profile,email,groups"
 
 # Kubernetes RBAC mapping

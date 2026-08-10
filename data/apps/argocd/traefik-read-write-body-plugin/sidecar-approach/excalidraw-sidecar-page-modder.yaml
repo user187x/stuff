@@ -84,7 +84,7 @@ spec:
       kind: Gateway
       name: traefik-gateway
   hostnames:
-    - "excalidraw.xxx.local"
+    - "excalidraw.xxx.com"
   rules:
     - backendRefs:
         - group: ""

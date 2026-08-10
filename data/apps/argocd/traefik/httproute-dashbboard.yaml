@@ -8,12 +8,12 @@ spec:
     - name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "traefik.xxx.local"
+    - "traefik.xxx.com"
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /dashboard # crucial note: location -> traefik.xxx.local/dashboard
+            value: /dashboard # crucial note: location -> traefik.xxx.com/dashboard
         - path:
             type: PathPrefix
             value: /api

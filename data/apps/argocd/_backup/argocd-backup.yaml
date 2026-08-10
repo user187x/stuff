@@ -1919,7 +1919,7 @@ items:
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"cloudbeaver","namespace":"argocd"},"spec":{"destination":{"namespace":"cloudbeaver","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"cloudbeaver","helm":{"values":"extraObjects:\n  - apiVersion: gateway.networking.k8s.io/v1\n    kind: HTTPRoute\n    metadata:\n      name: cloudbeaver\n    spec:\n      parentRefs:\n        - name: traefik-gateway\n          namespace: traefik\n      hostnames:\n        - \"cloudbeaver.xxx.local\"\n      rules:\n        - matches:\n            - path:\n                type: PathPrefix\n                value: /\n          backendRefs:\n            - name: cloudbeaver\n              port: 8978\n"},"repoURL":"https://avistotelecom.github.io/charts/","targetRevision":"1.1.7"},"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}
+        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"cloudbeaver","namespace":"argocd"},"spec":{"destination":{"namespace":"cloudbeaver","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"cloudbeaver","helm":{"values":"extraObjects:\n  - apiVersion: gateway.networking.k8s.io/v1\n    kind: HTTPRoute\n    metadata:\n      name: cloudbeaver\n    spec:\n      parentRefs:\n        - name: traefik-gateway\n          namespace: traefik\n      hostnames:\n        - \"cloudbeaver.xxx.com\"\n      rules:\n        - matches:\n            - path:\n                type: PathPrefix\n                value: /\n          backendRefs:\n            - name: cloudbeaver\n              port: 8978\n"},"repoURL":"https://avistotelecom.github.io/charts/","targetRevision":"1.1.7"},"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}
     creationTimestamp: "2026-07-29T14:13:46Z"
     generation: 811
     name: cloudbeaver
@@ -1945,7 +1945,7 @@ items:
                   - name: traefik-gateway
                     namespace: traefik
                 hostnames:
-                  - "cloudbeaver.xxx.local"
+                  - "cloudbeaver.xxx.com"
                 rules:
                   - matches:
                       - path:
@@ -1992,7 +1992,7 @@ items:
                         - name: traefik-gateway
                           namespace: traefik
                       hostnames:
-                        - "cloudbeaver.xxx.local"
+                        - "cloudbeaver.xxx.com"
                       rules:
                         - matches:
                             - path:
@@ -2038,7 +2038,7 @@ items:
                       - name: traefik-gateway
                         namespace: traefik
                     hostnames:
-                      - "cloudbeaver.xxx.local"
+                      - "cloudbeaver.xxx.com"
                     rules:
                       - matches:
                           - path:
@@ -2092,7 +2092,7 @@ items:
                       - name: traefik-gateway
                         namespace: traefik
                     hostnames:
-                      - "cloudbeaver.xxx.local"
+                      - "cloudbeaver.xxx.com"
                     rules:
                       - matches:
                           - path:
@@ -2736,7 +2736,7 @@ items:
           value: ClusterIP
         values: "# Inject the startup argument via the environment variable \n# expected
           by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n    value: \"--cpu\"\n\nroute:\n
-          \ enabled: true\n  hostnames:\n    - comfyui.xxx.local\n  parentRefs:\n
+          \ enabled: true\n  hostnames:\n    - comfyui.xxx.com\n  parentRefs:\n
           \   - name: traefik-gateway\n      namespace: traefik\n      sectionName:
           websecure\npersistence:\n  enabled: true\n  storageClass: \"standard\"\n
           \ accessMode: ReadWriteOnce\n  size: 20Gi"
@@ -2774,7 +2774,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2794,7 +2794,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2819,7 +2819,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2844,7 +2844,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2874,7 +2874,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2904,7 +2904,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2934,7 +2934,7 @@ items:
             route:
               enabled: true
               hostnames:
-                - comfyui.xxx.local
+                - comfyui.xxx.com
               parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -2962,7 +2962,7 @@ items:
             value: LoadBalancer
           values: "# Inject the startup argument via the environment variable \n#
             expected by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n    value:
-            \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    - comfyui.xxx.local\n
+            \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    - comfyui.xxx.com\n
             \ parentRefs:\n    - name: traefik-gateway\n      namespace: traefik\n
             \     sectionName: websecure\npersistence:\n  enabled: true\n  storageClass:
             \"standard\"\n  accessMode: ReadWriteOnce\n  size: 20Gi"
@@ -2984,7 +2984,7 @@ items:
             value: LoadBalancer
           values: "# Inject the startup argument via the environment variable \n#
             expected by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n    value:
-            \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    - comfyui.xxx.local\n
+            \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    - comfyui.xxx.com\n
             \ parentRefs:\n    - name: traefik-gateway\n      namespace: traefik\n
             \     sectionName: websecure\npersistence:\n  enabled: true\n  storageClass:
             \"standard\"\n  accessMode: ReadWriteOnce\n  size: 20Gi"
@@ -3014,7 +3014,7 @@ items:
               values: "# Inject the startup argument via the environment variable
                 \n# expected by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n
                 \   value: \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    -
-                comfyui.xxx.local\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
+                comfyui.xxx.com\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
                 traefik\n      sectionName: websecure\npersistence:\n  enabled: true\n
                 \ storageClass: \"standard\"\n  accessMode: ReadWriteOnce\n  size:
                 20Gi"
@@ -3049,7 +3049,7 @@ items:
             values: "# Inject the startup argument via the environment variable \n#
               expected by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n
               \   value: \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    -
-              comfyui.xxx.local\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
+              comfyui.xxx.com\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
               traefik\n      sectionName: websecure\npersistence:\n  enabled: true\n
               \ storageClass: \"standard\"\n  accessMode: ReadWriteOnce\n  size: 20Gi"
           repoURL: https://mmmateusz.github.io/comfyui-helm-chart
@@ -3106,7 +3106,7 @@ items:
             values: "# Inject the startup argument via the environment variable \n#
               expected by the underlying Docker image\nenv:\n  - name: CLI_ARGS\n
               \   value: \"--cpu\"\n\nroute:\n  enabled: true\n  hostnames:\n    -
-              comfyui.xxx.local\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
+              comfyui.xxx.com\n  parentRefs:\n    - name: traefik-gateway\n      namespace:
               traefik\n      sectionName: websecure\npersistence:\n  enabled: true\n
               \ storageClass: \"standard\"\n  accessMode: ReadWriteOnce\n  size: 20Gi"
           repoURL: https://mmmateusz.github.io/comfyui-helm-chart
@@ -3974,7 +3974,7 @@ items:
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"gitea","namespace":"argocd"},"spec":{"destination":{"namespace":"gitea","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"gitea","helm":{"valuesObject":{"extraDeploy":[{"apiVersion":"gateway.networking.k8s.io/v1","kind":"HTTPRoute","metadata":{"name":"gitea-httproute","namespace":"gitea"},"spec":{"hostnames":["gitea.xxx.local"],"parentRefs":[{"name":"traefik-gateway","namespace":"traefik"}],"rules":[{"backendRefs":[{"name":"gitea-http","port":3000}],"matches":[{"path":{"type":"PathPrefix","value":"/"}}]}]}}],"gitea":{"config":{"server":{"DOMAIN":"gitea.xxx.local","ROOT_URL":"http://gitea.xxx.local/","SSH_DOMAIN":"gitea.xxx.local"}}},"ingress":{"enabled":false}}},"repoURL":"https://dl.gitea.com/charts","targetRevision":"10.3.0"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"syncOptions":["CreateNamespace=true"]}}}
+        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"gitea","namespace":"argocd"},"spec":{"destination":{"namespace":"gitea","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"gitea","helm":{"valuesObject":{"extraDeploy":[{"apiVersion":"gateway.networking.k8s.io/v1","kind":"HTTPRoute","metadata":{"name":"gitea-httproute","namespace":"gitea"},"spec":{"hostnames":["gitea.xxx.com"],"parentRefs":[{"name":"traefik-gateway","namespace":"traefik"}],"rules":[{"backendRefs":[{"name":"gitea-http","port":3000}],"matches":[{"path":{"type":"PathPrefix","value":"/"}}]}]}}],"gitea":{"config":{"server":{"DOMAIN":"gitea.xxx.com","ROOT_URL":"http://gitea.xxx.com/","SSH_DOMAIN":"gitea.xxx.com"}}},"ingress":{"enabled":false}}},"repoURL":"https://dl.gitea.com/charts","targetRevision":"10.3.0"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"syncOptions":["CreateNamespace=true"]}}}
     creationTimestamp: "2026-07-31T05:33:27Z"
     generation: 117
     name: gitea
@@ -4001,7 +4001,7 @@ items:
               namespace: gitea
             spec:
               hostnames:
-              - gitea.xxx.local
+              - gitea.xxx.com
               parentRefs:
               - name: traefik-gateway
                 namespace: traefik
@@ -4016,9 +4016,9 @@ items:
           gitea:
             config:
               server:
-                DOMAIN: gitea.xxx.local
-                ROOT_URL: http://gitea.xxx.local/
-                SSH_DOMAIN: gitea.xxx.local
+                DOMAIN: gitea.xxx.com
+                ROOT_URL: http://gitea.xxx.com/
+                SSH_DOMAIN: gitea.xxx.com
           ingress:
             enabled: false
       repoURL: https://dl.gitea.com/charts
@@ -4053,7 +4053,7 @@ items:
                 namespace: gitea
               spec:
                 hostnames:
-                - gitea.xxx.local
+                - gitea.xxx.com
                 parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -4068,9 +4068,9 @@ items:
             gitea:
               config:
                 server:
-                  DOMAIN: gitea.xxx.local
-                  ROOT_URL: http://gitea.xxx.local/
-                  SSH_DOMAIN: gitea.xxx.local
+                  DOMAIN: gitea.xxx.com
+                  ROOT_URL: http://gitea.xxx.com/
+                  SSH_DOMAIN: gitea.xxx.com
             ingress:
               enabled: false
         repoURL: https://dl.gitea.com/charts
@@ -4093,7 +4093,7 @@ items:
                 namespace: gitea
               spec:
                 hostnames:
-                - gitea.xxx.local
+                - gitea.xxx.com
                 parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -4108,9 +4108,9 @@ items:
             gitea:
               config:
                 server:
-                  DOMAIN: gitea.xxx.local
-                  ROOT_URL: http://gitea.xxx.local/
-                  SSH_DOMAIN: gitea.xxx.local
+                  DOMAIN: gitea.xxx.com
+                  ROOT_URL: http://gitea.xxx.com/
+                  SSH_DOMAIN: gitea.xxx.com
             ingress:
               enabled: false
         repoURL: https://dl.gitea.com/charts
@@ -4136,7 +4136,7 @@ items:
                 namespace: gitea
               spec:
                 hostnames:
-                - gitea.xxx.local
+                - gitea.xxx.com
                 parentRefs:
                 - name: traefik-gateway
                   namespace: traefik
@@ -4151,9 +4151,9 @@ items:
             gitea:
               config:
                 server:
-                  DOMAIN: gitea.xxx.local
-                  ROOT_URL: http://gitea.xxx.local/
-                  SSH_DOMAIN: gitea.xxx.local
+                  DOMAIN: gitea.xxx.com
+                  ROOT_URL: http://gitea.xxx.com/
+                  SSH_DOMAIN: gitea.xxx.com
             ingress:
               enabled: false
         repoURL: https://dl.gitea.com/charts
@@ -4194,7 +4194,7 @@ items:
                     namespace: gitea
                   spec:
                     hostnames:
-                    - gitea.xxx.local
+                    - gitea.xxx.com
                     parentRefs:
                     - name: traefik-gateway
                       namespace: traefik
@@ -4209,9 +4209,9 @@ items:
                 gitea:
                   config:
                     server:
-                      DOMAIN: gitea.xxx.local
-                      ROOT_URL: http://gitea.xxx.local/
-                      SSH_DOMAIN: gitea.xxx.local
+                      DOMAIN: gitea.xxx.com
+                      ROOT_URL: http://gitea.xxx.com/
+                      SSH_DOMAIN: gitea.xxx.com
                 ingress:
                   enabled: false
             repoURL: https://dl.gitea.com/charts
@@ -4260,7 +4260,7 @@ items:
                   namespace: gitea
                 spec:
                   hostnames:
-                  - gitea.xxx.local
+                  - gitea.xxx.com
                   parentRefs:
                   - name: traefik-gateway
                     namespace: traefik
@@ -4275,9 +4275,9 @@ items:
               gitea:
                 config:
                   server:
-                    DOMAIN: gitea.xxx.local
-                    ROOT_URL: http://gitea.xxx.local/
-                    SSH_DOMAIN: gitea.xxx.local
+                    DOMAIN: gitea.xxx.com
+                    ROOT_URL: http://gitea.xxx.com/
+                    SSH_DOMAIN: gitea.xxx.com
               ingress:
                 enabled: false
           repoURL: https://dl.gitea.com/charts
@@ -4396,7 +4396,7 @@ items:
                   namespace: gitea
                 spec:
                   hostnames:
-                  - gitea.xxx.local
+                  - gitea.xxx.com
                   parentRefs:
                   - name: traefik-gateway
                     namespace: traefik
@@ -4411,9 +4411,9 @@ items:
               gitea:
                 config:
                   server:
-                    DOMAIN: gitea.xxx.local
-                    ROOT_URL: http://gitea.xxx.local/
-                    SSH_DOMAIN: gitea.xxx.local
+                    DOMAIN: gitea.xxx.com
+                    ROOT_URL: http://gitea.xxx.com/
+                    SSH_DOMAIN: gitea.xxx.com
               ingress:
                 enabled: false
           repoURL: https://dl.gitea.com/charts
@@ -4441,10 +4441,10 @@ items:
         - name: caSecretName
           value: tls-ca
         values: "        expose:\n          type: httproute\n          tls:\n            enabled:
-          false\n          route:\n            hosts:\n              - harbor.xxx.local\n
+          false\n          route:\n            hosts:\n              - harbor.xxx.com\n
           \           parentRefs:\n              - name: traefik-gateway\n                namespace:
           traefik\n                sectionName: websecure\n        \n        externalURL:
-          https://harbor.xxx.local\n        \n        # Production features enabled\n
+          https://harbor.xxx.com\n        \n        # Production features enabled\n
           \       trivy:\n          enabled: true\n        notary:\n          enabled:
           true\n        chartmuseum:\n          enabled: true\n          \n        persistence:\n
           \         persistentVolumeClaim:\n            registry:\n              size:
@@ -4504,10 +4504,10 @@ items:
           - name: caSecretName
             value: tls-ca
           values: "        expose:\n          type: httproute\n          tls:\n            enabled:
-            false\n          route:\n            hosts:\n              - harbor.xxx.local\n
+            false\n          route:\n            hosts:\n              - harbor.xxx.com\n
             \           parentRefs:\n              - name: traefik-gateway\n                namespace:
             traefik\n                sectionName: websecure\n        \n        externalURL:
-            https://harbor.xxx.local\n        \n        # Production features enabled\n
+            https://harbor.xxx.com\n        \n        # Production features enabled\n
             \       trivy:\n          enabled: true\n        notary:\n          enabled:
             true\n        chartmuseum:\n          enabled: true\n          \n        persistence:\n
             \         persistentVolumeClaim:\n            registry:\n              size:
@@ -4530,10 +4530,10 @@ items:
           - name: caSecretName
             value: tls-ca
           values: "        expose:\n          type: httproute\n          tls:\n            enabled:
-            false\n          route:\n            hosts:\n              - harbor.xxx.local\n
+            false\n          route:\n            hosts:\n              - harbor.xxx.com\n
             \           parentRefs:\n              - name: traefik-gateway\n                namespace:
             traefik\n                sectionName: websecure\n        \n        externalURL:
-            https://harbor.xxx.local\n        \n        # Production features enabled\n
+            https://harbor.xxx.com\n        \n        # Production features enabled\n
             \       trivy:\n          enabled: true\n        notary:\n          enabled:
             true\n        chartmuseum:\n          enabled: true\n          \n        persistence:\n
             \         persistentVolumeClaim:\n            registry:\n              size:
@@ -4556,10 +4556,10 @@ items:
           - name: caSecretName
             value: tls-ca
           values: "        expose:\n          type: httproute\n          tls:\n            enabled:
-            false\n          route:\n            hosts:\n              - harbor.xxx.local\n
+            false\n          route:\n            hosts:\n              - harbor.xxx.com\n
             \           parentRefs:\n              - name: traefik-gateway\n                namespace:
             traefik\n                sectionName: websecure\n        \n        externalURL:
-            https://harbor.xxx.local\n        \n        # Production features enabled\n
+            https://harbor.xxx.com\n        \n        # Production features enabled\n
             \       trivy:\n          enabled: true\n        notary:\n          enabled:
             true\n        chartmuseum:\n          enabled: true\n          \n        persistence:\n
             \         persistentVolumeClaim:\n            registry:\n              size:
@@ -4582,10 +4582,10 @@ items:
           - name: caSecretName
             value: tls-ca
           values: "        expose:\n          type: httproute\n          tls:\n            enabled:
-            false\n          route:\n            hosts:\n              - harbor.xxx.local\n
+            false\n          route:\n            hosts:\n              - harbor.xxx.com\n
             \           parentRefs:\n              - name: traefik-gateway\n                namespace:
             traefik\n                sectionName: websecure\n        \n        externalURL:
-            https://harbor.xxx.local\n        \n        # Production features enabled\n
+            https://harbor.xxx.com\n        \n        # Production features enabled\n
             \       trivy:\n          enabled: true\n        notary:\n          enabled:
             true\n        chartmuseum:\n          enabled: true\n          \n        persistence:\n
             \         persistentVolumeClaim:\n            registry:\n              size:
@@ -4612,9 +4612,9 @@ items:
                 value: tls-ca
               values: "        expose:\n          type: httproute\n          tls:\n
                 \           enabled: false\n          route:\n            hosts:\n
-                \             - harbor.xxx.local\n            parentRefs:\n              -
+                \             - harbor.xxx.com\n            parentRefs:\n              -
                 name: traefik-gateway\n                namespace: traefik\n                sectionName:
-                websecure\n        \n        externalURL: https://harbor.xxx.local\n
+                websecure\n        \n        externalURL: https://harbor.xxx.com\n
                 \       \n        # Production features enabled\n        trivy:\n
                 \         enabled: true\n        notary:\n          enabled: true\n
                 \       chartmuseum:\n          enabled: true\n          \n        persistence:\n
@@ -4939,9 +4939,9 @@ items:
               value: tls-ca
             values: "        expose:\n          type: httproute\n          tls:\n
               \           enabled: false\n          route:\n            hosts:\n              -
-              harbor.xxx.local\n            parentRefs:\n              - name: traefik-gateway\n
+              harbor.xxx.com\n            parentRefs:\n              - name: traefik-gateway\n
               \               namespace: traefik\n                sectionName: websecure\n
-              \       \n        externalURL: https://harbor.xxx.local\n        \n
+              \       \n        externalURL: https://harbor.xxx.com\n        \n
               \       # Production features enabled\n        trivy:\n          enabled:
               true\n        notary:\n          enabled: true\n        chartmuseum:\n
               \         enabled: true\n          \n        persistence:\n          persistentVolumeClaim:\n
@@ -5144,9 +5144,9 @@ items:
               value: tls-ca
             values: "        expose:\n          type: httproute\n          tls:\n
               \           enabled: false\n          route:\n            hosts:\n              -
-              harbor.xxx.local\n            parentRefs:\n              - name: traefik-gateway\n
+              harbor.xxx.com\n            parentRefs:\n              - name: traefik-gateway\n
               \               namespace: traefik\n                sectionName: websecure\n
-              \       \n        externalURL: https://harbor.xxx.local\n        \n
+              \       \n        externalURL: https://harbor.xxx.com\n        \n
               \       # Production features enabled\n        trivy:\n          enabled:
               true\n        notary:\n          enabled: true\n        chartmuseum:\n
               \         enabled: true\n          \n        persistence:\n          persistentVolumeClaim:\n
@@ -5239,7 +5239,7 @@ items:
                 stringData:
                   OIDC_CLIENT_ID: "headlamp"
                   OIDC_CLIENT_SECRET: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
-                  OIDC_ISSUER_URL: "http://keycloak.xxx.local/realms/master"
+                  OIDC_ISSUER_URL: "http://keycloak.xxx.com/realms/master"
                   OIDC_SCOPES: "openid profile email groups"
 
               - |
@@ -5272,7 +5272,7 @@ items:
                     - name: traefik-gateway
                       namespace: traefik
                   hostnames:
-                    - "headlamp.xxx.local"
+                    - "headlamp.xxx.com"
                   rules:
                     - matches:
                         - path:
@@ -5301,7 +5301,7 @@ items:
               oidc:
                 clientID: "headlamp"
                 clientSecret: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
-                issuerURL: "http://keycloak.xxx.local/realms/master"
+                issuerURL: "http://keycloak.xxx.com/realms/master"
                 scopes: "email,profile, groups"
                 secret:
                   create: false
@@ -5327,7 +5327,7 @@ items:
                 stringData:
                   OIDC_CLIENT_ID: "headlamp"
                   OIDC_CLIENT_SECRET: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
-                  OIDC_ISSUER_URL: "http://keycloak.xxx.local/realms/master"
+                  OIDC_ISSUER_URL: "http://keycloak.xxx.com/realms/master"
                   OIDC_SCOPES: "openid profile email groups"
 
               - |
@@ -5360,7 +5360,7 @@ items:
                     - name: traefik-gateway
                       namespace: traefik
                   hostnames:
-                    - "headlamp.xxx.local"
+                    - "headlamp.xxx.com"
                   rules:
                     - matches:
                         - path:
@@ -5539,7 +5539,7 @@ items:
             adminAccount:
               passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
               tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-            host: kargo.xxx.local
+            host: kargo.xxx.com
             ingress:
               enabled: false
             tls:
@@ -5617,7 +5617,7 @@ items:
             api:
               ingress:
                 enabled: false
-              host: kargo.xxx.local
+              host: kargo.xxx.com
               service:
                 type: ClusterIP
                 port: 8080
@@ -5648,7 +5648,7 @@ items:
             api:
               ingress:
                 enabled: false
-              host: kargo.xxx.local
+              host: kargo.xxx.com
               service:
                 type: ClusterIP
                 port: 8080
@@ -5671,7 +5671,7 @@ items:
               adminAccount:
                 passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
                 tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-              host: kargo.xxx.local
+              host: kargo.xxx.com
               ingress:
                 enabled: false
               service:
@@ -5696,7 +5696,7 @@ items:
               adminAccount:
                 passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
                 tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-              host: kargo.xxx.local
+              host: kargo.xxx.com
               ingress:
                 enabled: false
               tls:
@@ -5721,7 +5721,7 @@ items:
                   adminAccount:
                     passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
                     tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-                  host: kargo.xxx.local
+                  host: kargo.xxx.com
                   ingress:
                     enabled: false
                   tls:
@@ -6733,7 +6733,7 @@ items:
                 adminAccount:
                   passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
                   tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-                host: kargo.xxx.local
+                host: kargo.xxx.com
                 ingress:
                   enabled: false
                 tls:
@@ -7280,7 +7280,7 @@ items:
                 adminAccount:
                   passwordHash: "$$2y$10$wAMnyChshA/Cju7tI0hxc.3PVQPBkq2.9qMeTCtveq2opjmQlX0z6"
                   tokenSigningKey: "gQT3T60xj7JF1eClHWCGYgWnKRKT6epl"
-                host: kargo.xxx.local
+                host: kargo.xxx.com
                 ingress:
                   enabled: false
                 tls:
@@ -7585,7 +7585,7 @@ items:
     annotations:
       argocd.argoproj.io/sync-wave: "2"
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{"argocd.argoproj.io/sync-wave":"2"},"finalizers":["resources-finalizer.argocd.argoproj.io"],"name":"nifi-cluster","namespace":"argocd"},"spec":{"destination":{"namespace":"nifi","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"nifi-cluster","helm":{"valuesObject":{"cluster":{"nameOverride":"nifi-cluster","nifiProperties":{"webProxyHosts":["nifi.xxx.local"]},"zkAddress":"zookeeper.zookeeper.svc.cluster.local:2181","zkPath":"/cluster"}}},"repoURL":"ghcr.io/konpyutaika/helm-charts","targetRevision":"1.14.1"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"retry":{"backoff":{"duration":"30s","factor":2,"maxDuration":"5m"},"limit":5},"syncOptions":["CreateNamespace=true"]}}}
+        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{"argocd.argoproj.io/sync-wave":"2"},"finalizers":["resources-finalizer.argocd.argoproj.io"],"name":"nifi-cluster","namespace":"argocd"},"spec":{"destination":{"namespace":"nifi","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"nifi-cluster","helm":{"valuesObject":{"cluster":{"nameOverride":"nifi-cluster","nifiProperties":{"webProxyHosts":["nifi.xxx.com"]},"zkAddress":"zookeeper.zookeeper.svc.cluster.local:2181","zkPath":"/cluster"}}},"repoURL":"ghcr.io/konpyutaika/helm-charts","targetRevision":"1.14.1"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"retry":{"backoff":{"duration":"30s","factor":2,"maxDuration":"5m"},"limit":5},"syncOptions":["CreateNamespace=true"]}}}
     creationTimestamp: "2026-07-31T05:54:54Z"
     finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -7611,7 +7611,7 @@ items:
               overrideConfigs: |
                 nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
               webProxyHosts:
-              - nifi.xxx.local
+              - nifi.xxx.com
             nodeConfigGroups:
               default-group:
                 isNode: true
@@ -7668,7 +7668,7 @@ items:
               nameOverride: nifi-cluster
               nifiProperties:
                 webProxyHosts:
-                - nifi.xxx.local
+                - nifi.xxx.com
               zkAddress: zookeeper.zookeeper.svc.cluster.local:2181
               zkPath: /cluster
         repoURL: ghcr.io/konpyutaika/helm-charts
@@ -7689,7 +7689,7 @@ items:
                 overrideConfigs: |
                   nifi.sensitive.props.key=xxxxxxxxxxxxxxxxxxxxxxxx
                 webProxyHosts:
-                - nifi.xxx.local
+                - nifi.xxx.com
               zkAddress: zookeeper.zookeeper.svc.cluster.local:2181
               zkPath: /cluster
             readOnlyConfig:
@@ -7714,7 +7714,7 @@ items:
                 overrideConfigs: |
                   nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
                 webProxyHosts:
-                - nifi.xxx.local
+                - nifi.xxx.com
               zkAddress: zookeeper.zookeeper.svc.cluster.local:2181
               zkPath: /cluster
             readOnlyConfig:
@@ -7741,7 +7741,7 @@ items:
                 overrideConfigs: |
                   nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
                 webProxyHosts:
-                - nifi.xxx.local
+                - nifi.xxx.com
               nodeConfigGroups:
                 default-group:
                   isNode: true
@@ -7787,7 +7787,7 @@ items:
                     overrideConfigs: |
                       nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
                     webProxyHosts:
-                    - nifi.xxx.local
+                    - nifi.xxx.com
                   nodeConfigGroups:
                     default-group:
                       isNode: true
@@ -7843,7 +7843,7 @@ items:
                   overrideConfigs: |
                     nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
                   webProxyHosts:
-                  - nifi.xxx.local
+                  - nifi.xxx.com
                 nodeConfigGroups:
                   default-group:
                     isNode: true
@@ -7898,7 +7898,7 @@ items:
                   overrideConfigs: |
                     nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
                   webProxyHosts:
-                  - nifi.xxx.local
+                  - nifi.xxx.com
                 nodeConfigGroups:
                   default-group:
                     isNode: true
@@ -8224,7 +8224,7 @@ items:
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"rancher","namespace":"argocd"},"spec":{"destination":{"namespace":"cattle-system","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"rancher","helm":{"values":"hostname: rancher.xxx.local\ningress:\n  enabled: false\ntls: external\n"},"repoURL":"https://releases.rancher.com/server-charts/stable","targetRevision":"2.14.3"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"syncOptions":["CreateNamespace=true"]}}}
+        {"apiVersion":"argoproj.io/v1alpha1","kind":"Application","metadata":{"annotations":{},"name":"rancher","namespace":"argocd"},"spec":{"destination":{"namespace":"cattle-system","server":"https://kubernetes.default.svc"},"project":"default","source":{"chart":"rancher","helm":{"values":"hostname: rancher.xxx.com\ningress:\n  enabled: false\ntls: external\n"},"repoURL":"https://releases.rancher.com/server-charts/stable","targetRevision":"2.14.3"},"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"syncOptions":["CreateNamespace=true"]}}}
     creationTimestamp: "2026-07-30T01:52:58Z"
     finalizers:
     - post-delete-finalizer.argocd.argoproj.io
@@ -8243,7 +8243,7 @@ items:
       chart: rancher
       helm:
         values: |
-          hostname: rancher.xxx.local
+          hostname: rancher.xxx.com
           ingress:
             enabled: false
           tls: external
@@ -8271,7 +8271,7 @@ items:
         chart: rancher
         helm:
           values: |
-            hostname: rancher.xxx.local
+            hostname: rancher.xxx.com
             ingress:
               enabled: false
             tls: external
@@ -8292,7 +8292,7 @@ items:
             chart: rancher
             helm:
               values: |
-                hostname: rancher.xxx.local
+                hostname: rancher.xxx.com
                 ingress:
                   enabled: false
                 tls: external
@@ -8442,7 +8442,7 @@ items:
           chart: rancher
           helm:
             values: |
-              hostname: rancher.xxx.local
+              hostname: rancher.xxx.com
               ingress:
                 enabled: false
               tls: external
@@ -8501,7 +8501,7 @@ items:
           chart: rancher
           helm:
             values: |
-              hostname: rancher.xxx.local
+              hostname: rancher.xxx.com
               ingress:
                 enabled: false
               tls: external

@@ -14,7 +14,7 @@ middleware:
 
 httproute:
   spec:
-    hostname: protected.xxx.local
+    hostname: protected.xxx.com
 
 dashboard:
-  hostname: auth.xxx.local
+  hostname: auth.xxx.com

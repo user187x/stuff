@@ -28,7 +28,7 @@ spec:
             # Must contain every hostname NiFi is reached through via Traefik,
             # or NiFi rejects the proxied request.
             webProxyHosts:
-              - "nifi.xxx.local"
+              - "nifi.xxx.com"
             # ----------------------------------------
   destination:
     server: https://kubernetes.default.svc

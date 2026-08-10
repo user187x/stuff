@@ -99,7 +99,7 @@ spec:
   readOnlyConfig:
     nifiProperties:
       webProxyHosts:
-        - "nifi.xxx.local"
+        - "nifi.xxx.com"
       overrideConfigs: |
         nifi.ui.banner.text="nifikop"
         nifi.sensitive.props.key="cSWtxWggSAHasdgEglIOnSwQ="
@@ -195,7 +195,7 @@ spec:
     - name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "nifi.xxx.local"
+    - "nifi.xxx.com"
   rules:
     - matches:
         - path:

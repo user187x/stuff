@@ -17,7 +17,7 @@ spec:
         nameOverride: "keycloak"
 
         hostname:
-          hostname: "keycloak.xxx.local"
+          hostname: "keycloak.xxx.com"
           strict: true
 
         database:
@@ -74,7 +74,7 @@ spec:
             command:
               - "sh"
               - "-c"
-              - "curl -L -o /providers/x509-autoprovision.jar https://headlamp.xxx.local/keycloak-x509-autoprovision.jar"
+              - "curl -L -o /providers/x509-autoprovision.jar https://headlamp.xxx.com/keycloak-x509-autoprovision.jar"
             volumeMounts:
               - name: providers-volume
                 mountPath: /providers
@@ -131,7 +131,7 @@ spec:
                 - name: traefik-gateway
                   namespace: traefik
               hostnames:
-                - "keycloak.xxx.local"
+                - "keycloak.xxx.com"
               rules:
                 - matches:
                     - path:

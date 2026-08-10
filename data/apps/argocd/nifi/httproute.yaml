@@ -10,7 +10,7 @@ spec:
       name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "nifi.xxx.local"
+    - "nifi.xxx.com"
   rules:
     - backendRefs:
         - name: nifi-cluster-ip

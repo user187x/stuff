@@ -11,7 +11,7 @@ Metadata:
   UID:                 66d4eaad-a252-42e8-85c7-79bc67c2ac2e
 Spec:
   Hostnames:
-    excalidraw.xxx.local
+    excalidraw.xxx.com
   Parent Refs:
     Group:  gateway.networking.k8s.io
     Kind:   Gateway

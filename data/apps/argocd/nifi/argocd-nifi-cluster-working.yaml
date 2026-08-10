@@ -12,7 +12,7 @@ source:
           overrideConfigs: |
             nifi.sensitive.props.key="+Dzf/C9j/2Z8vonzHqUR8w=="
           webProxyHosts:
-            - nifi.xxx.local
+            - nifi.xxx.com
         nodeConfigGroups:
           default-group:
             isNode: true

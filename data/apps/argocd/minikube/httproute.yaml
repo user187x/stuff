@@ -10,7 +10,7 @@ spec:
       kind: Gateway
       namespace: traefik
   hostnames:
-    - "dashboard.xxx.local"
+    - "dashboard.xxx.com"
   rules:
     - matches:
         - path:

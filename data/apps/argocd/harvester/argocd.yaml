@@ -30,7 +30,7 @@
 # Apply with:  kubectl apply -n argocd -f argocd.yaml
 #
 # BEFORE APPLYING — adjust these to your environment:
-#   1. HOSTNAME: search/replace "harvester.xxx.local" with a host that matches
+#   1. HOSTNAME: search/replace "harvester.xxx.com" with a host that matches
 #      your wildcard TLS cert + /etc/hosts entry (points at the tunnel IP).
 #   2. NODE REQUIREMENTS: the node needs hardware virtualization (/dev/kvm) for
 #      KubeVirt (minikube --driver=kvm2 or bare-metal docker driver) and
@@ -250,7 +250,7 @@ spec:
                   name: traefik-gateway
                   namespace: traefik
               hostnames:
-                - harvester.xxx.local
+                - harvester.xxx.com
               rules:
                 - matches:
                     - path:

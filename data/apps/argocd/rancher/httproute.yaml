@@ -12,7 +12,7 @@ spec:
       name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "rancher.xxx.local"
+    - "rancher.xxx.com"
   rules:
     - matches:
         - path:

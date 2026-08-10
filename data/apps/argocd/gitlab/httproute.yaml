@@ -8,7 +8,7 @@ spec:
     - name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "gitlab.xxx.local"
+    - "gitlab.xxx.com"
   rules:
     - matches:
         - path:

@@ -49,7 +49,7 @@ metadata:
   namespace: excalidraw
 spec:
   hostnames:
-    - excalidraw.xxx.local
+    - excalidraw.xxx.com
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway

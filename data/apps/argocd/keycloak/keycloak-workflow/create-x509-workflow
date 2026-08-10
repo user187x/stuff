@@ -6,13 +6,13 @@ set -euo
 NAMESPACE="keycloak"
 
 REALM_NAME="xxx"
-KEYCLOAK_URL="https://keycloak.xxx.local"
+KEYCLOAK_URL="https://keycloak.xxx.com"
 ADMIN_USER="admin"
 ADMIN_PASS=""
 
 CLIENT_ID="headlamp"
 CLIENT_NAME="headlamp"
-CLIENT_URL="https://headlamp.xxx.local"
+CLIENT_URL="https://headlamp.xxx.com"
 
 LOCAL_KEYCLOAK_SCRIPTS="../keycloak-scripts"
 KCADM="${LOCAL_KEYCLOAK_SCRIPTS}/kcadm.sh"

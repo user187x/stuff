@@ -3057,7 +3057,7 @@ metadata:
   namespace: argocd
 spec:
   hostnames:
-    - argocd.xxx.local
+    - argocd.xxx.com
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway

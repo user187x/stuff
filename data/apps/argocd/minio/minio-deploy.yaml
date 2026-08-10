@@ -105,7 +105,7 @@ metadata:
   namespace: minio
 spec:
   hostnames:
-  - minio.xxx.local
+  - minio.xxx.com
   parentRefs:
   - group: gateway.networking.k8s.io
     kind: Gateway

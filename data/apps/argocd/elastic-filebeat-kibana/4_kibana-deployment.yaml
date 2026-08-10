@@ -29,6 +29,6 @@ spec:
         type: ClusterIP
   config:
     # Server settings
-    server.publicBaseUrl: "https://kibana.xxx.local"
+    server.publicBaseUrl: "https://kibana.xxx.com"
     # Monitoring
     monitoring.ui.ccs.enabled: false

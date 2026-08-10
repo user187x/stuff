@@ -43,7 +43,7 @@ spec:
             stringData:
               OIDC_CLIENT_ID: "headlamp"
               OIDC_CLIENT_SECRET: "UiNETnNdOY96cyH5Xyd3ayjvrkrxoQ7FIOWIPCtMYMLGBeRu0RxCdqpiis8pfNbCniHK6hJ5VoEkZ23iAbmyUr"
-              OIDC_ISSUER_URL: "https://keycloak.xxx.local/realms/master"
+              OIDC_ISSUER_URL: "https://keycloak.xxx.com/realms/master"
               OIDC_SCOPES: "openid profile email groups"
 
           - apiVersion: gateway.networking.k8s.io/v1
@@ -59,7 +59,7 @@ spec:
                 - name: traefik-gateway
                   namespace: traefik
               hostnames:
-                - "headlamp.xxx.local"
+                - "headlamp.xxx.com"
               rules:
                 - matches:
                     - path:

@@ -1,12 +1,12 @@
 config:
   oidc:
-    issuerUrl: "https://keycloak.xxx.local/realms/master"
+    issuerUrl: "https://keycloak.xxx.com/realms/master"
     clientId: "headlamp"
     scopes: "openid,profile,email,groups"
 ingress:
   enabled: true
   hosts:
-    - host: headlamp.xxx.local
+    - host: headlamp.xxx.com
       paths:
         - path: /
           type: ImplementationSpecific

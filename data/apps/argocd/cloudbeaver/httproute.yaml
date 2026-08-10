@@ -8,7 +8,7 @@ spec:
     - name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "cloudbeaver.xxx.local"
+    - "cloudbeaver.xxx.com"
   rules:
     - matches:
         - path:

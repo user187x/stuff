@@ -28,8 +28,8 @@ function usage {
  echo -e "\e[92m helm uninstall pre-auth-shim -n pre-auth-shim\e[0m"
  echo
 
- echo -e " \e[93mAuth Control Dashboard\e[0m : \e[92mhttps://auth.xxx.local/ui\e[0m"
- echo -e " \e[93mProtected Acccess URL\e[0m  : \e[92mhttps://protected.xxx.local/ui\e[0m"
+ echo -e " \e[93mAuth Control Dashboard\e[0m : \e[92mhttps://auth.xxx.com/ui\e[0m"
+ echo -e " \e[93mProtected Acccess URL\e[0m  : \e[92mhttps://protected.xxx.com/ui\e[0m"
  echo
 }
 

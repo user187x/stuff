@@ -17,13 +17,13 @@ spec:
             enabled: false # TLS is terminated at the Traefik Gateway
           route:
             hosts:
-              - harbor.xxx.local
+              - harbor.xxx.com
             parentRefs:
               - name: traefik-gateway
                 namespace: traefik
                 sectionName: websecure
 
-        externalURL: https://harbor.xxx.local
+        externalURL: https://harbor.xxx.com
 
         trivy:
           enabled: true

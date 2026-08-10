@@ -8,7 +8,7 @@ CHART_PATH="blender"
 CHART_NAME="blender"
 NAMESPACE="blender"
 CLUSTER="https://kubernetes.default.svc"
-ARGOCD_SERVER="argocd.xxx.local"
+ARGOCD_SERVER="argocd.xxx.com"
 ARGOCD_USER="admin"
 
 # Global state variables populated at runtime

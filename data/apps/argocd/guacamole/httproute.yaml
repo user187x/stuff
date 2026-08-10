@@ -6,7 +6,7 @@ metadata:
   namespace: guacamole
 spec:
   hostnames:
-  - guacomole.xxx.local
+  - guacomole.xxx.com
   parentRefs:
   - group: gateway.networking.k8s.io
     kind: Gateway

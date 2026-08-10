@@ -11,7 +11,7 @@ spec:
     chart: rancher
     helm:
       values: |
-        hostname: rancher.xxx.local
+        hostname: rancher.xxx.com
         ingress:
           enabled: false
         tls: external
