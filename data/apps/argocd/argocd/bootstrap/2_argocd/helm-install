@@ -28,4 +28,22 @@ helm upgrade --install "${RELEASE_NAME}" "${CHART_NAME}" \
  --wait \
  --timeout 5m
 
+appVersion=$(helm list -n argocd --no-headers | awk '{print $NF}')
+chartVersion=$(helm list -n argocd --no-headers | awk '{print $(NF-1)}')
+
+echo
+echo -e "ArgoCD Version : \e[92m$appVersion\e[0m"
+echo -e "ArgoCD Chart   : \e[92m$chartVersion\e[0m"
+
+username="admin"
+password=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+domain=$(kubectl get httproute argocd -n argocd -o jsonpath='{.spec.hostnames[0]}')
+
+echo
+echo -e "argocd-url : \e[92mhttps://${domain}\e[0m"
+echo -e "admin-user : \e[92m$username\e[0m"
+echo -e "admin-pass : \e[92m$password\e[0m"
+
+echo
 echo "✅ Deployment complete."
+echo
