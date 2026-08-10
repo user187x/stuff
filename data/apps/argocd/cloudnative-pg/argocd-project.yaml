@@ -1,11 +1,22 @@
-project: default
-source:
-  repoURL: https://cloudnative-pg.io/charts/
-  targetRevision: 0.29.0
-  chart: cloudnative-pg
-destination:
-  server: https://kubernetes.default.svc
-  namespace: cnpg-system
-syncPolicy:
-  syncOptions:
-    - CreateNamespace=true
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+spec:
+  description: "Project for CloudNativePG Operator"
+  # 1. Allow the specific Helm repository
+  sourceRepos:
+    - "https://cloudnative-pg.io/charts/"
+  # 2. Allow deployment to the specific target namespace
+  destinations:
+    - namespace: cnpg-system
+      server: https://kubernetes.default.svc
+  # 3. Allow cluster-scoped resources (Required for Operators to install CRDs/Webhooks)
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  # 4. Allow all namespaced resources within the destination namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

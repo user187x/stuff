@@ -4,7 +4,7 @@ metadata:
   name: cloudnative-pg
   namespace: argocd
 spec:
-  project: default
+  project: cloudnative-pg
   source:
     chart: cloudnative-pg
     repoURL: https://cloudnative-pg.io/charts/

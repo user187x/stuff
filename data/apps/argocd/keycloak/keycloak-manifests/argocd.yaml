@@ -2,7 +2,6 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: keycloak
-  # ArgoCD applications are typically deployed in the argocd namespace
   namespace: argocd
 spec:
   project: default
@@ -17,7 +16,7 @@ spec:
         nameOverride: "keycloak"
 
         hostname:
-          hostname: "keycloak.xxx.local"
+          hostname: "keycloak.xxx.com"
           strict: true
 
         database:
@@ -119,7 +118,7 @@ spec:
                 - name: traefik-gateway
                   namespace: traefik
               hostnames:
-                - "keycloak.xxx.local"
+                - "keycloak.xxx.com"
               rules:
                 - matches:
                     - path:

@@ -12,7 +12,7 @@ spec:
       name: traefik-gateway
       namespace: traefik
   hostnames:
-    - "keycloak.xxx.local"
+    - "keycloak.xxx.com"
   rules:
     - matches:
         - path:
