@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Configuration
+RELEASE_NAME="argocd"
+CHART_REPO="argo"
+CHART_URL="https://argoproj.github.io/argo-helm"
+CHART_NAME="argo/argo-cd"
+NAMESPACE="argocd"
+VALUES_FILE="values.yaml"
+
+echo "Ensuring Helm repository '${CHART_REPO}' is added..."
+helm repo add "${CHART_REPO}" "${CHART_URL}" >/dev/null 2>&1 || true
+
+echo "Updating Helm repositories..."
+helm repo update
+
+if [[ ! -f "${VALUES_FILE}" ]]; then
+ echo "❌ Error: Values file '${VALUES_FILE}' not found in $(pwd)"
+ exit 1
+fi
+
+echo "Deploying/upgrading ${RELEASE_NAME} in namespace ${NAMESPACE}..."
+helm upgrade --install "${RELEASE_NAME}" "${CHART_NAME}" \
+ --namespace "${NAMESPACE}" \
+ --create-namespace \
+ --values "${VALUES_FILE}" \
+ --wait \
+ --timeout 5m
+
+echo "✅ Deployment complete."

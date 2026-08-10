@@ -37,4 +37,3 @@ gateway:
       certificateRefs:
         - kind: Secret
           name: tls-certs
-
