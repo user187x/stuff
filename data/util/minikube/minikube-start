@@ -1,0 +1,149 @@
+#!/bin/bash
+
+# --- Trap for CTRL+C (SIGINT) ---
+trap 'echo -e "\n\e[91mSetup aborted by user. Exiting...\e[0m"; exit 130' INT
+
+# --- 1. Dependency Checks ---
+for cmd in fzf jq curl minikube; do
+ if ! command -v "$cmd" &>/dev/null; then
+  echo -e "\e[91mError: '$cmd' is not installed. Please install it to continue.\e[0m"
+  exit 1
+ fi
+done
+
+# --- 2. Helper Functions ---
+function get-gpu {
+ if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null | grep -q '[1-9]'; then
+  GPU_AVAILABLE="true"
+  GPU_VENDOR="nvidia"
+  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1)
+ elif lspci | grep -qiE 'vga|3d|display'; then
+  GPU_AVAILABLE="true"
+  if lspci | grep -qi 'nvidia'; then
+   GPU_VENDOR="nvidia"
+   GPU_NAME=$(lspci | grep -iE 'vga|3d|display' | grep -i 'nvidia' | head -n 1 | sed 's/.*: //')
+  elif lspci | grep -qiE 'amd|advanced micro devices|ati'; then
+   GPU_VENDOR="amd"
+   GPU_NAME=$(lspci | grep -iE 'vga|3d|display' | grep -iE 'amd|ati' | head -n 1 | sed 's/.*: //')
+  else
+   GPU_VENDOR="other"
+   GPU_NAME=$(lspci | grep -iE 'vga|3d|display' | head -n 1 | sed 's/.*: //')
+  fi
+ else
+  GPU_AVAILABLE="false"
+  GPU_VENDOR="none"
+  GPU_NAME="none"
+ fi
+
+ echo -e "GPU Available: \e[92m$GPU_AVAILABLE\e[0m"
+ echo -e "GPU Vendor:    \e[92m$GPU_VENDOR\e[0m"
+ echo -e "GPU Name:      \e[92m$GPU_NAME\e[0m"
+}
+
+# --- Addon Preview Helper ---
+function preview_addon() {
+ local addon=$1
+ echo -e "\e[1m--- $addon ---\e[0m\n"
+
+ # Minikube stores addon assets in the deploy/addons directory on GitHub
+ local url="https://raw.githubusercontent.com/kubernetes/minikube/master/deploy/addons/${addon}/README.md"
+
+ # Curl the README. Use -s for silent and -f to fail silently on 404 errors.
+ if curl -s -f "$url" | head -n 15; then
+  echo -e "\n\e[90m[...Read more online...]\e[0m"
+ else
+  echo -e "\e[93mNo remote README found for '$addon'.\e[0m"
+  echo "This addon may be a core component or lacks dedicated Markdown documentation."
+ fi
+}
+
+# Export the function so fzf's subshell can access it
+export -f preview_addon
+
+# --- 3. Interactive Configuration ---
+clear
+echo -e "\e[1m--- Minikube Cluster Configuration ---\e[0m\n"
+
+read -rp "Enter Cluster Name (default: minikube): " name
+name=${name:-minikube}
+
+read -rp "Enter number of nodes needed (default: 1): " nodes
+nodes=${nodes:-1}
+
+# GPU Check
+GPU_AVAILABLE=$(lspci | grep -qiE 'vga|3d' && echo "true" || echo "false")
+GPU_FLAG=""
+if [[ "$GPU_AVAILABLE" == "true" ]]; then
+ echo ""
+ get-gpu
+ read -rp "Enable GPU support? (y/n): " gpu
+ if [[ "$gpu" =~ ^[Yy]$ ]]; then
+  GPU_FLAG="--gpus=all"
+ fi
+fi
+
+# Resource Allocation
+TOTAL_CPU=$(nproc)
+echo -e "\nTotal CPU cores available: \e[92m$TOTAL_CPU\e[0m"
+read -rp "Enter CPU cores needed (default: 2): " cpu
+cpu=${cpu:-2}
+
+TOTAL_MEM=$(free --giga | awk '/^Mem:/ {print $2}')
+FREE_MEM=$(free --giga | awk '/^Mem:/ {print $7}')
+echo -e "\nTotal memory available: \e[92m$FREE_MEM GB\e[0m free / \e[90m$TOTAL_MEM GB\e[0m total"
+read -rp "Enter total memory needed in GB (default: 4): " memory
+memory=${memory:-4}
+
+TOTAL_DISK=$(df -BG --total | awk 'END {gsub(/G/,"",$2); print $2}')
+FREE_DISK=$(df -BG --total | awk 'END {gsub(/G/,"",$4); print $4}')
+echo -e "\nTotal disk space available: \e[92m$FREE_DISK GB\e[0m free / \e[90m$TOTAL_DISK GB\e[0m total"
+read -rp "Enter total disk space needed in GB (default: 20): " disk
+disk=${disk:-20}
+
+# Driver and Runtime Overlays
+echo -e "\nSelect Container Runtime:"
+container_runtimes=("docker" "containerd" "cri-o")
+selected_runtime=$(printf "%s\n" "${container_runtimes[@]}" | fzf --prompt="Container Runtime > ")
+
+echo -e "\nSelect Driver:"
+drivers=("docker" "podman" "qemu" "virtualbox" "kvm2" "vmware" "hyperkit" "vfkit" "hyperv" "parallels")
+selected_driver=$(printf "%s\n" "${drivers[@]}" | fzf --prompt="Driver > ")
+
+# Addons
+echo -e "\nGathering available Minikube addons..."
+ADDONS=$(minikube addons list | awk 'NR>2 {print $2}')
+
+echo "Select Minikube addons to enable (TAB to multi-select, ENTER to confirm):"
+SELECTED_ADDONS=$(echo "$ADDONS" | fzf -m \
+ --prompt="Addons > " \
+ --preview='bash -c "preview_addon {}"' \
+ --preview-window=right:55%:wrap)
+
+ADDONS_FLAG=""
+if [[ -n "$SELECTED_ADDONS" ]]; then
+ ADDONS_CSV=$(echo "$SELECTED_ADDONS" | paste -sd, -)
+ ADDONS_FLAG="--addons=$ADDONS_CSV"
+fi
+
+# Kubernetes Version
+echo -e "\nChecking available Kubernetes versions..."
+version=$(curl -s https://api.github.com/repos/kubernetes/kubernetes/releases?per_page=100 | jq -r '.[].tag_name' | grep '^v1\.' | sort -V | fzf --prompt="K8s Version > " --reverse)
+
+# --- 4. Execution ---
+echo -e "\n\e[1mStarting Minikube cluster '$name'...\e[0m\n"
+
+# Print the command executing for transparency
+set -x
+minikube start -p "$name" \
+ --nodes="${nodes}" \
+ --memory="${memory}g" \
+ --cpus="${cpu}" \
+ --disk-size="${disk}g" \
+ --driver="${selected_driver}" \
+ --container-runtime="${selected_runtime}" \
+ ${version:+--kubernetes-version="$version"} \
+ $GPU_FLAG \
+ $ADDONS_FLAG
+set +x
+
+echo -e "\n\e[92mMinikube cluster setup complete!\e[0m"
