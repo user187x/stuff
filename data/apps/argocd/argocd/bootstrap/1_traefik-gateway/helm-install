@@ -1,0 +1,35 @@
+#!/bin/bash
+
+API_CRDS_PATH="support/api-crds"
+GATEWAY_API_CRDS_YAML="${API_CRDS_PATH}/standard-install.yaml"
+
+if [[ ! -f "${GATEWAY_API_CRDS_YAML}" ]]; then
+ if ! support/api-crds/download-api-crds; then
+  echo "Failed downloading Gateway API CRDs"
+  exit 1
+ fi
+fi
+
+kubectl apply --server-side -f "${GATEWAY_API_CRDS_YAML}"
+
+helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
+helm repo update
+
+NAMESPACE="traefik"
+X509_PATH="support/pki/certs"
+
+helm upgrade --install traefik traefik/traefik \
+ --namespace "${NAMESPACE}" \
+ --create-namespace \
+ -f values.yaml
+
+kubectl create secret generic tls-ca \
+ --namespace "${NAMESPACE}" \
+ --from-file="tls.ca"="${X509_PATH}/ca.crt"
+
+kubectl create secret tls tls-certs \
+ --namespace "${NAMESPACE}" \
+ --key="${X509_PATH}/server-wildcard.key" \
+ --cert="${X509_PATH}/server-wildcard.crt"
+
+kubectl apply -f support/gateway/gateway.yaml
