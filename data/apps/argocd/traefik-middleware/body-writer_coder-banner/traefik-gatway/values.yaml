@@ -1,0 +1,41 @@
+api:
+  dashboard: true
+  insecure: false
+
+experimental:
+  plugins:
+    rewrite-body:
+      moduleName: "github.com/traefik/plugin-rewritebody"
+      version: "v0.3.1"
+
+ports:
+  traefik:
+    expose:
+      default: true
+providers:
+  kubernetesGateway:
+    enabled: true
+  kubernetesCRD:
+    allowCrossNamespace: true
+  kubernetesIngress:
+    enabled: false
+gatewayClass:
+  enabled: true
+  name: traefik
+gateway:
+  enabled: true
+  name: traefik-gateway
+  listeners:
+    web:
+      port: 8000
+      protocol: HTTP
+      namespacePolicy:
+        from: All
+    websecure:
+      port: 8443
+      protocol: HTTPS
+      namespacePolicy:
+        from: All
+      certificateRefs:
+        - kind: Secret
+          name: tls-certs
