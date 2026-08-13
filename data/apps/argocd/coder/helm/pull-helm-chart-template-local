@@ -1,0 +1,6 @@
+#!/bin/bash
+
+helm repo add coder-v2 https://helm.coder.com/v2
+helm repo update
+
+helm pull coder-v2/coder --version 2.36.0 --untar --destination ./coder-2.36.0

@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Set namespace from argument or default to "coder"
+NAMESPACE=${1:-coder}
+OUTPUT_FILE="coder_cluster_state.md"
+
+# Find the Helm release name in the namespace
+RELEASE_NAME=$(helm ls -n "$NAMESPACE" -q | head -n 1)
+
+echo "Exporting Coder state from namespace: $NAMESPACE..."
+
+# Initialize the output file
+cat <<EOF >"$OUTPUT_FILE"
+# Coder Cluster State Export
+**Generated on:** $(date)
+**Namespace:** $NAMESPACE
+**Helm Release:** $RELEASE_NAME
+
+EOF
+
+# 1. Extract Helm values and chart version
+if [ -n "$RELEASE_NAME" ]; then
+ echo "## 1. Helm Release Details (Chart Version)" >>"$OUTPUT_FILE"
+ echo '```text' >>"$OUTPUT_FILE"
+ helm ls -n "$NAMESPACE" | grep "$RELEASE_NAME" >>"$OUTPUT_FILE"
+ echo '```' >>"$OUTPUT_FILE"
+
+ echo -e "\n## 2. Helm User-Supplied Values" >>"$OUTPUT_FILE"
+ echo '```yaml' >>"$OUTPUT_FILE"
+ helm get values "$RELEASE_NAME" -n "$NAMESPACE" >>"$OUTPUT_FILE"
+ echo '```' >>"$OUTPUT_FILE"
+else
+ echo "No Helm release found in namespace $NAMESPACE. Was it installed via manifests?" >>"$OUTPUT_FILE"
+fi
+
+# 2. Extract Networking (Ingress, Gateway API resources)
+echo -e "\n## 3. Custom Resources & Networking (Ingress/HTTPRoute/Gateway)" >>"$OUTPUT_FILE"
+echo '```yaml' >>"$OUTPUT_FILE"
+kubectl get ingress,httproute,gateway -n "$NAMESPACE" -o yaml 2>/dev/null >>"$OUTPUT_FILE"
+echo '```' >>"$OUTPUT_FILE"
+
+# 3. Extract ConfigMaps
+echo -e "\n## 4. ConfigMaps" >>"$OUTPUT_FILE"
+echo '```yaml' >>"$OUTPUT_FILE"
+kubectl get configmap -n "$NAMESPACE" -o yaml >>"$OUTPUT_FILE"
+echo '```' >>"$OUTPUT_FILE"
+
+# 4. Extract Secrets (Filtering out Helm release secrets to reduce noise)
+echo -e "\n## 5. Secrets (Opaque/TLS/Certificates)" >>"$OUTPUT_FILE"
+echo '```yaml' >>"$OUTPUT_FILE"
+kubectl get secret -n "$NAMESPACE" \
+ --field-selector type!=helm.sh/release.v1,type!=kubernetes.io/service-account-token \
+ -o yaml >>"$OUTPUT_FILE"
+echo '```' >>"$OUTPUT_FILE"
+
+# 5. Extract Persistent Volume Claims
+echo -e "\n## 6. Persistent Volume Claims (PVCs)" >>"$OUTPUT_FILE"
+echo '```yaml' >>"$OUTPUT_FILE"
+kubectl get pvc -n "$NAMESPACE" -o yaml >>"$OUTPUT_FILE"
+echo '```' >>"$OUTPUT_FILE"
+
+echo "✅ Export complete! File created: $OUTPUT_FILE"
+echo "You can now copy the contents of $OUTPUT_FILE and paste it into the LLM chat."

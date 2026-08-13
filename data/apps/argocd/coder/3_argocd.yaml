@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coder
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.coder.com/v2
+    chart: coder
+    targetRevision: 2.36.0
+    helm:
+      values: |
+
+        env:
+          - name: CODER_ACCESS_URL
+            value: "https://coder.xxx.com"
+          - name: CODER_PG_CONNECTION_URL
+            value: "postgres://coder:YOUR_DB_PASSWORD@coder-db-rw.coder.svc.cluster.local:5432/coder"
+
+        tls:
+          enable: false
+        ingress:
+          enable: false
+        service:
+          type: ClusterIP
+          port: 80
+        httproute:
+          enable: true
+          host: "coder.xxx.com"
+          parentRefs:
+            - name: traefik-gateway
+              namespace: traefik
+          httpsRedirect:
+            enable: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: coder
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

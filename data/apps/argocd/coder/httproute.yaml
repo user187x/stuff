@@ -4,16 +4,21 @@ metadata:
   name: coder
   namespace: coder
 spec:
-  parentRefs:
-    - name: traefik-gateway
-      namespace: traefik
   hostnames:
-    - "coder.xxx.com"
+    - coder.xxx.com
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: traefik-gateway
+      namespace: traefik
   rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: coder
-          port: 80
+    - backendRefs:
+      - group: ""
+        kind: Service
+        name: coder
+        port: 80
+        weight: 1
+      matches:
+      - path:
+          type: PathPrefix
+          value: /
