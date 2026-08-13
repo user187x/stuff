@@ -12,6 +12,7 @@ ports:
   traefik:
     expose:
       default: true
+
 providers:
   kubernetesGateway:
     enabled: true
@@ -19,6 +20,7 @@ providers:
     allowCrossNamespace: true
   kubernetesIngress:
     enabled: false
+
 gatewayClass:
   enabled: true
   name: traefik
@@ -26,6 +28,7 @@ gatewayClass:
 gateway:
   enabled: false
   name: traefik-gateway
+
   listeners:
     web:
       port: 8000
