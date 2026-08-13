@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Check if search term is provided
+if [ -z "$1" ]; then
+ echo "Usage: $0 <search-term>"
+ echo "Example: $0 coder-v2"
+ exit 1
+fi
+
+SEARCH_TERM=$1
+
+# Verify dependencies
+if ! command -v jq &>/dev/null; then
+ echo "Error: 'jq' is not installed. Please install it to parse JSON output."
+ exit 1
+fi
+
+echo "Searching Artifact Hub for '$SEARCH_TERM'..."
+
+# Safely URL-encode the search term to handle spaces (using jq)
+ENCODED_TERM=$(jq -rn --arg x "$SEARCH_TERM" '$x|@uri')
+
+# Make the API call to Artifact Hub
+# - kind=0 filters specifically for Helm Charts
+# - ts_query_web is the correct parameter for full-text search
+# - limit=10 forces the API to only return the top 10 hits
+RESPONSE=$(curl -s "https://artifacthub.io/api/v1/packages/search?kind=0&limit=10&ts_query_web=$ENCODED_TERM")
+
+# Parse and display the results
+# The '?' after packages[] prevents jq from throwing an error if 0 results come back
+RESULTS=$(echo "$RESPONSE" | jq -r '.packages[]? | "\(.name) | Repo: \(.repository.name) | Version: \(.version) | \(.description)"' 2>/dev/null)
+
+if [ -z "$RESULTS" ]; then
+ echo "No results found for '$SEARCH_TERM'."
+else
+ echo -e "\nFound the following charts:\n"
+ printf "%-30s | %-20s | %-15s | %s\n" "CHART NAME" "REPOSITORY" "VERSION" "DESCRIPTION"
+ echo "------------------------------------------------------------------------------------------------------------------------"
+ echo "$RESULTS" | while IFS='|' read -r name repo version desc; do
+  printf "%-30s | %-20s | %-15s | %s\n" "$name" "$repo" "$version" "${desc:0:60}"
+ done
+fi

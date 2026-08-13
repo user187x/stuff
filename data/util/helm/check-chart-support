@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# 1. Check if a chart name was provided
+if [ -z "$1" ]; then
+  echo "Usage: $0 <repo>/<chart>[:version]"
+  echo "Example: $0 bitnami/redis"
+  echo "Example: $0 bitnami/redis:28.0.2"
+  exit 1
+fi
+
+INPUT=$1
+
+# 2. Parse the input string into REPO, CHART, and VERSION
+if [[ "$INPUT" == *":"* ]]; then
+  CHART_REF="${INPUT%:*}"
+  VERSION="${INPUT#*:}"
+else
+  CHART_REF="$INPUT"
+  VERSION=""
+fi
+
+REPO="${CHART_REF%/*}"
+CHART="${CHART_REF#*/}"
+
+if [ "$REPO" == "$CHART_REF" ]; then
+  echo "❌ Error: Invalid format. Must be <repo>/<chart> (e.g., bitnami/redis)"
+  exit 1
+fi
+
+# 3. Verify dependencies
+if ! command -v jq &> /dev/null; then
+    echo "❌ Error: 'jq' is not installed."
+    exit 1
+fi
+
+if ! command -v helm &> /dev/null; then
+    echo "❌ Error: 'helm' is not installed."
+    exit 1
+fi
+
+echo "🔍 Resolving repository URL for '$CHART_REF' via Artifact Hub..."
+
+# 4. Get the repository URL directly from Artifact Hub's API
+AH_RESPONSE=$(curl -s "https://artifacthub.io/api/v1/packages/helm/$REPO/$CHART")
+REPO_URL=$(echo "$AH_RESPONSE" | jq -r '.repository.url // empty')
+
+if [ -z "$REPO_URL" ] || [ "$REPO_URL" == "null" ]; then
+  echo "❌ Error: Could not find chart '$CHART_REF' on Artifact Hub."
+  echo "Check your spelling and ensure it exists at https://artifacthub.io/packages/helm/$REPO/$CHART"
+  exit 1
+fi
+
+echo "🔗 Found Repository URL: $REPO_URL"
+
+# 5. Build the helm command using the dynamically discovered --repo URL
+# Notice that when using --repo, Helm expects just the chart name (e.g., 'redis', not 'bitnami/redis')
+HELM_ARGS=("$CHART" "--repo" "$REPO_URL")
+if [ -n "$VERSION" ]; then
+  HELM_ARGS+=("--version" "$VERSION")
+  echo "📦 Fetching values for version $VERSION over the network..."
+else
+  echo "📦 Fetching values for the latest version over the network..."
+fi
+
+# 6. Fetch the values.yaml content
+VALUES=$(helm show values "${HELM_ARGS[@]}" 2>&1)
+HELM_EXIT_CODE=$?
+
+if [ $HELM_EXIT_CODE -ne 0 ]; then
+  echo -e "\n❌ Error: Helm failed to fetch the chart from $REPO_URL."
+  echo "Helm returned: $VALUES"
+  exit 1
+fi
+
+# 7. Search for common keys used for injecting arbitrary manifests
+echo "=========================================================="
+echo "⚙️  Analyzing values.yaml for custom resource support..."
+echo "=========================================================="
+
+MATCHES=$(echo "$VALUES" | grep -inE "extramanifests|additionalresources|extraobjects|customresources|extradeploy")
+
+if [ -n "$MATCHES" ]; then
+  echo -e "✅ Found potential support!\n"
+  echo "$MATCHES" | sed 's/^/  /' # Indent for readability
+else
+  echo -e "❌ No obvious support found for extraManifests/extraDeploy/etc."
+fi
