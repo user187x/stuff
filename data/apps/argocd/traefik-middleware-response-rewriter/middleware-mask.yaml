@@ -1,0 +1,13 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: mask-password
+  namespace: coder
+spec:
+  plugin:
+    rewriteBody:
+      lastModified: true
+      rewrites:
+        # Matches an input field with the name "p12_password" and changes its type
+        - regex: '(<input[^>]+name="p12_password"[^>]+type=)"text"'
+          replacement: '$1"password"'

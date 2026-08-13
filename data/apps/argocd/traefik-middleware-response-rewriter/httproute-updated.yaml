@@ -30,7 +30,7 @@ spec:
           extensionRef:
             group: traefik.containo.us
             kind: Middleware
-            name: mask-coder-password
+            name: mask-password
       backendRefs:
         - name: coder
           port: 8080

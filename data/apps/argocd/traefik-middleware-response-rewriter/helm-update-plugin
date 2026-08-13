@@ -1,0 +1,7 @@
+#!/bin/bash
+
+helm upgrade traefik traefik/traefik \
+  --namespace traefik \
+  --reuse-values \
+  --set experimental.plugins.rewriteBody.moduleName="github.com/packruler/rewrite-body" \
+  --set experimental.plugins.rewriteBody.version="v1.2.0"

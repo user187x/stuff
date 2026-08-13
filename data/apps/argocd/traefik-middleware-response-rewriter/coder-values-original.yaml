@@ -1,0 +1,36 @@
+coder:
+  env:
+    - name: CODER_ACCESS_URL
+      value: "https://coder.xxx.com"
+    # Bind Coder to the database provisioned by the CloudNativePG operator[cite: 1]
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-app
+          key: uri
+
+  # Override default LoadBalancer to ClusterIP since traffic routes via HTTPRoute[cite: 1]
+  service:
+    type: ClusterIP
+
+  # Configure Gateway API HTTPRoute for traefik-gateway[cite: 1]
+  httproute:
+    enable: true
+    host: "coder.xxx.com"
+    parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+
+# Leverage extraTemplates to declare the CNPG Cluster alongside the Helm release[cite: 1]
+extraTemplates:
+  - |
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Cluster
+    metadata:
+      name: coder-db
+    spec:
+      instances: 2
+      primaryUpdateStrategy: unsupervised
+      storage:
+        size: 10Gi
+        storageClass: standard-k8s

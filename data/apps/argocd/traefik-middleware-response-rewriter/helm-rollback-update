@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -e
+
+# Defaults (can be overridden via arguments: ./helm-rollback.sh <release> <namespace>)
+RELEASE=${1:-traefik}
+NAMESPACE=${2:-traefik}
+
+# Verify required dependencies
+for cmd in helm fzf awk sort; do
+ if ! command -v "$cmd" &>/dev/null; then
+  echo "Error: $cmd is not installed or not in PATH."
+  exit 1
+ fi
+done
+
+echo "Fetching Helm history for release '$RELEASE' in namespace '$NAMESPACE'..."
+
+# Fetch history, capture the header, and grab the data rows
+HEADER=$(helm history "$RELEASE" -n "$NAMESPACE" 2>/dev/null | head -n 1)
+HISTORY=$(helm history "$RELEASE" -n "$NAMESPACE" 2>/dev/null | awk 'NR>1')
+
+if [[ -z "$HISTORY" ]]; then
+ echo "No history found for release '$RELEASE' in namespace '$NAMESPACE'."
+ exit 1
+fi
+
+# Pass history to fzf for interactive selection
+# - sort -k1,1nr : Sorts numerically by the first column in reverse (newest first)
+# - fzf layout styling applied for a cleaner terminal interface
+SELECTED_ROW=$(echo "$HISTORY" | sort -k1,1nr | fzf \
+ --layout=reverse \
+ --border="rounded" \
+ --prompt="Rollback $RELEASE to ❯ " \
+ --header="$HEADER" \
+ --info=inline \
+ --height=40% \
+ --min-height=15)
+
+# Exit cleanly if the user presses ESC or Ctrl+C
+if [[ -z "$SELECTED_ROW" ]]; then
+ echo "Rollback aborted by user."
+ exit 0
+fi
+
+# Extract the revision number (first column)
+REVISION=$(echo "$SELECTED_ROW" | awk '{print $1}')
+
+echo -e "\nYou selected Revision: $REVISION"
+echo "$SELECTED_ROW"
+echo ""
+
+# Confirm execution
+read -r -p "Execute: helm rollback $RELEASE $REVISION -n $NAMESPACE? [y/N] " CONFIRM
+
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+ echo "Rolling back..."
+ helm rollback "$RELEASE" "$REVISION" -n "$NAMESPACE"
+ echo "✅ Rollback complete."
+else
+ echo "Rollback aborted."
+ exit 0
+fi

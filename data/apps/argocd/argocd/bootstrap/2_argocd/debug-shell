@@ -1,0 +1,7 @@
+#!/bin/bash
+
+pod=$(kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server --no-headers | awk '{print $1}')
+
+#kubectl debug -it -n argocd "${pod}" --image=busybox --target=server -- sh
+
+kubectl exec -it -n argocd "${pod}" -- /bin/bash
