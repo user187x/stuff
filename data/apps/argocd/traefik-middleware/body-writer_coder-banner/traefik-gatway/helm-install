@@ -23,6 +23,7 @@ helm upgrade --install traefik traefik/traefik \
  --create-namespace \
  -f values.yaml
 
+# Declarative secret creation to avoid "already exists" errors
 kubectl create secret generic tls-ca \
  --namespace "${NAMESPACE}" \
  --from-file="tls.ca"="${X509_PATH}/ca.crt" \
@@ -34,4 +35,13 @@ kubectl create secret tls tls-certs \
  --cert="${X509_PATH}/server-wildcard.crt" \
  --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl apply -f support/gateway/gateway.yaml
+# The manual kubectl apply -f support/gateway/gateway.yaml has been removed.
+
+echo
+echo "Waiting for deployment to restart..."
+echo
+
+sleep 3.5
+./install-plugin
+
+echo "Installation complete!"

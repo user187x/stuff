@@ -22,8 +22,9 @@ providers:
 gatewayClass:
   enabled: true
   name: traefik
+
 gateway:
-  enabled: true
+  enabled: false
   name: traefik-gateway
   listeners:
     web:
