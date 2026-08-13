@@ -1,0 +1,6 @@
+# traefik-values.yaml
+experimental:
+  plugins:
+    rewriteBody:
+      moduleName: "github.com/packruler/rewrite-body"
+      version: "v1.2.0" # check for the latest version
