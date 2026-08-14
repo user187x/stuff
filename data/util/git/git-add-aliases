@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+# Define your functions/notes here as "COMMAND : DESCRIPTION"
+read -r -d '' NOTES <<'EOF'
+freeze      : Zips all nested .git directories into .git-frozen.zip in-place
+unfreeze    : Unzips .git-frozen.zip back into active .git directories
+clean -nd   : Preview (dry run) untracked files and directories
+clean -fd   : Force remove all untracked files and directories
+EOF
+
+# Build the formatted echo chain dynamically
+CMD_STRING='echo "🛠️  Custom Git Functions & Aliases:"'
+while IFS= read -r line; do
+ [[ -z "$line" ]] && continue
+ cmd="${line%%:*}"
+ cmd="$(echo "$cmd" | xargs)" # trim whitespace
+ desc="${line#*:}"
+ desc="$(echo "$desc" | xargs)" # trim whitespace
+
+ CMD_STRING+=" && printf '  %-12s - %s\n' '$cmd' '$desc'"
+done <<<"$NOTES"
+
+# Set the global git aliases
+git config --global alias.func "!$CMD_STRING"
+git config --global alias.functions '!git func'
+
+echo "✅ Git aliases 'git func' and 'git functions' updated successfully!"

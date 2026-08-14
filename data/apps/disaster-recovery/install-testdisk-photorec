@@ -1,0 +1,7 @@
+#!/bin/bash
+
+echo "Installing testdisk..."
+sudo apt update && sudo apt install testdisk
+
+echo "Running Photorec to scan for deleted files..."
+sudo photorec
