@@ -57,7 +57,11 @@ var offsetComponentRegex *regexp.Regexp
 var offsetTrimCharsRegex *regexp.Regexp
 var passThroughBeginRegex *regexp.Regexp
 var passThroughEndTmuxRegex *regexp.Regexp
+var sixelBeginRegex *regexp.Regexp
+var cursorBackRegex *regexp.Regexp
 var ttyin *os.File
+
+var inTmux = len(os.Getenv("TMUX")) > 0
 
 const clearCode string = "\x1b[2J"
 
@@ -67,6 +71,10 @@ const maxFocusEvents = 10000
 // execute-silent and transform* actions will block user input for this duration.
 // After this duration, users can press CTRL-C to terminate the command.
 const blockDuration = 1 * time.Second
+
+// Skip exporting FZF_CURRENT_ITEM when the item is larger than this, so a huge
+// item cannot overflow ARG_MAX and break exec for preview and other commands.
+const maxCurrentItemEnvSize = 64 * 1024
 
 func init() {
 	placeholder = regexp.MustCompile(`\\?(?:{[+*sfr]*[0-9,-.]*}|{q(?::s?[0-9,-.]+)?}|{fzf:(?:query|action|prompt)}|{[+*]?f?nf?})`)
@@ -88,6 +96,10 @@ func init() {
 	*/
 	passThroughBeginRegex = regexp.MustCompile(`\x1bPtmux;\x1b\x1b|\x1b(_G|P[0-9;]*q)|\x1b]1337;`)
 	passThroughEndTmuxRegex = regexp.MustCompile(`[^\x1b]\x1b\\`)
+	sixelBeginRegex = regexp.MustCompile(`^\x1bP[0-9;]*q`)
+
+	// CUB right before an IND, used to return to the column a row started on
+	cursorBackRegex = regexp.MustCompile(`\x1b\[([0-9]*)D$`)
 }
 
 type jumpMode int
@@ -138,6 +150,13 @@ type commandSpec struct {
 type quitSignal struct {
 	code int
 	err  error
+}
+
+type waitState struct {
+	blocked   bool
+	blockedAt time.Time
+	pending   []*action
+	searching bool // a search is in progress or the input is still loading
 }
 
 type previewer struct {
@@ -260,6 +279,7 @@ type Terminal struct {
 	ghost                string
 	separator            labelPrinter
 	separatorLen         int
+	separatorAuto        bool
 	spinner              []string
 	promptString         string
 	prompt               func()
@@ -321,6 +341,7 @@ type Terminal struct {
 	trackBlocked         bool
 	trackSync            bool
 	trackKeyCache        map[int32]bool
+	wait                 waitState
 	pendingSelections    map[string]selectedItem
 	targetIndex          int32
 	delimiter            Delimiter
@@ -455,6 +476,7 @@ type Terminal struct {
 	clickFooterLine      int
 	clickFooterColumn    int
 	proxyScript          string
+	setNativeLabel       func(string)
 	numLinesCache        map[int32]numLinesCacheValue
 	raw                  bool
 	lastActivity         time.Time
@@ -720,6 +742,7 @@ const (
 	actExclude
 	actExcludeMulti
 	actAsync
+	actWait
 )
 
 func (a actionType) Name() string {
@@ -871,8 +894,10 @@ func defaultKeymap() map[tui.Event][]*action {
 
 	addEvent(tui.AltKey('b'), actBackwardWord)
 	add(tui.ShiftLeft, actBackwardWord)
+	add(tui.AltLeft, actBackwardWord)
 	addEvent(tui.AltKey('f'), actForwardWord)
 	add(tui.ShiftRight, actForwardWord)
+	add(tui.AltRight, actForwardWord)
 	addEvent(tui.AltKey('d'), actKillWord)
 	add(tui.AltBackspace, actBackwardKillWord)
 
@@ -1124,6 +1149,7 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 		printer:            opts.Printer,
 		printsep:           opts.PrintSep,
 		proxyScript:        opts.ProxyScript,
+		setNativeLabel:     nativeLabelSetter(),
 		merger:             em,
 		passMerger:         em,
 		resultMerger:       em,
@@ -1152,7 +1178,7 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 		bgSemaphore:        make(chan struct{}, maxBgProcesses),
 		bgSemaphores:       make(map[action]chan struct{}),
 		keyChan:            make(chan tui.Event),
-		eventChan:          make(chan tui.Event, 6), // start | (load + result + zero|one) | (focus) | (resize)
+		eventChan:          make(chan tui.Event, 7), // start | (load + result + result-final + zero|one) | (focus) | (resize)
 		timerChan:          make(chan tui.Event),    // unbuffered: every() ticks coalesce when main loop is busy
 		tui:                renderer,
 		ttyDefault:         opts.TtyDefault,
@@ -1162,7 +1188,10 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 		lastAction:         actStart,
 		lastFocus:          minItem.Index(),
 		lastActivity:       time.Now(),
-		numLinesCache:      make(map[int32]numLinesCacheValue)}
+		numLinesCache:      make(map[int32]numLinesCacheValue),
+		// The initial load counts as a search in progress ('start:wait').
+		// Set before the reader starts so the first final result clears it.
+		wait: waitState{searching: true}}
 	if opts.AcceptNth != nil {
 		t.acceptNth = opts.AcceptNth(t.delimiter)
 	}
@@ -1230,13 +1259,7 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 	}
 
 	// Determine input border shape
-	if t.inputBorderShape == tui.BorderLine {
-		if t.layout == layoutReverse {
-			t.inputBorderShape = tui.BorderBottom
-		} else {
-			t.inputBorderShape = tui.BorderTop
-		}
-	}
+	t.inputBorderShape = resolveInputBorderShape(t.layout, t.inputBorderShape)
 
 	// Inline borders are embedded between the list's top and bottom horizontals.
 	// Shapes missing either one (none/phantom/line/single-sided) fall back to a plain
@@ -1281,14 +1304,16 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 		}
 	}
 
-	// Disable separator by default if input border is set
-	if opts.Separator == nil && !t.inputBorderShape.Visible() || opts.Separator != nil && len(*opts.Separator) > 0 {
-		bar := "─"
-		if opts.Separator != nil {
-			bar = *opts.Separator
-		} else if !t.unicode {
-			bar = "-"
-		}
+	// The default separator can be suppressed at runtime depending on the
+	// window layout (see separatorLength)
+	t.separatorAuto = opts.Separator == nil
+	bar := "─"
+	if opts.Separator != nil {
+		bar = *opts.Separator
+	} else if !t.unicode {
+		bar = "-"
+	}
+	if len(bar) > 0 {
 		t.separator, t.separatorLen = t.ansiLabelPrinter(bar, &tui.ColSeparator, true)
 	}
 
@@ -1345,6 +1370,9 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 	}
 	_, t.hasStartActions = t.keymap[tui.Start.AsEvent()]
 	_, t.hasResultActions = t.keymap[tui.Result.AsEvent()]
+	if _, prs := t.keymap[tui.ResultFinal.AsEvent()]; prs {
+		t.hasResultActions = true
+	}
 	_, t.hasFocusActions = t.keymap[tui.Focus.AsEvent()]
 	_, t.hasLoadActions = t.keymap[tui.Load.AsEvent()]
 
@@ -1439,7 +1467,12 @@ func (t *Terminal) environImpl(forPreview bool) []string {
 	env = append(env, fmt.Sprintf("FZF_COLUMNS=%d", t.areaColumns))
 	env = append(env, fmt.Sprintf("FZF_POS=%d", min(t.merger.Length(), t.cy+1)))
 	if item := t.currentItem(); item != nil {
-		env = append(env, "FZF_CURRENT_ITEM="+item.AsString(t.ansi))
+		// Skip if the value contains a NUL byte (exec(2) would reject the env)
+		// or is too large (a huge item can overflow ARG_MAX and break exec
+		// entirely for preview and other child commands).
+		if s := item.AsString(t.ansi); !strings.ContainsRune(s, 0) && len(s) <= maxCurrentItemEnvSize {
+			env = append(env, "FZF_CURRENT_ITEM="+s)
+		}
 	}
 	env = append(env, fmt.Sprintf("FZF_CLICK_HEADER_LINE=%d", t.clickHeaderLine))
 	env = append(env, fmt.Sprintf("FZF_CLICK_HEADER_COLUMN=%d", t.clickHeaderColumn))
@@ -1669,7 +1702,129 @@ func (t *Terminal) parsePrompt(prompt string) (func(), int) {
 }
 
 func (t *Terminal) noSeparatorLine() bool {
-	return t.inputless || noSeparatorLine(t.infoStyle, t.separatorLen > 0)
+	return t.inputless || noSeparatorLine(t.infoStyle, t.separatorLength() > 0)
+}
+
+// Effective length of the horizontal separator. The default separator is
+// suppressed when the input section is already visually separated from the
+// list section by a border line.
+func (t *Terminal) separatorLength() int {
+	if t.separatorAuto && t.separatedByBorder() {
+		return 0
+	}
+	return t.separatorLen
+}
+
+// BorderLine for the input border resolves to a single line on the side
+// facing the list section
+func resolveInputBorderShape(layout layoutType, shape tui.BorderShape) tui.BorderShape {
+	if shape != tui.BorderLine {
+		return shape
+	}
+	if layout == layoutReverse {
+		return tui.BorderBottom
+	}
+	return tui.BorderTop
+}
+
+// Whether the input border draws a line on the side facing the list section
+func inputBorderFacesList(layout layoutType, shape tui.BorderShape) bool {
+	shape = resolveInputBorderShape(layout, shape)
+	if layout == layoutReverse {
+		return shape.HasBottom()
+	}
+	return shape.HasTop()
+}
+
+// Whether a border line is already drawn between the info line and the
+// section next to it on the list side, making the default horizontal
+// separator redundant
+func (t *Terminal) separatedByBorder() bool {
+	// The input border itself draws a line on the side facing the list section
+	if inputBorderFacesList(t.layout, t.inputBorderShape) {
+		return true
+	}
+	// A preview window at 'next' position sits right next to the input
+	// section, in front of the sections handled below
+	anyNext := false
+	for po := &t.previewOpts; po != nil; po = po.alternative {
+		if po.position == posNext {
+			anyNext = true
+			break
+		}
+	}
+	if anyNext && t.hasPreviewer() {
+		// The separator is hidden only when every spec in the threshold chain
+		// displays a preview window at 'next' position with a border line
+		// facing the input section. We cannot single out the active spec;
+		// which one is active depends on the terminal size, and the
+		// resolution (computePreviewSize in resizeWindows) itself consults
+		// noSeparatorLine. When not every spec qualifies, err on the side of
+		// showing the separator.
+		if len(t.previewOpts.command) == 0 {
+			// No preview command, so no preview window is normally shown, but
+			// the preview(...) action can still display one at any time
+			return false
+		}
+		// NOTE: resizeWindows can clear 'hidden' mid-layout when the
+		// preview(...) action forces the window, so the frame being laid out
+		// can briefly disagree with this decision until the next relayout
+		for po := &t.previewOpts; po != nil; po = po.alternative {
+			if po.position != posNext || po.hidden || po.size.size == 0 || !t.borderFacingInput(po.Border(t.layout)) {
+				return false
+			}
+		}
+		return true
+	}
+	hasHeaderLinesWindow, headerLinesShape := t.determineHeaderLinesShape()
+	hasHeaderWindow := t.hasHeaderWindow()
+	// Mirror of hasInputWindow in resizeWindows; a 'next' preview position
+	// gives the input section its own window even when no preview window is
+	// shown. A 'next' spec here implies there is no previewer (the block
+	// above returns otherwise), and without a previewer the position is
+	// resolved from the first spec alone, so a 'next' in a threshold
+	// alternative does not count.
+	hasInputWindow := t.previewOpts.position == posNext || t.inputBorderShape.Visible() || hasHeaderWindow || hasHeaderLinesWindow
+	if !hasInputWindow {
+		// The input section is embedded in the list window and no border
+		// separates the two
+		return false
+	}
+
+	// The input section has its own window. Determine which section it is
+	// facing, and check if the border of that section draws a line toward it.
+	// NOTE: hasHeaderWindow can be true with no header content when the input
+	// border is visible (see Terminal.hasHeaderWindow). An empty header window
+	// takes no space, so it cannot be the facing section.
+	hasHeaderSection := hasHeaderWindow && t.visibleHeaderLines() > 0
+	if hasHeaderSection && !t.headerFirst && t.headerBorderShape != tui.BorderInline {
+		// Header section is facing the input section. An inline header is
+		// excluded; it is drawn inside the list border and is covered by the
+		// branches below.
+		return t.borderFacingInput(t.headerBorderShape)
+	}
+	// Header lines section is facing the input section, except in
+	// reverse-list layout where it is on the other side of the list section,
+	// or with --header-first and no header section where it is moved past
+	// the input section
+	if hasHeaderLinesWindow && t.layout != layoutReverseList && (hasHeaderWindow || !t.headerFirst) {
+		return t.borderFacingInput(headerLinesShape)
+	}
+	// The input section sits right next to the list section
+	return t.borderFacingInput(t.listBorderShape)
+}
+
+// Whether the border of the section next to the input section on the list
+// side draws a horizontal line facing the info line
+func (t *Terminal) borderFacingInput(shape tui.BorderShape) bool {
+	if shape == tui.BorderInline {
+		// Embedded between the horizontal lines of the list border
+		return true
+	}
+	if t.layout == layoutReverse {
+		return shape.HasTop()
+	}
+	return shape.HasBottom()
 }
 
 func getScrollbar(perLine int, total int, height int, offset int) (int, int) {
@@ -1868,6 +2023,21 @@ func (t *Terminal) UpdateProgress(progress float32) {
 func (t *Terminal) UpdateList(result MatchResult) {
 	merger := result.merger
 	t.mutex.Lock()
+	waitWasBlocked := t.wait.blocked
+	wakeUp := false
+	if result.final() {
+		t.wait.searching = false
+		// If waiting, unblock so main loop can execute pending actions.
+		// Note: any final result unblocks the wait, not just the one for the
+		// search that armed it. Back-to-back searches (--listen, bg-transform
+		// callbacks, reload+wait) can therefore unblock early and run the
+		// pending actions on the previous result set. Accepted; a per-search
+		// generation token through the matcher isn't worth the complexity.
+		if t.wait.blocked {
+			t.unblockWait()
+			wakeUp = len(t.wait.pending) > 0
+		}
+	}
 	prevIndex := minItem.Index()
 	newRevision := merger.Revision()
 	if t.revision.compatible(newRevision) && t.track != trackDisabled {
@@ -2019,12 +2189,32 @@ func (t *Terminal) UpdateList(result MatchResult) {
 		}
 	}
 	if t.hasResultActions {
-		t.pendingReqList = true
-		t.eventChan <- tui.Result.AsEvent()
+		result := tui.Result.AsEvent()
+		if _, prs := t.keymap[result]; prs {
+			t.pendingReqList = true
+			t.eventChan <- result
+		}
+		if !t.reading {
+			resultFinal := tui.ResultFinal.AsEvent()
+			if _, prs := t.keymap[resultFinal]; prs {
+				t.pendingReqList = true
+				t.eventChan <- resultFinal
+			}
+		}
 	}
 	updateList := !t.trackBlocked && !t.pendingReqList
-	updatePrompt := trackWasBlocked && !t.trackBlocked
+	updatePrompt := (trackWasBlocked && !t.trackBlocked) || (waitWasBlocked && !t.wait.blocked)
 	t.mutex.Unlock()
+
+	// Wake up the main loop to execute pending actions after wait unblocks.
+	// Send from a goroutine; UpdateList runs inside the event box callback,
+	// and an inline send on a full channel would deadlock with the main loop
+	// blocking on eventBox.Set while trying to drain the channel.
+	if wakeUp {
+		go func() {
+			t.serverInputChan <- []*action{{t: actIgnore}}
+		}()
+	}
 
 	t.reqBox.Set(reqInfo, nil)
 	if updateList {
@@ -2088,6 +2278,14 @@ func (t *Terminal) displayWidth(runes []rune) int {
 func (t *Terminal) displayWidthWithPrefix(str string, prefixWidth int) int {
 	width, _ := util.RunesWidth([]rune(str), prefixWidth, t.tabstop, math.MaxInt32)
 	return width
+}
+
+// displayWidthWithoutEscapes is displayWidthWithPrefix for a string that may
+// still carry pass-throughs and ANSI codes, neither of which take any column.
+func (t *Terminal) displayWidthWithoutEscapes(str string, prefixWidth int) int {
+	_, text := extractPassThroughs(str)
+	stripped, _, _ := extractColor(text, nil, nil)
+	return t.displayWidthWithPrefix(stripped, prefixWidth)
 }
 
 const (
@@ -3241,7 +3439,7 @@ func (t *Terminal) printPrompt() {
 	color := tui.ColInput
 	if t.paused {
 		color = tui.ColDisabled
-	} else if t.trackBlocked {
+	} else if t.trackBlocked || t.waitFeedback() {
 		color = color.WithAttr(tui.Dim)
 	}
 	w.CPrint(color, string(before))
@@ -3269,6 +3467,7 @@ func (t *Terminal) printInfoImpl() {
 	}
 	pos := 0
 	line := 0
+	separatorLen := t.separatorLength()
 	maxHeight := t.window.Height()
 	move := func(y int, x int, clear bool) bool {
 		if y < 0 || y >= maxHeight {
@@ -3296,7 +3495,7 @@ func (t *Terminal) printInfoImpl() {
 			str = string(trimmed)
 			width = maxWidth
 		}
-		move(line, pos, t.separatorLen == 0)
+		move(line, pos, separatorLen == 0)
 		if t.reading {
 			t.window.CPrint(tui.ColSpinner, str)
 		} else {
@@ -3305,7 +3504,7 @@ func (t *Terminal) printInfoImpl() {
 		pos += width
 	}
 	printSeparator := func(fillLength int, pad bool) {
-		if t.separatorLen > 0 {
+		if separatorLen > 0 {
 			t.separator(t.window, fillLength)
 			t.window.Print(" ")
 		} else if pad {
@@ -3314,7 +3513,7 @@ func (t *Terminal) printInfoImpl() {
 	}
 
 	if t.infoStyle == infoHidden {
-		if t.separatorLen > 0 {
+		if separatorLen > 0 {
 			if !move(line+1, 0, false) {
 				return
 			}
@@ -3332,9 +3531,6 @@ func (t *Terminal) printInfoImpl() {
 		} else {
 			output += fmt.Sprintf(" (%d/%d)", len(t.selected), t.multi)
 		}
-	}
-	if t.progress > 0 && t.progress < 100 {
-		output += fmt.Sprintf(" (%d%%)", t.progress)
 	}
 	if t.toggleSort {
 		if t.sort {
@@ -3356,6 +3552,14 @@ func (t *Terminal) printInfoImpl() {
 			output += " +t"
 		}
 	}
+	if t.waitFeedback() {
+		output += " (..)"
+	}
+	// Keep the search progress at the end so the other indicators don't shift
+	// as it appears and disappears.
+	if t.progress > 0 && t.progress < 100 {
+		output += fmt.Sprintf(" (%d%%)", t.progress)
+	}
 	if t.failed != nil && t.count == 0 {
 		output = fmt.Sprintf("[Command failed: %s]", *t.failed)
 	}
@@ -3372,7 +3576,7 @@ func (t *Terminal) printInfoImpl() {
 	}
 	switch t.infoStyle {
 	case infoDefault:
-		if !move(line+1, 0, t.separatorLen == 0) {
+		if !move(line+1, 0, separatorLen == 0) {
 			return
 		}
 		printSpinner()
@@ -3456,7 +3660,7 @@ func (t *Terminal) printInfoImpl() {
 	}
 
 	if t.infoStyle == infoInlineRight {
-		if t.separatorLen > 0 {
+		if separatorLen > 0 {
 			if !move(line+1, 0, false) {
 				return
 			}
@@ -4487,15 +4691,23 @@ func (t *Terminal) renderPreviewArea(unchanged bool) {
 	height := t.pwindow.Height()
 	body := t.previewer.lines
 	headerLines := t.activePreviewOpts.headerLines
+	lineNo := -t.previewer.offset + headerLines
+	// Scrollbar is sized from the body alone, split off or not
+	scrollLines := len(body)
 	// Do not enable preview header lines if it's value is too large
 	if headerLines > 0 && headerLines < min(len(body), height) {
+		scrollLines -= headerLines
 		header := t.previewer.lines[0:headerLines]
-		body = t.previewer.lines[headerLines:]
-		// Always redraw header
-		t.renderPreviewText(height, header, 0, false)
-		t.pwindow.MoveAndClear(t.pwindow.Y(), 0)
+		// A separate header pass would resume the body inside an image, which
+		// takes up more rows than the line it arrives on
+		if !containsImage(header) {
+			// Always redraw header
+			t.renderPreviewText(height, header, 0, false)
+			t.pwindow.MoveAndClear(t.pwindow.Y(), 0)
+			body = t.previewer.lines[headerLines:]
+		}
 	}
-	t.renderPreviewText(height, body, -t.previewer.offset+headerLines, unchanged)
+	t.renderPreviewText(height, body, lineNo, unchanged)
 
 	if !unchanged {
 		t.pwindow.FinishFill()
@@ -4506,7 +4718,7 @@ func (t *Terminal) renderPreviewArea(unchanged bool) {
 	}
 
 	effectiveHeight := height - headerLines
-	barLength, barStart := getScrollbar(1, len(body), effectiveHeight, min(len(body)-effectiveHeight, t.previewer.offset-headerLines))
+	barLength, barStart := getScrollbar(1, scrollLines, effectiveHeight, min(scrollLines-effectiveHeight, t.previewer.offset-headerLines))
 	t.renderPreviewScrollbar(headerLines, barLength, barStart)
 }
 
@@ -4570,6 +4782,66 @@ func findPassThrough(line string) []int {
 	return []int{loc[0], loc[1] + pos + 2}
 }
 
+// tmux takes a bare APC as a request to set the pane title, so a Kitty
+// graphics command never reaches the terminal and clobbers the title on the
+// way. 'kitten icat --clear' emits one unwrapped. Sixel is left alone.
+// https://github.com/junegunn/fzf/issues/4870
+func wrapPassThrough(passThrough string, tmux bool) string {
+	if !tmux || !strings.HasPrefix(passThrough, "\x1b_G") {
+		return passThrough
+	}
+	// Only the sequence is passed through, not the trailing CR
+	suffix := ""
+	if strings.HasSuffix(passThrough, "\r") {
+		passThrough, suffix = passThrough[:len(passThrough)-1], "\r"
+	}
+	return "\x1bPtmux;" + strings.ReplaceAll(passThrough, "\x1b", "\x1b\x1b") + "\x1b\\" + suffix
+}
+
+// Whether the sequence draws an image. Kitty commands that only transmit or
+// delete do not
+func isImagePassThrough(passThrough string) bool {
+	// Unwrap the tmux passthrough sequence, in which every ESC is doubled
+	if after, ok := strings.CutPrefix(passThrough, "\x1bPtmux;"); ok {
+		passThrough = strings.ReplaceAll(after, "\x1b\x1b", "\x1b")
+	}
+	if after, ok := strings.CutPrefix(passThrough, "\x1b_G"); ok {
+		// Control data ends at the payload delimiter or at the terminator
+		keys := after
+		if index := strings.IndexAny(keys, ";\x1b"); index >= 0 {
+			keys = keys[:index]
+		}
+		for _, key := range strings.Split(keys, ",") {
+			// Transmit and display, or put an image already transmitted
+			if key == "a=T" || key == "a=p" {
+				return true
+			}
+		}
+		return false
+	}
+	if after, ok := strings.CutPrefix(passThrough, "\x1b]1337;"); ok {
+		return strings.HasPrefix(after, "File=") || strings.HasPrefix(after, "MultipartFile=")
+	}
+	return sixelBeginRegex.MatchString(passThrough)
+}
+
+// Whether any line carries an image
+func containsImage(lines []string) bool {
+	for _, line := range lines {
+		for {
+			loc := findPassThrough(line)
+			if loc == nil {
+				break
+			}
+			if isImagePassThrough(line[loc[0]:loc[1]]) {
+				return true
+			}
+			line = line[loc[1]:]
+		}
+	}
+	return false
+}
+
 func extractPassThroughs(line string) ([]string, string) {
 	passThroughs := []string{}
 	transformed := ""
@@ -4587,6 +4859,38 @@ func extractPassThroughs(line string) ([]string, string) {
 	}
 
 	return passThroughs, transformed
+}
+
+// splitOnIND breaks a preview line on IND (ESC D), which moves the cursor
+// down one line, keeping the column. A program drawing at a column offset ends
+// its rows with IND instead of a newline, because ONLCR would rewrite a newline
+// as CR NL and snap the cursor to column 0. chafa does this for Kitty Unicode
+// placeholders, and without the break the whole image collapses into a single
+// line.
+//
+// The column is tracked and re-created with padding so that an indented image
+// keeps its indent, and a CUB right before the IND is subtracted, which is how
+// chafa returns to the column its rows start on.
+func (t *Terminal) splitOnIND(line string) []string {
+	chunks := strings.Split(line, "\x1bD")
+	if len(chunks) == 1 {
+		return nil
+	}
+
+	lines := make([]string, 0, len(chunks))
+	col := 0
+	for _, chunk := range chunks[:len(chunks)-1] {
+		lines = append(lines, strings.Repeat(" ", col)+chunk+"\n")
+		col += t.displayWidthWithoutEscapes(chunk, col)
+		if match := cursorBackRegex.FindStringSubmatch(chunk); match != nil {
+			back := 1
+			if len(match[1]) > 0 {
+				back, _ = strconv.Atoi(match[1])
+			}
+			col = max(0, col-back)
+		}
+	}
+	return append(lines, strings.Repeat(" ", col)+chunks[len(chunks)-1])
 }
 
 // followOffset computes the correct content-line offset for follow mode,
@@ -4810,7 +5114,7 @@ Loop:
 				} else {
 					t.pwindow.Move(y, x)
 				}
-				t.tui.PassThrough(passThrough)
+				t.tui.PassThrough(wrapPassThrough(passThrough, inTmux))
 
 				if requiredLines > 0 {
 					if y+requiredLines == height {
@@ -5762,10 +6066,61 @@ func (t *Terminal) unblockTrack() {
 		t.trackBlocked = false
 		t.trackKey = ""
 		t.trackKeyCache = nil
-		if !t.inputless {
+		// Keep the cursor hidden if the wait feedback is still showing it
+		if !t.inputless && !t.waitFeedback() {
 			t.tui.ShowCursor()
 		}
 	}
+}
+
+// The wait state machine. Invariant: arming captures every action after
+// 'wait' at any nesting level into wait.pending; while blocked, actions are
+// dropped unless they are results of work started before the block
+// (bg-transform callbacks, bracketed paste bookkeeping); abort/cancel
+// discards everything.
+
+// blockWait blocks action execution and defers the given actions until the
+// current search completes (see UpdateList)
+func (t *Terminal) blockWait(pending []*action) {
+	t.wait.blocked = true
+	t.wait.blockedAt = time.Now()
+	// Clone so that later joins don't append into the backing array of the
+	// bound action list
+	t.wait.pending = slices.Clone(pending)
+	// Show the waiting feedback only if the search takes long enough,
+	// so that quick searches don't cause flickering
+	go func() {
+		timer := time.NewTimer(progressMinDuration)
+		<-timer.C
+		t.mutex.Lock()
+		blocked := t.wait.blocked
+		t.mutex.Unlock()
+		if blocked {
+			t.reqBox.Set(reqPrompt, nil)
+			t.reqBox.Set(reqInfo, nil)
+		}
+	}()
+}
+
+// unblockWait lifts the block, leaving the pending actions to the caller:
+// UpdateList keeps them for the main loop to replay, cancelWait discards them
+func (t *Terminal) unblockWait() {
+	t.wait.blocked = false
+	// Restore the cursor unless it's still hidden for another reason
+	if !t.inputless && !t.trackBlocked {
+		t.tui.ShowCursor()
+	}
+}
+
+// cancelWait unblocks and discards the pending actions (user abort)
+func (t *Terminal) cancelWait() {
+	t.unblockWait()
+	t.wait.pending = nil
+}
+
+// Debounce visual feedback so quick searches don't cause flashing
+func (t *Terminal) waitFeedback() bool {
+	return t.wait.blocked && time.Since(t.wait.blockedAt) > progressMinDuration
 }
 
 func (t *Terminal) addClickHeaderWord(env []string) []string {
@@ -5950,6 +6305,7 @@ func (t *Terminal) Loop() error {
 			for {
 				select {
 				case <-ctx.Done():
+					signal.Stop(intChan)
 					return
 				case s := <-intChan:
 					// Don't quit by SIGINT while executing because it should be for the executing command and not for fzf itself
@@ -5962,7 +6318,7 @@ func (t *Terminal) Loop() error {
 
 		if !t.tui.ShouldEmitResizeEvent() {
 			resizeChan := make(chan os.Signal, 1)
-			notifyOnResize(resizeChan) // Non-portable
+			notifyOnResize(ctx, resizeChan) // Non-portable
 			go func() {
 				for {
 					select {
@@ -6109,7 +6465,11 @@ func (t *Terminal) Loop() error {
 											version--
 											offset = 0
 										}
-										lines = append(lines, line)
+										if split := t.splitOnIND(line); split != nil {
+											lines = append(lines, split...)
+										} else {
+											lines = append(lines, line)
+										}
 									}
 									if err != nil {
 										t.reqBox.Set(reqPreviewDisplay, previewResult{version, lines, offset, ""})
@@ -6393,6 +6753,10 @@ func (t *Terminal) Loop() error {
 						t.printFooter()
 					}
 				}
+				// Hide the cursor while the debounced waiting feedback is shown
+				if !t.inputless && !t.trackBlocked && t.waitFeedback() {
+					t.tui.HideCursor()
+				}
 				t.flush()
 				t.mutex.Unlock()
 				t.uiMutex.Unlock()
@@ -6449,6 +6813,10 @@ func (t *Terminal) Loop() error {
 	var newCommand *commandSpec
 	var reloadSync bool
 	var denylist []int32
+	// True while running bg-transform callbacks. Declared outside the loop
+	// because callbacks invoke the doActions closure of the iteration that
+	// scheduled them, not the one executing actAsync.
+	inBgCallback := false
 	req := func(evts ...util.EventType) {
 		for _, event := range evts {
 			events = append(events, event)
@@ -6540,12 +6908,15 @@ func (t *Terminal) Loop() error {
 		}
 
 		t.mutex.Lock()
-		for key, ret := range t.expect {
-			if keyMatch(key, event) {
-				t.pressed = ret
-				t.mutex.Unlock()
-				t.reqBox.Set(reqClose, nil)
-				return nil
+		// Ignore --expect keys while wait-blocked like the rest of the input
+		if !t.wait.blocked {
+			for key, ret := range t.expect {
+				if keyMatch(key, event) {
+					t.pressed = ret
+					t.mutex.Unlock()
+					t.reqBox.Set(reqClose, nil)
+					return nil
+				}
 			}
 		}
 		triggering := map[tui.Event]struct{}{}
@@ -6595,11 +6966,40 @@ func (t *Terminal) Loop() error {
 
 		var doAction func(*action) bool
 		doActions := func(actions []*action) bool {
+			// Snapshot to detect query edits in this batch that trigger a
+			// search at loop end without setting 'changed'. String copy:
+			// edits mutate t.input in place.
+			queryBefore := string(t.input)
 			for iter := 0; iter <= maxFocusEvents; iter++ {
 				currentIndex := t.currentIndex()
-				for _, action := range actions {
+				for i, action := range actions {
+					if action.t == actWait {
+						// Already waiting. Actions parsed from a bg-transform
+						// result join the current wait; user input can't reset
+						// the blocked state
+						if t.wait.blocked {
+							if inBgCallback {
+								t.wait.pending = append(t.wait.pending, actions[i+1:]...)
+							}
+							return true
+						}
+						// Block if search is in progress or will be triggered
+						if changed || newCommand != nil || t.wait.searching || queryBefore != string(t.input) {
+							t.blockWait(actions[i+1:])
+							return true
+						}
+						// No search, wait is a no-op; continue to next action
+						continue
+					}
+					blockedBefore := t.wait.blocked
 					if !doAction(action) {
 						return false
+					}
+					// If this action armed the wait through a nested list
+					// (e.g. via trigger), defer the rest of this list too
+					if !blockedBefore && t.wait.blocked {
+						t.wait.pending = append(t.wait.pending, actions[i+1:]...)
+						return true
 					}
 					// A terminal action performed. We should stop processing more.
 					if !looping {
@@ -6646,8 +7046,22 @@ func (t *Terminal) Loop() error {
 					callback(a.a)
 				}
 			}
+			// Actions that run even while wait/track-blocked: bg-transform
+			// callbacks and their parsed actions (results of processes
+			// started before the block), and bracketed paste bookkeeping (a
+			// swallowed paste-end would leave t.pasting set forever).
+			passthrough := inBgCallback || a.t == actAsync ||
+				a.t == actBracketedPasteBegin || a.t == actBracketedPasteEnd
+			// When wait-blocked, only allow abort/cancel
+			if t.wait.blocked && !passthrough {
+				if a.t == actAbort || a.t == actCancel {
+					t.cancelWait()
+					req(reqPrompt, reqInfo)
+				}
+				return true
+			}
 			// When track-blocked, only allow abort/cancel and track-disabling actions
-			if t.trackBlocked && a.t != actToggleTrack && a.t != actToggleTrackCurrent && a.t != actUntrackCurrent {
+			if t.trackBlocked && !passthrough && a.t != actToggleTrack && a.t != actToggleTrackCurrent && a.t != actUntrackCurrent {
 				if a.t == actAbort || a.t == actCancel {
 					t.unblockTrack()
 					req(reqPrompt, reqInfo)
@@ -6658,11 +7072,13 @@ func (t *Terminal) Loop() error {
 			switch a.t {
 			case actIgnore, actStart, actClick:
 			case actAsync:
+				inBgCallback = true
 				for _, callback := range callbacks {
 					if t.bgVersion == callback.version {
 						callback.callback()
 					}
 				}
+				inBgCallback = false
 			case actBecome:
 				valid, list := t.buildPlusList(a.a, false)
 				if valid {
@@ -6712,7 +7128,9 @@ func (t *Terminal) Loop() error {
 				t.mutex.Unlock()
 				return false
 			case actBracketedPasteBegin:
-				current := []rune(t.input)
+				// Clone: []rune(t.input) would alias t.input, and in-place
+				// query edits during the paste would corrupt the snapshot
+				current := slices.Clone(t.input)
 				t.pasting = &current
 			case actBracketedPasteEnd:
 				if t.pasting != nil {
@@ -6826,7 +7244,7 @@ func (t *Terminal) Loop() error {
 						changed = true
 						// Deselect items that are now part of the header
 						for idx := range t.selected {
-							if idx < int32(n) {
+							if int(idx) < n {
 								delete(t.selected, idx)
 							}
 						}
@@ -6958,6 +7376,10 @@ func (t *Terminal) Loop() error {
 					if t.border != nil {
 						t.borderLabel, t.borderLabelLen = t.ansiLabelPrinter(label, &tui.ColBorderLabel, false)
 						req(reqRedrawBorderLabel)
+					} else if t.setNativeLabel != nil {
+						// fzf draws no border of its own; the label is on the
+						// native border of the floating pane
+						t.setNativeLabel(label)
 					}
 				})
 			case actChangePreviewLabel, actTransformPreviewLabel, actBgTransformPreviewLabel:
@@ -6970,7 +7392,8 @@ func (t *Terminal) Loop() error {
 				})
 			case actTransform, actBgTransform:
 				capture(false, func(body string) {
-					if actions, err := parseSingleActionList(strings.Trim(body, "\r\n")); err == nil {
+					// Allow 'put' if the triggering key is a printable character
+					if actions, err := parseSingleActionList(strings.Trim(body, "\r\n"), event.Printable()); err == nil {
 						// NOTE: We're not properly passing the return value here
 						doActions(actions)
 					}
@@ -6994,7 +7417,9 @@ func (t *Terminal) Loop() error {
 			case actReplaceQuery:
 				current := t.currentItem()
 				if current != nil {
-					t.input = current.text.ToRunes()
+					// ToRunes aliases the item text in rune mode, and the
+					// editing actions below append into t.input in place
+					t.input = append([]rune{}, current.text.ToRunes()...)
 					t.cx = len(t.input)
 				}
 			case actFatal:
@@ -7529,7 +7954,8 @@ func (t *Terminal) Loop() error {
 				req(reqPrompt)
 			case actTrigger:
 				if _, chords, err := parseKeyChords(a.a, ""); err == nil {
-					for _, chord := range chords {
+					blockedBefore := t.wait.blocked
+					for ci, chord := range chords {
 						if _, prs := triggering[chord]; prs {
 							// Avoid recursive triggering
 							continue
@@ -7538,6 +7964,19 @@ func (t *Terminal) Loop() error {
 							triggering[chord] = struct{}{}
 							doActions(acts)
 							delete(triggering, chord)
+						}
+						// If this chord armed the wait, defer the remaining chords
+						if !blockedBefore && t.wait.blocked {
+							for _, rest := range chords[ci+1:] {
+								if _, prs := triggering[rest]; prs {
+									// Avoid recursive triggering
+									continue
+								}
+								if acts, prs := t.keymap[rest]; prs {
+									t.wait.pending = append(t.wait.pending, acts...)
+								}
+							}
+							break
 						}
 					}
 				}
@@ -7967,6 +8406,8 @@ func (t *Terminal) Loop() error {
 			case actChangePreviewWindow:
 				// NOTE: We intentionally use "previewOpts" instead of "activePreviewOpts" here
 				currentPreviewOpts := t.previewOpts
+				wasNoSeparatorLine := t.noSeparatorLine()
+				wasSeparatorLength := t.separatorLength()
 
 				// Reset preview options and apply the additional options
 				t.previewOpts = t.initialPreviewOpts
@@ -7987,8 +8428,28 @@ func (t *Terminal) Loop() error {
 					a.a = strings.Join(append(tokens[1:], tokens[0]), "|")
 				}
 
+				// Do not drop a preview window forced by the preview(...) action
+				keepForcedPreview := t.hasPreviewWindow() && !t.activePreviewOpts.hidden
+
+				// The default separator is decided from the whole threshold
+				// chain (separatedByBorder), which compare does not fully
+				// inspect, so it can change even when compare finds no
+				// layout difference
+				checkSeparator := func() {
+					if t.noSeparatorLine() != wasNoSeparatorLine {
+						// Number of lines changed; relayout
+						updatePreviewWindow(keepForcedPreview)
+						req(reqPreviewRefresh)
+					} else if t.separatorLength() != wasSeparatorLength {
+						// Only the content of the info line changed
+						req(reqInfo)
+					}
+				}
+
 				// Full redraw
 				switch currentPreviewOpts.compare(t.activePreviewOpts, &t.previewOpts) {
+				case previewOptsSame:
+					checkSeparator()
 				case previewOptsDifferentLayout:
 					// Preview command can be running in the background if the size of
 					// the preview window is 0 but not 'hidden'
@@ -7996,7 +8457,7 @@ func (t *Terminal) Loop() error {
 
 					// FIXME: One-time preview window can't reappear once hidden
 					// fzf --bind space:preview:ls --bind 'enter:change-preview-window:down|left|up|hidden|'
-					updatePreviewWindow(t.hasPreviewWindow() && !t.activePreviewOpts.hidden)
+					updatePreviewWindow(keepForcedPreview)
 					if wasHidden && t.hasPreviewWindow() {
 						// Restart
 						refreshPreview(t.previewOpts.command)
@@ -8010,6 +8471,7 @@ func (t *Terminal) Loop() error {
 				case previewOptsDifferentContentLayout:
 					t.previewed.version = 0
 					req(reqPreviewRefresh)
+					checkSeparator()
 				}
 
 				// Adjust scroll offset
@@ -8052,9 +8514,21 @@ func (t *Terminal) Loop() error {
 			return true
 		}
 
-		if t.jumping == jumpDisabled || len(actions) > 0 {
+		// Execute pending actions if wait just unblocked. Capture the jump
+		// state first so that a pending 'jump' action isn't cancelled right
+		// away by the wake-up event below.
+		jumpingBefore := t.jumping
+		if len(t.wait.pending) > 0 && !t.wait.blocked {
+			pending := t.wait.pending
+			t.wait.pending = nil
+			if !doActions(pending) {
+				continue
+			}
+		}
+
+		if jumpingBefore == jumpDisabled || len(actions) > 0 {
 			// Break out of jump mode if any action is submitted to the server
-			if t.jumping != jumpDisabled {
+			if jumpingBefore != jumpDisabled {
 				t.jumping = jumpDisabled
 				if acts, prs := t.keymap[tui.JumpCancel.AsEvent()]; prs && !doActions(acts) {
 					continue
@@ -8113,6 +8587,9 @@ func (t *Terminal) Loop() error {
 		}
 
 		reload := changed || newCommand != nil
+		if reload {
+			t.wait.searching = true
+		}
 		var reloadRequest *searchRequest
 		if reload {
 			reloadRequest = &searchRequest{sort: t.sort, sync: reloadSync, nth: newNth, withNth: newWithNth, headerLines: newHeaderLines, command: newCommand, environ: t.environ(), changed: changed, denylist: denylist, revision: t.resultMerger.Revision()}

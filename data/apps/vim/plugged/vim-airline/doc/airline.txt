@@ -917,6 +917,12 @@ LanguageClient <https://github.com/autozimu/LanguageClient-neovim>
 * languageclient close_lnum_symbol >
   let g:airline#extensions#languageclient#close_lnum_symbol = ')'
 
+-------------------------------------                      *airline-linediff*
+linediff.vim <https://github.com/AndrewRadev/linediff.vim>
+
+* enable/disable linediff buffername and position integration >
+  let g:airline#extensions#linediff#enabled = 1
+
 -------------------------------------                   *airline-localsearch*
 localsearch <https://github.com/mox-mox/vim-localsearch>
 
@@ -1446,6 +1452,10 @@ Note: Enabling this extension will modify 'showtabline' and 'guioptions'.
   (neovim specific, only works with buffers and not real tabs, default: 0) >
   let g:airline#extensions#tabline#middle_click_preserves_windows = 1
 <
+* custom buffer filter function (name of |Funcref|), takes buffer number and
+* should return an empty value if a buffer shouldn't be displayed >
+  let airline#extensions#tabline#filter_function = ''
+
 -------------------------------------             *airline-tabline-hlgroups*
 When the tabline is enabled, vim-airline exposes the following highlighting
 groups:

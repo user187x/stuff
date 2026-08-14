@@ -42,6 +42,7 @@ echo "Waiting for deployment to restart..."
 echo
 
 sleep 3.5
-./install-plugin
+echo "Installing middleware plugin for resposne body re-write..."
+kubectl apply -f plugin.yaml
 
 echo "Installation complete!"

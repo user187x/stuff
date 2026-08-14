@@ -8,6 +8,7 @@ apt-cache/
 .project
 .prefs
 .settings/
+**/.git/
 
 # operating system
 .DS_store

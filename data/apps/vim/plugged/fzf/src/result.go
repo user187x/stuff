@@ -198,7 +198,10 @@ func (result *Result) colorOffsets(matchOffsets []Offset, nthOffsets []Offset, t
 	start := 0
 	ansiToColorPair := func(ansi ansiOffset, base tui.ColorPair) tui.ColorPair {
 		if !theme.Colored {
-			return tui.NewColorPair(-1, -1, ansi.color.attr).MergeAttr(base)
+			// Ignore ANSI colors but keep the attributes. Retain the base
+			// colors (e.g. an overridden input-bg or list-bg) instead of
+			// resetting to the terminal default.
+			return tui.NewColorPair(base.Fg(), base.Bg(), ansi.color.attr).MergeAttr(base)
 		}
 		// fd --color always | fzf --ansi --delimiter / --nth -1 --color fg:dim:strip,nth:regular
 		if base.ShouldStripColors() {
@@ -366,8 +369,20 @@ func radixSortResults(a []Result, tac bool, scratch []Result) []Result {
 	src, dst := a, buf
 	scattered := 0
 
+	// OR of all keys: a byte position that is zero here is zero in every key,
+	// so its pass is a no-op and can be skipped without a histogram scan.
+	// With the common two-criteria setup the low 32 bits are always zero.
+	var keyOR uint64
+	for i := range src {
+		keyOR |= sortKey(&src[i])
+	}
+
 	for pass := range 8 {
 		shift := uint(pass) * 8
+
+		if byte(keyOR>>shift) == 0 {
+			continue
+		}
 
 		var count [256]int
 		for i := range src {
