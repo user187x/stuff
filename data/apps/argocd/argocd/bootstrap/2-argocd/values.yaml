@@ -1,11 +1,8 @@
 server:
-
   extraArgs:
     - --insecure
-
   ingress:
     enabled: false
-
 extraObjects:
   - apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute

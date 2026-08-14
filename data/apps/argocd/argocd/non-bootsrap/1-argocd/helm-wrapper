@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [[ "$1" == "--install" ]] || [[ "$1" == "install" ]]; then
+ helm repo add argo https://argoproj.github.io/argo-helm
+ helm repo update
+
+ helm upgrade --install argocd argo/argo-cd \
+  --create-namespace \
+  --namespace argocd \
+  --values values.yaml
+elif [[ "$1" == "--uninstall" ]] || [[ "$1" == "uninstall" ]] ; then
+
+ helm uninstall argocd --namespace argocd
+fi

@@ -1,60 +1,7 @@
-global:
-  domain: argocd.xxx.com
-
-redis-ha:
-  enabled: true
-
-controller:
-  replicas: 1
-
-crds:
-  install: true
-
-repoServer:
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-
-applicationSet:
-  replicas: 2
-
 configs:
   params:
     server.insecure: true
-
 server:
-  httproute:
-    enabled: true
-    parentRefs:
-      - name: traefik-gateway
-        namespace: traefik
-
   autoscaling:
     enabled: true
     minReplicas: 2
-
-  listenerset:
-    enabled: true
-    parentRef:
-      name: traefik-gateway
-      namespace: traefik
-    listeners:
-      - name: https
-        port: 443
-        protocol: HTTPS
-        hostname: argocd.xxx.com
-        tls:
-          mode: Terminate
-          certificateRefs:
-            - group: ""
-              kind: Secret
-              name: argocd-server-tls
-        allowedRoutes:
-          namespaces:
-            from: All
-
-  httproute:
-    enabled: true
-    parentRefs:
-      - name: traefik-gateway
-        namespace: traefik
