@@ -1,0 +1,146 @@
+#!/bin/bash
+# terminal-enhance - A script to supercharge your Ubuntu terminal experience
+
+set -e
+
+echo "🚀 Starting Terminal Enhancements..."
+
+# 1. Update system and install core dependencies
+echo "📦 Updating system and installing core dependencies..."
+sudo apt-get update
+sudo apt-get install -y \
+ curl \
+ wget \
+ git \
+ unzip \
+ fzf \
+ fontconfig \
+ python3-pip \
+ pipx \
+ figlet \
+ toilet
+
+# 2. Install terminaltexteffects globally via pipx
+# (pipx is required on modern Ubuntu to safely install global Python apps)
+echo "✨ Installing terminaltexteffects..."
+pipx ensurepath
+pipx install terminaltexteffects
+export PATH="$PATH:$HOME/.local/bin"
+
+# 3. Download and Install Nerd Fonts
+FONT_DIR="$HOME/.local/share/fonts"
+mkdir -p "$FONT_DIR"
+
+install_nerd_font() {
+ local font_name=$1
+ local zip_file="${font_name}.zip"
+ local download_url="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${zip_file}"
+
+ echo "⬇️ Downloading ${font_name} Nerd Font..."
+ # Download to /tmp
+ wget -q --show-progress "$download_url" -O "/tmp/${zip_file}"
+
+ echo "📂 Extracting ${font_name}..."
+ mkdir -p "$FONT_DIR/${font_name}"
+ unzip -q -o "/tmp/${zip_file}" -d "$FONT_DIR/${font_name}"
+ rm "/tmp/${zip_file}"
+}
+
+install_nerd_font "JetBrainsMono"
+install_nerd_font "DroidSansMono"
+
+echo "🔄 Updating system font cache (this may take a moment)..."
+fc-cache -fv >/dev/null
+
+# 4. FZF Font Selector
+# Note: Changing the font live in an fzf preview visually is not supported by
+# standard terminal emulators, so the preview displays the font's internal metadata variants.
+echo "🔤 Select a font to set as your GNOME Terminal default:"
+echo "(Use arrow keys to navigate, Type to search, Enter to select)"
+
+SELECTED_FONT=$(fc-list : family | awk -F, '{print $1}' | sort | uniq |
+ fzf --prompt="Select Font > " \
+  --preview 'echo "Available styles for {}:" && echo "---" && fc-list "{}" style | sort | uniq' \
+  --preview-window=right:50%)
+
+if [ -n "$SELECTED_FONT" ]; then
+ echo "✅ Selected Font: $SELECTED_FONT"
+ # Attempt to apply font to GNOME system defaults
+ if command -v gsettings &>/dev/null; then
+  gsettings set org.gnome.desktop.interface monospace-font-name "$SELECTED_FONT 12"
+  echo "💻 Set system monospace font to: $SELECTED_FONT 12"
+
+  # Attempt to apply font directly to the default GNOME Terminal profile
+  PROFILE=$(gsettings get org.gnome.Terminal.ProfilesList default | tr -d \')
+  if [ -n "$PROFILE" ]; then
+   gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:${PROFILE}/" use-system-font false
+   gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:${PROFILE}/" font "$SELECTED_FONT 12"
+   echo "💻 Set GNOME Terminal profile font to: $SELECTED_FONT 12"
+  fi
+ else
+  echo "⚠️ 'gsettings' not found. Please set the font manually in your terminal emulator's preferences."
+ fi
+else
+ echo "⏭️ Font selection skipped."
+fi
+
+# 5. Additional Enhancements Menu
+install_starship() {
+ echo "⭐ Installing Starship Prompt..."
+ curl -sS https://starship.rs/install.sh | sh -s -- -y
+ if ! grep -q 'starship init bash' ~/.bashrc; then
+  echo 'eval "$(starship init bash)"' >>~/.bashrc
+ fi
+}
+
+install_bat() {
+ echo "🦇 Installing bat (syntax highlighting cat)..."
+ sudo apt-get install -y bat
+ # Ubuntu installs it as batcat, create a symlink to bat
+ mkdir -p ~/.local/bin
+ ln -sf /usr/bin/batcat ~/.local/bin/bat
+}
+
+install_eza() {
+ echo "📁 Installing eza (modern ls replacement)..."
+ sudo mkdir -p /etc/apt/keyrings
+ wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg --yes
+ echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
+ sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+ sudo apt-get update
+ sudo apt-get install -y eza
+}
+
+install_btop() {
+ echo "📊 Installing btop (beautiful resource monitor)..."
+ sudo apt-get install -y btop
+}
+
+echo ""
+echo "🛠️  Would you like to install additional terminal tools?"
+echo "  1) Starship (Highly customizable cross-shell prompt)"
+echo "  2) bat      (A cat clone with syntax highlighting and Git integration)"
+echo "  3) eza      (A modern replacement for ls with color and icons)"
+echo "  4) btop     (A highly visual resource monitor)"
+echo "  5) Install All of the above"
+echo "  6) Skip"
+
+read -p "Select an option (1-6): " opt
+
+case $opt in
+ 1) install_starship ;;
+ 2) install_bat ;;
+ 3) install_eza ;;
+ 4) install_btop ;;
+ 5)
+  install_starship
+  install_bat
+  install_eza
+  install_btop
+  ;;
+ *) echo "⏭️ Skipping additional enhancements." ;;
+esac
+
+echo ""
+echo "🎉 Terminal enhancements complete!"
+echo "⚠️  Important: Close and reopen your terminal, or run 'source ~/.bashrc' to apply all path and prompt changes."

@@ -226,3 +226,4 @@ export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 # Adding golang support
 export GOPATH=$HOME/go
 export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin
+eval "$(starship init bash)"
