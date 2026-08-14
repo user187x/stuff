@@ -1,0 +1,97 @@
+name: Version Bump
+
+on:
+  pull_request:
+    types: [labeled]
+    paths:
+      - "registry/**/modules/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version-bump:
+    if: github.event.label.name == 'version:patch' || github.event.label.name == 'version:minor' || github.event.label.name == 'version:major'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Extract bump type from label
+        env:
+          LABEL_NAME: ${{ github.event.label.name }}
+        id: bump-type
+        run: |
+          case "$LABEL_NAME" in
+            "version:patch")
+              echo "type=patch" >> $GITHUB_OUTPUT
+              ;;
+            "version:minor")
+              echo "type=minor" >> $GITHUB_OUTPUT
+              ;;
+            "version:major")
+              echo "type=major" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "Invalid version label: ${LABEL_NAME}"
+              exit 1
+              ;;
+          esac
+
+      - name: Check version bump
+        run: ./.github/scripts/version-bump.sh --ci "${{ steps.bump-type.outputs.type }}" origin/main
+
+      - name: Comment on PR - Version bump required
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const bumpType = `${{ steps.bump-type.outputs.type }}`;
+
+            const comment = [
+              '## Version Bump Required',
+              '',
+              'One or more modules in this PR need their versions updated.',
+              '',
+              '**To fix this:**',
+              '1. Run the version bump script locally:',
+              '   ```bash',
+              `   ./.github/scripts/version-bump.sh ${bumpType}`,
+              '   ```',
+              '2. Commit the changes:',
+              '   ```bash',
+              `   git add . && git commit -m "chore: bump module versions (${bumpType})"`,
+              '   ```',
+              '3. Push your changes',
+              '',
+              'The CI will automatically re-run once you push the updated versions.'
+            ].join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

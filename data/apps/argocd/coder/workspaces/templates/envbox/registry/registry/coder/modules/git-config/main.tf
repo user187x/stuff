@@ -1,0 +1,114 @@
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    coder = {
+      source  = "coder/coder"
+      version = ">= 0.23"
+    }
+  }
+}
+
+variable "agent_id" {
+  type        = string
+  description = "The ID of a Coder agent."
+}
+
+variable "allow_username_change" {
+  type        = bool
+  description = "Allow developers to change their git username."
+  default     = true
+}
+
+variable "allow_email_change" {
+  type        = bool
+  description = "Allow developers to change their git email."
+  default     = false
+}
+
+variable "coder_parameter_order" {
+  type        = number
+  description = "The order determines the position of a template parameter in the UI/CLI presentation. The lowest order is shown first and parameters with equal order are sorted by name (ascending order)."
+  default     = null
+}
+
+data "coder_workspace" "me" {}
+data "coder_workspace_owner" "me" {}
+
+data "coder_parameter" "user_email" {
+  count        = var.allow_email_change ? 1 : 0
+  name         = "user_email"
+  type         = "string"
+  default      = ""
+  order        = var.coder_parameter_order != null ? var.coder_parameter_order + 0 : null
+  description  = "Git user.email to be used for commits. Leave empty to default to Coder user's email."
+  display_name = "Git config user.email"
+  mutable      = true
+  styling = jsonencode({
+    placeholder = data.coder_workspace_owner.me.email
+  })
+}
+
+data "coder_parameter" "username" {
+  count        = var.allow_username_change ? 1 : 0
+  name         = "username"
+  type         = "string"
+  default      = ""
+  order        = var.coder_parameter_order != null ? var.coder_parameter_order + 1 : null
+  description  = "Git user.name to be used for commits. Leave empty to default to Coder user's Full Name."
+  display_name = "Full Name for Git config"
+  mutable      = true
+  styling = jsonencode({
+    placeholder = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+  })
+}
+
+locals {
+  git_user_name = coalesce(try(data.coder_parameter.username[0].value, ""), data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+  # Wrap in try() so it safely returns "" when both the user_email parameter
+  # and the workspace owner email are empty. The combined coder_script below
+  # always references this local, even when no email line is rendered.
+  git_user_email = try(coalesce(try(data.coder_parameter.user_email[0].value, ""), data.coder_workspace_owner.me.email), "")
+}
+
+resource "coder_env" "git_author_name" {
+  agent_id = var.agent_id
+  name     = "GIT_AUTHOR_NAME"
+  value    = local.git_user_name
+}
+
+resource "coder_env" "git_commmiter_name" {
+  agent_id = var.agent_id
+  name     = "GIT_COMMITTER_NAME"
+  value    = local.git_user_name
+}
+
+resource "coder_env" "git_author_email" {
+  agent_id = var.agent_id
+  name     = "GIT_AUTHOR_EMAIL"
+  value    = local.git_user_email
+  count    = data.coder_workspace_owner.me.email != "" ? 1 : 0
+}
+
+resource "coder_env" "git_commmiter_email" {
+  agent_id = var.agent_id
+  name     = "GIT_COMMITTER_EMAIL"
+  value    = local.git_user_email
+  count    = data.coder_workspace_owner.me.email != "" ? 1 : 0
+}
+
+resource "coder_script" "git_user_config" {
+  agent_id     = var.agent_id
+  run_on_start = true
+  display_name = "Configure git user globally"
+  script       = <<-EOT
+    #!/bin/bash
+    set -o errexit
+    set -o pipefail
+
+    git config --global user.name "${local.git_user_name}"
+%{if data.coder_workspace_owner.me.email != ""~}
+    git config --global user.email "${local.git_user_email}"
+%{endif~}
+  EOT
+}

@@ -1,0 +1,43 @@
+name: deploy-registry
+
+on:
+  schedule:
+    # Runs at 02:30 UTC Monday through Friday
+    - cron: "30 2 * * 1-5"
+  push:
+    tags:
+      # Matches release/<namespace>/<resource_name>/<semantic_version>
+      # (e.g., "release/whizus/exoscale-zone/v1.0.13")
+      - "release/*/*/v*.*.*"
+    branches: # Templates and skills get released when merged to main
+      - main
+    paths:
+      - ".github/workflows/deploy-registry.yaml"
+      - "registry/**/templates/**"
+      - "registry/**/skills/**"
+      - "registry/**/README.md"
+      - ".icons/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Set id-token permission for gcloud
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: projects/309789351055/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: registry-v2-github@coder-registry-1.iam.gserviceaccount.com
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - name: Deploy to dev.registry.coder.com
+        run: gcloud builds triggers run 29818181-126d-4f8a-a937-f228b27d3d34 --branch main
+      - name: Deploy to registry.coder.com
+        run: gcloud builds triggers run 106610ff-41fb-4bd0-90a2-7643583fb9c0 --tag production

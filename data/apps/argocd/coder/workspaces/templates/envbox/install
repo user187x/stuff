@@ -1,0 +1,9 @@
+#!/bin/bash
+
+#Clone the Coder Registry repo
+git clone https://github.com/coder/registry.git
+
+cd registry/registry/coder/templates/kubernetes-envbox
+
+#Push the contents of the template to your deployment
+coder template push kubernetes-envbox -d .
