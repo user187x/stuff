@@ -2,3 +2,5 @@
 
 minikube addons enable csi-hostpath-driver
 minikube addons enable volumesnapshots
+
+kubectl apply -f storageclass-csi-hostpath.yaml

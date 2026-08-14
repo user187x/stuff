@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-DOMAIN_SUFFIX="xxx.local"
+DOMAIN_SUFFIX="xxx.com"
 HOSTS_FILE="/etc/hosts"
 
 MARKER_BEG="# --- 🏁 ---"
