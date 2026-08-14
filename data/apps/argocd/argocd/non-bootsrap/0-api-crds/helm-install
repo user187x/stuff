@@ -1,0 +1,7 @@
+#!/bin/bash
+
+helm repo add gateway-api-crds https://wiremind.github.io/wiremind-helm-charts
+helm repo update
+
+helm upgrade --install gateway-api-crds gateway-api-crds/gateway-api-crds \
+ --version 1.6.0
