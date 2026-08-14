@@ -1,3 +1,0 @@
-#!/bin/bash
-
-minikube start -p coder-shroder --gpus=all
