@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+echo "Starting formatting hook setup..."
+
+# 1. Function to find and navigate to the Git root
+cd_to_git_root() {
+ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "❌ Error: You are not inside a Git repository."
+  exit 1
+ fi
+
+ local git_root
+ git_root=$(git rev-parse --show-toplevel)
+
+ cd "$git_root"
+ echo "📂 Navigated to Git root: $git_root"
+}
+
+cd_to_git_root
+
+# 2. Check for pre-commit and install if missing (UPDATED for PEP 668)
+if ! command -v pre-commit &>/dev/null; then
+ echo "⚙️  pre-commit not found. Attempting to install safely..."
+
+ if command -v pipx &>/dev/null; then
+  echo "📦 Using pipx..."
+  pipx install pre-commit
+ elif command -v apt-get &>/dev/null; then
+  echo "📦 Using apt (this will prompt for your sudo password)..."
+  sudo apt-get update && sudo apt-get install -y pre-commit
+ elif command -v brew &>/dev/null; then
+  echo "📦 Using Homebrew..."
+  brew install pre-commit
+ else
+  echo "❌ Error: Could not automatically install pre-commit safely."
+  echo "Your OS blocks global pip installs. Please install it manually:"
+  echo "Run: sudo apt install pre-commit OR pipx install pre-commit"
+  exit 1
+ fi
+else
+ echo "✅ pre-commit is already installed."
+fi
+
+# 3. Create the .pre-commit-config.yaml file
+echo "📝 Creating .pre-commit-config.yaml..."
+cat <<'EOF' >.pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        types_or: [yaml, json]
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.8.0-1
+    hooks:
+      - id: shfmt
+        args: ['-w', '-i', '2', '-ci']
+EOF
+echo "✅ Configuration file created."
+
+# 4. Install the git hook
+echo "🔗 Installing git hook..."
+pre-commit install
+echo "✅ Git hook installed successfully."
+
+# 5. Run against all files initially
+echo "🚀 Running formatters against all existing files..."
+echo "----------------------------------------------------"
+
+pre-commit run --all-files || true
+
+echo "----------------------------------------------------"
+echo "🎉 Setup complete!"
