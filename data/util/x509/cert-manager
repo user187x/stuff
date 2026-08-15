@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 
-VERSION="1.0.0"
-CONFIG_DIR="${CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cert-manager}"
-CONFIG_FILE="$CONFIG_DIR/config"
-INFO_DIR="$CONFIG_DIR/entries"
-INSTALL_DIR="$HOME/.local/bin"
-PASS_PREFIX="${PASS_PREFIX:-cert-manager}"
-RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/cert-manager-$(id -u)"
-STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+CM_VERSION="1.0.0"
+CM_CONFIG_DIR="${CM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cert-manager}"
+CM_CONFIG_FILE="$CM_CONFIG_DIR/config"
+CM_INFO_DIR="$CM_CONFIG_DIR/entries"
+CM_INSTALL_DIR="$HOME/.local/bin"
+CM_PASS_PREFIX="${CM_PASS_PREFIX:-cert-manager}"
+CM_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/cert-manager-$(id -u)"
+CM_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 
-# Runtime Configurable (persisted in $CONFIG_FILE)
-DEFAULT_TIMEOUT="8h"
-DEFAULT_ENTRY=""
-PURGE_GPG_CACHE="yes"
+# Runtime Configurable (persisted in $CM_CONFIG_FILE)
+CM_DEFAULT_TIMEOUT="8h"
+CM_DEFAULT_ENTRY=""
+CM_PURGE_GPG_CACHE="yes"
 
 if [[ -t 1 ]]; then
  COLOR_R=$'\e[31m' COLOR_G=$'\e[32m' COLOR_Y=$'\e[33m' COLOR_B=$'\e[34m'
@@ -21,114 +21,115 @@ else
  COLOR_R="" COLOR_G="" COLOR_Y="" COLOR_B="" COLOR_C="" COLOR_D="" COLOR_BO="" COLOR_N=""
 fi
 
-function install-system {
+function cm_install-system {
 
- local THIS_PATH
- THIS_PATH=$(realpath "${BASH_SOURCE[0]:-$0}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]:-$0}")
+ local this_path script_name target_path rc_line ans
+ this_path=$(realpath "${BASH_SOURCE[0]:-$0}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]:-$0}")
 
- if [[ -z "$THIS_PATH" || ! -f "$THIS_PATH" ]]; then
-  echo "Error: Could not determine the source script path." >&2
+ if [[ -z "$this_path" || ! -f "$this_path" ]]; then
+  cm_err "Could not determine the source script path."
   return 1
  fi
 
- local script_name
- script_name=$(basename "$THIS_PATH")
- local target_path="$INSTALL_DIR/$script_name"
+ script_name=$(basename "$this_path")
+ target_path="$CM_INSTALL_DIR/$script_name"
+ rc_line="source \"$target_path\""
 
- echo "Starting installation of '$script_name'..."
+ cm_info "Installing '$script_name'..."
 
- # Ensure the target directory exists
- if [[ ! -d "$INSTALL_DIR" ]]; then
-  echo "Creating target directory at $INSTALL_DIR..."
-  mkdir -p "$INSTALL_DIR" || {
-   echo "Error: Failed to create directory $INSTALL_DIR." >&2
+ if [[ ! -d "$CM_INSTALL_DIR" ]]; then
+  mkdir -p "$CM_INSTALL_DIR" || {
+   cm_err "Failed to create directory $CM_INSTALL_DIR."
    return 1
   }
  fi
 
- # Check if it's already running from the target path to prevent overwriting itself during normal use
- if [[ "$THIS_PATH" == "$target_path" ]]; then
-  echo "Script is already installed and running from $target_path. No action needed."
-  return 0
+ if [[ "$this_path" == "$target_path" ]]; then
+  cm_ok "Already installed at $target_path."
+ else
+  cp "$this_path" "$target_path" || {
+   cm_err "Failed to copy the script to $CM_INSTALL_DIR."
+   return 1
+  }
+  chmod +x "$target_path"
+  cm_ok "Installed '$script_name' to $target_path"
  fi
 
- # Copy the script to the target directory
- echo "Copying to $target_path..."
- if cp "$THIS_PATH" "$target_path"; then
-  # Ensure the installed script is executable
-  chmod +x "$target_path"
-  echo "Successfully installed '$script_name' to $INSTALL_DIR."
+ if [[ ":$PATH:" != *":$CM_INSTALL_DIR:"* ]]; then
+  cm_warn "$CM_INSTALL_DIR is not in your \$PATH. Add to ~/.bashrc:  export PATH=\"$CM_INSTALL_DIR:\$PATH\""
+ fi
 
-  # Check if the target directory is currently in the user's PATH
-  if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-   echo ""
-   echo "Warning: $INSTALL_DIR is not currently in your \$PATH."
-   echo "To use this script globally, add the following line to your ~/.bashrc, ~/.zshrc, or ~/.profile:"
-   echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
-  fi
+ # Sourcing is what makes `env`, `unenv` and tab-completion work in the current shell.
+ if [[ -f "$HOME/.bashrc" ]] && grep -qF "$rc_line" "$HOME/.bashrc"; then
+  cm_ok "~/.bashrc already sources $target_path"
  else
-  echo "Error: Failed to copy the script to $INSTALL_DIR." >&2
-  return 1
+  read -rp "Add '$rc_line' to ~/.bashrc so it loads in every shell? [Y/n] " ans
+  if [[ ! $ans =~ ^[Nn] ]]; then
+   printf '\n# cert-manager (timed TLS client-cert unlock)\n%s\n' "$rc_line" >>"$HOME/.bashrc" &&
+    cm_ok "Added to ~/.bashrc  (run:  source ~/.bashrc)"
+  else
+   cm_info "Skipped. You can run it as '$script_name <cmd>' or source it manually."
+  fi
  fi
 }
 
-function ok { printf '%s✔%s %s\n' "$COLOR_G" "$COLOR_N" "$*"; }
-function info { printf '%s•%s %s\n' "$COLOR_B" "$COLOR_N" "$*"; }
-function warn { printf '%s!%s %s\n' "$COLOR_Y" "$COLOR_N" "$*" >&2; }
-function err { printf '%s✘ %s%s\n' "$COLOR_R" "$*" "$COLOR_N" >&2; }
+function cm_ok { printf '%s✔%s %s\n' "$COLOR_G" "$COLOR_N" "$*"; }
+function cm_info { printf '%s•%s %s\n' "$COLOR_B" "$COLOR_N" "$*"; }
+function cm_warn { printf '%s!%s %s\n' "$COLOR_Y" "$COLOR_N" "$*" >&2; }
+function cm_err { printf '%s✘ %s%s\n' "$COLOR_R" "$*" "$COLOR_N" >&2; }
 
-function load_config {
+function cm_load_config {
 
- DEFAULT_TIMEOUT="8h"
- DEFAULT_ENTRY=""
- PURGE_GPG_CACHE="yes"
- [[ -f "$CONFIG_FILE" ]] || return 0
+ CM_DEFAULT_TIMEOUT="8h"
+ CM_DEFAULT_ENTRY=""
+ CM_PURGE_GPG_CACHE="yes"
+ [[ -f "$CM_CONFIG_FILE" ]] || return 0
  local k v
  while IFS='=' read -r k v; do
   case "$k" in
-   default_timeout) DEFAULT_TIMEOUT="$v" ;;
-   default_entry) DEFAULT_ENTRY="$v" ;;
-   purge_gpg_cache) PURGE_GPG_CACHE="$v" ;;
+   default_timeout) CM_DEFAULT_TIMEOUT="$v" ;;
+   default_entry) CM_DEFAULT_ENTRY="$v" ;;
+   purge_gpg_cache) CM_PURGE_GPG_CACHE="$v" ;;
   esac
- done <"$CONFIG_FILE"
+ done <"$CM_CONFIG_FILE"
 }
 
-function save_config {
+function cm_save_config {
 
- mkdir -p "$CONFIG_DIR" && chmod 700 "$CONFIG_DIR"
+ mkdir -p "$CM_CONFIG_DIR" && chmod 700 "$CM_CONFIG_DIR"
  printf 'default_timeout=%s\ndefault_entry=%s\npurge_gpg_cache=%s\n' \
-  "$DEFAULT_TIMEOUT" "$DEFAULT_ENTRY" "$PURGE_GPG_CACHE" >"$CONFIG_FILE"
- chmod 600 "$CONFIG_FILE"
+  "$CM_DEFAULT_TIMEOUT" "$CM_DEFAULT_ENTRY" "$CM_PURGE_GPG_CACHE" >"$CM_CONFIG_FILE"
+ chmod 600 "$CM_CONFIG_FILE"
 }
 
-function info_file { printf '%s/%s.info' "$INFO_DIR" "$1"; }
+function cm_info_file { printf '%s/%s.info' "$CM_INFO_DIR" "$1"; }
 
-function info_get {
+function cm_info_get {
  local f
- f=$(info_file "$1")
+ f=$(cm_info_file "$1")
  [[ -f $f ]] && grep -m1 "^$2=" "$f" | cut -d= -f2-
 }
 
-function info_set {
+function cm_info_set {
  local f tmp
- f=$(info_file "$1")
- mkdir -p "$INFO_DIR"
- chmod 700 "$INFO_DIR"
+ f=$(cm_info_file "$1")
+ mkdir -p "$CM_INFO_DIR"
+ chmod 700 "$CM_INFO_DIR"
  tmp=$(mktemp) || return 1
  [[ -f $f ]] && grep -v "^$2=" "$f" >"$tmp"
  printf '%s=%s\n' "$2" "$3" >>"$tmp"
  mv "$tmp" "$f" && chmod 600 "$f"
 }
 
-function entry_path { printf '%s/%s' "$PASS_PREFIX" "$1"; }
-function entry_exists { [[ -f "$STORE_DIR/$PASS_PREFIX/$1.gpg" ]]; }
-function entries { ls "$STORE_DIR/$PASS_PREFIX" 2>/dev/null | sed -n 's/\.gpg$//p'; }
-function rt { printf '%s/%s.%s' "$RUNTIME_DIR" "$1" "$2"; } # name kind
-function now { date +%s; }
-function fmt_ts { date -d "@$1" '+%Y-%m-%d %H:%M:%S %Z'; }
-function human_size { numfmt --to=iec-i --suffix=B "$1" 2>/dev/null || printf '%s B' "$1"; }
+function cm_entry_path { printf '%s/%s' "$CM_PASS_PREFIX" "$1"; }
+function cm_entry_exists { [[ -f "$CM_STORE_DIR/$CM_PASS_PREFIX/$1.gpg" ]]; }
+function cm_entries { ls "$CM_STORE_DIR/$CM_PASS_PREFIX" 2>/dev/null | sed -n 's/\.gpg$//p'; }
+function cm_rt { printf '%s/%s.%s' "$CM_RUNTIME_DIR" "$1" "$2"; } # name kind
+function cm_now { date +%s; }
+function cm_fmt_ts { date -d "@$1" '+%Y-%m-%d %H:%M:%S %Z'; }
+function cm_human_size { numfmt --to=iec-i --suffix=B "$1" 2>/dev/null || printf '%s B' "$1"; }
 
-function parse_duration {
+function cm_parse_duration {
  local s="${1,,}" total=0 n u
  [[ -z "$s" ]] && return 1
  if [[ "$s" =~ ^[0-9]+$ ]]; then
@@ -151,7 +152,7 @@ function parse_duration {
  echo "$total"
 }
 
-function fmt_dur {
+function cm_fmt_dur {
  local t=$1 d h m s out=""
  ((t < 0)) && t=0
  d=$((t / 86400))
@@ -165,13 +166,13 @@ function fmt_dur {
  printf '%s' "$out"
 }
 
-function fmt_clock {
+function cm_fmt_clock {
  local t=$1
  ((t < 0)) && t=0
  printf '%02d:%02d:%02d' $((t / 3600)) $((t % 3600 / 60)) $((t % 60))
 }
 
-function bar {
+function cm_bar {
  local rem=$1 tot=$2 w=${3:-40} pct filled empty col
  ((tot <= 0)) && tot=1
  ((rem < 0)) && rem=0
@@ -180,21 +181,21 @@ function bar {
  filled=$((w * pct / 100))
  empty=$((w - filled))
  if ((pct > 50)); then
-  col=$G
+  col=${COLOR_G}
  elif ((pct > 20)); then
-  col=$Y
- else col=$R; fi
- printf '%s[%s' "$D" "$N"
+  col=${COLOR_Y}
+ else col=${COLOR_R}; fi
+ printf '%s[%s' "${COLOR_D}" "${COLOR_N}"
  printf '%s' "$col"
  printf '%*s' "$filled" '' | tr ' ' '█'
- printf '%s' "$D"
+ printf '%s' "${COLOR_D}"
  printf '%*s' "$empty" '' | tr ' ' '░'
- printf '%s]%s %3d%%' "$D" "$N" "$pct"
+ printf '%s]%s %3d%%' "${COLOR_D}" "${COLOR_N}" "$pct"
 }
 
-function ensure_deps {
+function cm_ensure_deps {
 
- [[ -n "${DEPS_OK:-}" ]] && return 0
+ [[ -n "${CM_DEPS_OK:-}" ]] && return 0
  local missing=() sudo=""
  command -v pass >/dev/null 2>&1 || missing+=(pass)
  command -v gpg >/dev/null 2>&1 || missing+=(gnupg)
@@ -202,22 +203,22 @@ function ensure_deps {
  command -v curl >/dev/null 2>&1 || missing+=(curl)
 
  if ((${#missing[@]})); then
-  warn "Missing packages: ${missing[*]} — installing with apt-get"
+  cm_warn "Missing packages: ${missing[*]} — installing with apt-get"
   if ! command -v apt-get >/dev/null 2>&1; then
-   err "apt-get not available. Please install manually: ${missing[*]}"
+   cm_err "apt-get not available. Please install manually: ${missing[*]}"
    return 1
   fi
   [[ $EUID -ne 0 ]] && sudo=sudo
   $sudo apt-get update -qq && $sudo apt-get install -y -qq "${missing[@]}" ||
    {
-    err "Package installation failed"
+    cm_err "Package installation failed"
     return 1
    }
-  ok "Installed: ${missing[*]}"
+  cm_ok "Installed: ${missing[*]}"
  fi
 
  if ! gpg --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec'; then
-  warn "No GPG secret key found — pass needs one to encrypt certificate entries."
+  cm_warn "No GPG secret key found — pass needs one to encrypt certificate entries."
   local ans gname gmail
   read -rp "Generate a GPG key now? [Y/n] " ans
   if [[ ! $ans =~ ^[Nn] ]]; then
@@ -225,43 +226,43 @@ function ensure_deps {
    read -rp "  Email     : " gmail
    gpg --quick-generate-key "$gname <$gmail>" default default 0 ||
     {
-     err "GPG key generation failed"
+     cm_err "GPG key generation failed"
      return 1
     }
-   ok "GPG key created"
+   cm_ok "GPG key created"
   else
-   err "Cannot continue without a GPG key"
+   cm_err "Cannot continue without a GPG key"
    return 1
   fi
  fi
 
- if [[ ! -f "$STORE_DIR/.gpg-id" ]]; then
+ if [[ ! -f "$CM_STORE_DIR/.gpg-id" ]]; then
   local fpr
   fpr=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')
-  info "Initialising password store with GPG key $fpr"
+  cm_info "Initialising password store with GPG key $fpr"
   pass init "$fpr" >/dev/null || {
-   err "pass init failed"
+   cm_err "pass init failed"
    return 1
   }
  fi
 
- mkdir -p "$CONFIG_DIR" "$INFO_DIR" "$RUNTIME_DIR"
- chmod 700 "$CONFIG_DIR" "$INFO_DIR" "$RUNTIME_DIR"
- DEPS_OK=1
+ mkdir -p "$CM_CONFIG_DIR" "$CM_INFO_DIR" "$CM_RUNTIME_DIR"
+ chmod 700 "$CM_CONFIG_DIR" "$CM_INFO_DIR" "$CM_RUNTIME_DIR"
+ CM_DEPS_OK=1
 }
 
-function kill_timer {
+function cm_kill_timer {
 
  local pid
- pid=$(grep -m1 '^timer_pid=' "$(rt "$1" meta)" 2>/dev/null | cut -d= -f2)
+ pid=$(grep -m1 '^timer_pid=' "$(cm_rt "$1" meta)" 2>/dev/null | cut -d= -f2)
  [[ -n $pid ]] && kill "$pid" 2>/dev/null
  return 0
 }
 
-function spawn_timer {
+function cm_spawn_timer {
 
  local name=$1 secs=$2 info
- info=$(info_file "$name")
+ info=$(cm_info_file "$name")
  (
   nohup bash -c '
       sleep "$1"
@@ -270,63 +271,63 @@ function spawn_timer {
         grep -v "^last_locked=" "$4" > "$4.tmp" 2>/dev/null
         printf "last_locked=%s (auto)\n" "$(date -Is)" >> "$4.tmp"
         mv "$4.tmp" "$4"
-      fi' _ "$secs" "$RUNTIME_DIR" "$name" "$info" >/dev/null 2>&1 &
+      fi' _ "$secs" "$CM_RUNTIME_DIR" "$name" "$info" >/dev/null 2>&1 &
   echo $!
  )
 }
 
-function wipe_runtime {
+function cm_wipe_runtime {
 
  local f
  for f in pw pem meta; do
-  f=$(rt "$1" "$f")
+  f=$(cm_rt "$1" "$f")
   [[ -f $f ]] && { command -v shred >/dev/null && shred -u "$f" 2>/dev/null || rm -f "$f"; }
  done
 }
 
-function meta_get { grep -m1 "^$2=" "$(rt "$1" meta)" 2>/dev/null | cut -d= -f2; }
+function cm_meta_get { grep -m1 "^$2=" "$(cm_rt "$1" meta)" 2>/dev/null | cut -d= -f2; }
 
-function is_unlocked {
+function cm_is_unlocked {
  local name=$1 exp
- [[ -f "$(rt "$name" meta)" && -f "$(rt "$name" pw)" ]] || return 1
- exp=$(meta_get "$name" expires_at)
- if [[ -z $exp ]] || (($(now) >= exp)); then
-  kill_timer "$name"
-  wipe_runtime "$name"
-  info_set "$name" last_locked "$(date -Is) (auto)"
+ [[ -f "$(cm_rt "$name" meta)" && -f "$(cm_rt "$name" pw)" ]] || return 1
+ exp=$(cm_meta_get "$name" expires_at)
+ if [[ -z $exp ]] || (($(cm_now) >= exp)); then
+  cm_kill_timer "$name"
+  cm_wipe_runtime "$name"
+  cm_info_set "$name" last_locked "$(date -Is) (auto)"
   return 1
  fi
  return 0
 }
 
-function require_unlocked {
- is_unlocked "$1" && return 0
- err "'$1' is locked. Run:  cert-manager unlock $1 [duration]"
+function cm_require_unlocked {
+ cm_is_unlocked "$1" && return 0
+ cm_err "'$1' is locked. Run:  cert-manager unlock $1 [duration]"
  return 1
 }
 
-function add {
+function cm_add {
 
  local name=$1 pem=$2 pw pw2 created sha
  [[ -z $name || -z $pem ]] && {
-  err "usage: cert-manager add <name> <file.pem>"
+  cm_err "usage: cert-manager add <name> <file.pem>"
   return 1
  }
  [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || {
-  err "name may only contain letters, digits, . _ -"
+  cm_err "name may only contain letters, digits, . _ -"
   return 1
  }
  [[ -r $pem ]] || {
-  err "cannot read '$pem'"
+  cm_err "cannot read '$pem'"
   return 1
  }
  grep -q 'BEGIN CERTIFICATE' "$pem" || {
-  err "'$pem' contains no certificate"
+  cm_err "'$pem' contains no certificate"
   return 1
  }
- grep -q 'PRIVATE KEY' "$pem" || warn "'$pem' contains no private key — curl will need a separate key"
+ grep -q 'PRIVATE KEY' "$pem" || cm_warn "'$pem' contains no private key — curl will need a separate key"
 
- if entry_exists "$name"; then
+ if cm_entry_exists "$name"; then
   local ans
   read -rp "Entry '$name' already exists. Overwrite? [y/N] " ans
   [[ $ans =~ ^[Yy] ]] || return 1
@@ -337,16 +338,16 @@ function add {
  read -rsp "Confirm password: " pw2
  echo
  [[ $pw == "$pw2" ]] || {
-  err "passwords do not match"
+  cm_err "passwords do not match"
   return 1
  }
 
  if grep -q 'PRIVATE KEY' "$pem"; then
   if ! openssl pkey -in "$pem" -passin fd:3 -noout 3<<<"$pw" 2>/dev/null; then
-   err "that password does not unlock the private key in $pem"
+   cm_err "that password does not unlock the private key in $pem"
    return 1
   fi
-  ok "Password verified against private key"
+  cm_ok "Password verified against private key"
  fi
 
  created=$(date -Is)
@@ -355,9 +356,9 @@ function add {
   printf '%s\n' "$pw"
   printf 'created: %s\nsource: %s\nsha256: %s\n' "$created" "$(readlink -f "$pem")" "$sha"
   cat "$pem"
- } | pass insert -m -f "$(entry_path "$name")" >/dev/null ||
+ } | pass insert -m -f "$(cm_entry_path "$name")" >/dev/null ||
   {
-   err "pass insert failed"
+   cm_err "pass insert failed"
    unset pw pw2
    return 1
   }
@@ -381,194 +382,194 @@ function add {
   enc="UNENCRYPTED"
  else enc="none (no key)"; fi
 
- info_set "$name" name "$name"
- info_set "$name" created "$created"
- info_set "$name" source "$(readlink -f "$pem")"
- info_set "$name" size "$(stat -c %s "$pem")"
- info_set "$name" sha256 "$sha"
- info_set "$name" cert_count "$cnt"
- info_set "$name" subject "$subj"
- info_set "$name" issuer "$iss"
- info_set "$name" not_before "$nb"
- info_set "$name" not_after "$na"
- info_set "$name" key_algo "${algo:-unknown}"
- info_set "$name" key_bits "${bits:-?}"
- info_set "$name" key_enc "$enc"
+ cm_info_set "$name" name "$name"
+ cm_info_set "$name" created "$created"
+ cm_info_set "$name" source "$(readlink -f "$pem")"
+ cm_info_set "$name" size "$(stat -c %s "$pem")"
+ cm_info_set "$name" sha256 "$sha"
+ cm_info_set "$name" cert_count "$cnt"
+ cm_info_set "$name" subject "$subj"
+ cm_info_set "$name" issuer "$iss"
+ cm_info_set "$name" not_before "$nb"
+ cm_info_set "$name" not_after "$na"
+ cm_info_set "$name" key_algo "${algo:-unknown}"
+ cm_info_set "$name" key_bits "${bits:-?}"
+ cm_info_set "$name" key_enc "$enc"
 
- if [[ -z $DEFAULT_ENTRY ]]; then
-  DEFAULT_ENTRY=$name
-  save_config
+ if [[ -z $CM_DEFAULT_ENTRY ]]; then
+  CM_DEFAULT_ENTRY=$name
+  cm_save_config
  fi
- ok "Stored certificate + password in pass entry $(entry_path "$name")"
- [[ $enc == UNENCRYPTED ]] && warn "Note: the private key in the PEM is not encrypted."
- info "Unlock with:  cert-manager unlock $name [duration]   (default $DEFAULT_TIMEOUT)"
+ cm_ok "Stored certificate + password in pass entry $(cm_entry_path "$name")"
+ [[ $enc == UNENCRYPTED ]] && cm_warn "Note: the private key in the PEM is not encrypted."
+ cm_info "Unlock with:  cert-manager unlock $name [duration]   (default $CM_DEFAULT_TIMEOUT)"
 }
 
-function unlock {
- local name=$1 dur=${2:-$DEFAULT_TIMEOUT} secs content pw pem now exp tpid
- entry_exists "$name" || {
-  err "no entry '$name' (see: cert-manager list)"
+function cm_unlock {
+ local name=$1 dur=${2:-$CM_DEFAULT_TIMEOUT} secs content pw pem now exp tpid
+ cm_entry_exists "$name" || {
+  cm_err "no entry '$name' (see: cert-manager list)"
   return 1
  }
- secs=$(parse_duration "$dur") || {
-  err "bad duration '$dur' (e.g. 8h, 90m, 1h30m, 2d)"
+ secs=$(cm_parse_duration "$dur") || {
+  cm_err "bad duration '$dur' (e.g. 8h, 90m, 1h30m, 2d)"
   return 1
  }
 
- content=$(pass show "$(entry_path "$name")") ||
+ content=$(pass show "$(cm_entry_path "$name")") ||
   {
-   err "could not decrypt entry (wrong GPG passphrase / cancelled)"
+   cm_err "could not decrypt entry (wrong GPG passphrase / cancelled)"
    return 1
   }
  pw=${content%%$'\n'*}
  pem=$(printf '%s\n' "$content" | sed -n '/^-----BEGIN/,$p')
  unset content
 
- kill_timer "$name"
- mkdir -p "$RUNTIME_DIR"
- chmod 700 "$RUNTIME_DIR"
- printf '%s' "$pw" >"$(rt "$name" pw)"
- chmod 600 "$(rt "$name" pw)"
- printf '%s\n' "$pem" >"$(rt "$name" pem)"
- chmod 600 "$(rt "$name" pem)"
+ cm_kill_timer "$name"
+ mkdir -p "$CM_RUNTIME_DIR"
+ chmod 700 "$CM_RUNTIME_DIR"
+ printf '%s' "$pw" >"$(cm_rt "$name" pw)"
+ chmod 600 "$(cm_rt "$name" pw)"
+ printf '%s\n' "$pem" >"$(cm_rt "$name" pem)"
+ chmod 600 "$(cm_rt "$name" pem)"
  unset pw pem
 
- now=$(now)
+ now=$(cm_now)
  exp=$((now + secs))
- tpid=$(spawn_timer "$name" "$secs")
+ tpid=$(cm_spawn_timer "$name" "$secs")
  printf 'unlocked_at=%s\nexpires_at=%s\nduration=%s\ntimer_pid=%s\n' \
-  "$now" "$exp" "$secs" "$tpid" >"$(rt "$name" meta)"
- chmod 600 "$(rt "$name" meta)"
- info_set "$name" last_unlocked "$(date -Is)"
+  "$now" "$exp" "$secs" "$tpid" >"$(cm_rt "$name" meta)"
+ chmod 600 "$(cm_rt "$name" meta)"
+ cm_info_set "$name" last_unlocked "$(date -Is)"
 
- ok "Unlocked '$name' for $(fmt_dur "$secs")  →  relocks at $(fmt_ts "$exp")"
- info "Use:  cert-manager curl <args>   |   cert-manager password   |   cert-manager env"
+ cm_ok "Unlocked '$name' for $(cm_fmt_dur "$secs")  →  relocks at $(cm_fmt_ts "$exp")"
+ cm_info "Use:  cert-manager curl <args>   |   cert-manager password   |   cert-manager env"
 }
 
-function lock {
+function cm_lock {
  local names=() n
- if [[ $1 == --all ]]; then mapfile -t names < <(entries); else names=("$1"); fi
+ if [[ $1 == --all ]]; then mapfile -t names < <(cm_entries); else names=("$1"); fi
  for n in "${names[@]}"; do
-  if [[ -f "$(rt "$n" meta)" ]]; then
-   kill_timer "$n"
-   wipe_runtime "$n"
-   info_set "$n" last_locked "$(date -Is) (manual)"
-   ok "Locked '$n'"
+  if [[ -f "$(cm_rt "$n" meta)" ]]; then
+   cm_kill_timer "$n"
+   cm_wipe_runtime "$n"
+   cm_info_set "$n" last_locked "$(date -Is) (manual)"
+   cm_ok "Locked '$n'"
   else
-   info "'$n' is already locked"
+   cm_info "'$n' is already locked"
   fi
  done
- if [[ $PURGE_GPG_CACHE == yes ]] && command -v gpg-connect-agent >/dev/null 2>&1; then
-  gpg-connect-agent reloadagent /bye >/dev/null 2>&1 && info "gpg-agent passphrase cache cleared"
+ if [[ $CM_PURGE_GPG_CACHE == yes ]] && command -v gpg-connect-agent >/dev/null 2>&1; then
+  gpg-connect-agent reloadagent /bye >/dev/null 2>&1 && cm_info "gpg-agent passphrase cache cleared"
  fi
 }
 
-function extend {
+function cm_extend {
  local name=$1 dur=$2 secs exp new_secs meta
- require_unlocked "$name" || return 1
- secs=$(parse_duration "${dur:-1h}") || {
-  err "bad duration '$dur'"
+ cm_require_unlocked "$name" || return 1
+ secs=$(cm_parse_duration "${dur:-1h}") || {
+  cm_err "bad duration '$dur'"
   return 1
  }
- exp=$(meta_get "$name" expires_at)
+ exp=$(cm_meta_get "$name" expires_at)
  exp=$((exp + secs))
- new_secs=$((exp - $(now)))
- kill_timer "$name"
- meta=$(rt "$name" meta)
- sed -i "s/^expires_at=.*/expires_at=$exp/; s/^timer_pid=.*/timer_pid=$(spawn_timer "$name" "$new_secs")/" "$meta"
- ok "Extended '$name' by $(fmt_dur "$secs")  →  relocks at $(fmt_ts "$exp")"
+ new_secs=$((exp - $(cm_now)))
+ cm_kill_timer "$name"
+ meta=$(cm_rt "$name" meta)
+ sed -i "s/^expires_at=.*/expires_at=$exp/; s/^timer_pid=.*/timer_pid=$(cm_spawn_timer "$name" "$new_secs")/" "$meta"
+ cm_ok "Extended '$name' by $(cm_fmt_dur "$secs")  →  relocks at $(cm_fmt_ts "$exp")"
 }
 
-function status {
+function cm_status {
  local name=$1 f state now unl exp dur rem
- entry_exists "$name" || {
-  err "no entry '$name'"
+ cm_entry_exists "$name" || {
+  cm_err "no entry '$name'"
   return 1
  }
- f=$(info_file "$name")
- printf '\n%s%sCertificate entry: %s%s%s\n' "$BO" "$C" "$name" "$N" \
-  "$([[ $name == "$DEFAULT_ENTRY" ]] && printf '  %s(default)%s' "$D" "$N")"
- printf '%s────────────────────────────────────────────────────────%s\n' "$D" "$N"
+ f=$(cm_info_file "$name")
+ printf '\n%s%sCertificate entry: %s%s%s\n' "${COLOR_BO}" "${COLOR_C}" "$name" "${COLOR_N}" \
+  "$([[ $name == "$CM_DEFAULT_ENTRY" ]] && printf '  %s(default)%s' "${COLOR_D}" "${COLOR_N}")"
+ printf '%s────────────────────────────────────────────────────────%s\n' "${COLOR_D}" "${COLOR_N}"
 
- if is_unlocked "$name"; then
-  now=$(now)
-  unl=$(meta_get "$name" unlocked_at)
-  exp=$(meta_get "$name" expires_at)
-  dur=$(meta_get "$name" duration)
+ if cm_is_unlocked "$name"; then
+  now=$(cm_now)
+  unl=$(cm_meta_get "$name" unlocked_at)
+  exp=$(cm_meta_get "$name" expires_at)
+  dur=$(cm_meta_get "$name" duration)
   rem=$((exp - now))
-  printf '  %-16s %sUNLOCKED%s\n' "State:" "$G$BO" "$N"
-  printf '  %-16s %s\n' "Unlocked at:" "$(fmt_ts "$unl")"
-  printf '  %-16s %s\n' "Relocks at:" "$(fmt_ts "$exp")"
-  printf '  %-16s %s\n' "Unlock window:" "$(fmt_dur "$dur")"
-  printf '  %-16s %s%s%s   ' "Remaining:" "$BO" "$(fmt_dur "$rem")" "$N"
-  bar "$rem" "$dur" 30
+  printf '  %-16s %sUNLOCKED%s\n' "State:" "${COLOR_G}${COLOR_BO}" "${COLOR_N}"
+  printf '  %-16s %s\n' "Unlocked at:" "$(cm_fmt_ts "$unl")"
+  printf '  %-16s %s\n' "Relocks at:" "$(cm_fmt_ts "$exp")"
+  printf '  %-16s %s\n' "Unlock window:" "$(cm_fmt_dur "$dur")"
+  printf '  %-16s %s%s%s   ' "Remaining:" "${COLOR_BO}" "$(cm_fmt_dur "$rem")" "${COLOR_N}"
+  cm_bar "$rem" "$dur" 30
   printf '\n'
-  printf '  %-16s %s\n' "Runtime files:" "$RUNTIME_DIR/$name.{pw,pem}"
+  printf '  %-16s %s\n' "Runtime files:" "$CM_RUNTIME_DIR/$name.{pw,pem}"
  else
-  printf '  %-16s %sLOCKED%s\n' "State:" "$R$BO" "$N"
+  printf '  %-16s %sLOCKED%s\n' "State:" "${COLOR_R}${COLOR_BO}" "${COLOR_N}"
  fi
- printf '  %-16s %s\n' "Created:" "$(info_get "$name" created)"
- printf '  %-16s %s\n' "Last unlocked:" "$(info_get "$name" last_unlocked || true)"
- printf '  %-16s %s\n' "Last locked:" "$(info_get "$name" last_locked || true)"
- printf '  %-16s %s\n' "pass entry:" "$(entry_path "$name")  ($(human_size "$(stat -c %s "$STORE_DIR/$PASS_PREFIX/$name.gpg")") gpg-encrypted)"
+ printf '  %-16s %s\n' "Created:" "$(cm_info_get "$name" created)"
+ printf '  %-16s %s\n' "Last unlocked:" "$(cm_info_get "$name" last_unlocked || true)"
+ printf '  %-16s %s\n' "Last locked:" "$(cm_info_get "$name" last_locked || true)"
+ printf '  %-16s %s\n' "pass entry:" "$(cm_entry_path "$name")  ($(cm_human_size "$(stat -c %s "$CM_STORE_DIR/$CM_PASS_PREFIX/$name.gpg")") gpg-encrypted)"
 
- printf '\n%s%sFile / certificate details%s\n' "$BO" "$C" "$N"
- printf '%s────────────────────────────────────────────────────────%s\n' "$D" "$N"
+ printf '\n%s%sFile / certificate details%s\n' "${COLOR_BO}" "${COLOR_C}" "${COLOR_N}"
+ printf '%s────────────────────────────────────────────────────────%s\n' "${COLOR_D}" "${COLOR_N}"
  local src size
- src=$(info_get "$name" source)
- size=$(info_get "$name" size)
- printf '  %-16s %s%s\n' "Source file:" "$src" "$([[ -e $src ]] || printf '  %s(no longer present)%s' "$D" "$N")"
- printf '  %-16s %s (%s bytes)\n' "PEM size:" "$(human_size "$size")" "$size"
- printf '  %-16s %s\n' "SHA-256:" "$(info_get "$name" sha256)"
- printf '  %-16s %s\n' "Certificates:" "$(info_get "$name" cert_count) in chain"
- printf '  %-16s %s\n' "Subject:" "$(info_get "$name" subject)"
- printf '  %-16s %s\n' "Issuer:" "$(info_get "$name" issuer)"
- printf '  %-16s %s\n' "Valid from:" "$(info_get "$name" not_before)"
+ src=$(cm_info_get "$name" source)
+ size=$(cm_info_get "$name" size)
+ printf '  %-16s %s%s\n' "Source file:" "$src" "$([[ -e $src ]] || printf '  %s(no longer present)%s' "${COLOR_D}" "${COLOR_N}")"
+ printf '  %-16s %s (%s bytes)\n' "PEM size:" "$(cm_human_size "$size")" "$size"
+ printf '  %-16s %s\n' "SHA-256:" "$(cm_info_get "$name" sha256)"
+ printf '  %-16s %s\n' "Certificates:" "$(cm_info_get "$name" cert_count) in chain"
+ printf '  %-16s %s\n' "Subject:" "$(cm_info_get "$name" subject)"
+ printf '  %-16s %s\n' "Issuer:" "$(cm_info_get "$name" issuer)"
+ printf '  %-16s %s\n' "Valid from:" "$(cm_info_get "$name" not_before)"
  local na na_epoch days
- na=$(info_get "$name" not_after)
+ na=$(cm_info_get "$name" not_after)
  na_epoch=$(date -d "$na" +%s 2>/dev/null)
  if [[ -n $na_epoch ]]; then
-  days=$(((na_epoch - $(now)) / 86400))
+  days=$(((na_epoch - $(cm_now)) / 86400))
   if ((days < 0)); then
-   printf '  %-16s %s  %sEXPIRED%s\n' "Valid until:" "$na" "$R" "$N"
+   printf '  %-16s %s  %sEXPIRED%s\n' "Valid until:" "$na" "${COLOR_R}" "${COLOR_N}"
   elif ((days < 30)); then
-   printf '  %-16s %s  %s(%d days left)%s\n' "Valid until:" "$na" "$Y" "$days" "$N"
-  else printf '  %-16s %s  %s(%d days left)%s\n' "Valid until:" "$na" "$D" "$days" "$N"; fi
+   printf '  %-16s %s  %s(%d days left)%s\n' "Valid until:" "$na" "${COLOR_Y}" "$days" "${COLOR_N}"
+  else printf '  %-16s %s  %s(%d days left)%s\n' "Valid until:" "$na" "${COLOR_D}" "$days" "${COLOR_N}"; fi
  else
   printf '  %-16s %s\n' "Valid until:" "$na"
  fi
- printf '  %-16s %s %s\n' "Key type:" "$(info_get "$name" key_algo)" "$(info_get "$name" key_bits)"
- printf '  %-16s %s\n' "Key encryption:" "$(info_get "$name" key_enc)"
- printf '\n%sTip:%s cert-manager remaining %s   → live countdown\n\n' "$D" "$N" "$name"
+ printf '  %-16s %s %s\n' "Key type:" "$(cm_info_get "$name" key_algo)" "$(cm_info_get "$name" key_bits)"
+ printf '  %-16s %s\n' "Key encryption:" "$(cm_info_get "$name" key_enc)"
+ printf '\n%sTip:%s cert-manager remaining %s   → live countdown\n\n' "${COLOR_D}" "${COLOR_N}" "$name"
 }
 
-function countdown {
+function cm_countdown {
 
  local name=$1 exp dur rem now key width first=1 old_trap int=0
- require_unlocked "$name" || return 1
- exp=$(meta_get "$name" expires_at)
- dur=$(meta_get "$name" duration)
+ cm_require_unlocked "$name" || return 1
+ exp=$(cm_meta_get "$name" expires_at)
+ dur=$(cm_meta_get "$name" duration)
 
  old_trap=$(trap -p INT)
  trap 'int=1' INT
  tput civis 2>/dev/null
  printf '%s%s⏱  %s%s  %s— relocks at %s   (q or Ctrl-C to quit)%s\n' \
-  "$BO" "$C" "$name" "$N" "$D" "$(fmt_ts "$exp")" "$N"
+  "${COLOR_BO}" "${COLOR_C}" "$name" "${COLOR_N}" "${COLOR_D}" "$(cm_fmt_ts "$exp")" "${COLOR_N}"
 
  while :; do
-  now=$(now)
+  now=$(cm_now)
   rem=$((exp - now))
   width=$(($(tput cols 2>/dev/null || echo 80) - 20))
   ((width > 60)) && width=60
   ((width < 10)) && width=10
   ((first)) || printf '\e[2A'
   first=0
-  printf '\r\e[K   %s%s%s  remaining   %s(%s)%s\n' "$BO" "$(fmt_clock "$rem")" "$N" "$D" "$(fmt_dur "$rem")" "$N"
+  printf '\r\e[K   %s%s%s  remaining   %s(%s)%s\n' "${COLOR_BO}" "$(cm_fmt_clock "$rem")" "${COLOR_N}" "${COLOR_D}" "$(cm_fmt_dur "$rem")" "${COLOR_N}"
   printf '\r\e[K   '
-  bar "$rem" "$dur" "$width"
+  cm_bar "$rem" "$dur" "$width"
   printf '\n'
-  if ((rem <= 0)) || [[ ! -f "$(rt "$name" meta)" ]]; then
-   printf '\n%s%s'\''%s'\'' has relocked.%s\n' "$R" "$BO" "$name" "$N"
+  if ((rem <= 0)) || [[ ! -f "$(cm_rt "$name" meta)" ]]; then
+   printf '\n%s%s'\''%s'\'' has relocked.%s\n' "${COLOR_R}" "${COLOR_BO}" "$name" "${COLOR_N}"
    break
   fi
   key=""
@@ -576,10 +577,10 @@ function countdown {
   ((int)) && break
   [[ $key == q || $key == Q ]] && break
   # expiry may move if `extend` runs elsewhere
-  exp=$(meta_get "$name" expires_at)
-  dur=$(meta_get "$name" duration)
+  exp=$(cm_meta_get "$name" expires_at)
+  dur=$(cm_meta_get "$name" duration)
   [[ -z $exp ]] && {
-   printf '\n%s%s'\''%s'\'' has relocked.%s\n' "$R" "$BO" "$name" "$N"
+   printf '\n%s%s'\''%s'\'' has relocked.%s\n' "${COLOR_R}" "${COLOR_BO}" "$name" "${COLOR_N}"
    break
   }
  done
@@ -588,7 +589,7 @@ function countdown {
  return 0
 }
 
-function export {
+function cm_export {
 
  local name=$1 out="" cert_only=0 decrypt=0 content pem pw
  shift
@@ -600,19 +601,19 @@ function export {
   esac
   shift
  done
- entry_exists "$name" || {
-  err "no entry '$name'"
+ cm_entry_exists "$name" || {
+  cm_err "no entry '$name'"
   return 1
  }
  out=${out:-./$name.pem}
 
- if is_unlocked "$name"; then
-  pem=$(<"$(rt "$name" pem)")
-  pw=$(<"$(rt "$name" pw)")
+ if cm_is_unlocked "$name"; then
+  pem=$(<"$(cm_rt "$name" pem)")
+  pw=$(<"$(cm_rt "$name" pw)")
  else
-  info "'$name' is locked — decrypting via pass (GPG passphrase required)"
-  content=$(pass show "$(entry_path "$name")") || {
-   err "decrypt failed"
+  cm_info "'$name' is locked — decrypting via pass (GPG passphrase required)"
+  content=$(pass show "$(cm_entry_path "$name")") || {
+   cm_err "decrypt failed"
    return 1
   }
   pw=${content%%$'\n'*}
@@ -626,123 +627,123 @@ function export {
   [[ $ans =~ ^[Yy] ]] || return 1
  }
  : >"$out" && chmod 600 "$out" || {
-  err "cannot write $out"
+  cm_err "cannot write $out"
   return 1
  }
 
  if ((cert_only)); then
   printf '%s\n' "$pem" | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >"$out"
-  ok "Exported certificate chain (no key) → $out"
+  cm_ok "Exported certificate chain (no key) → $out"
  elif ((decrypt)); then
-  warn "Writing UNENCRYPTED private key to $out — protect this file!"
+  cm_warn "Writing UNENCRYPTED private key to $out — protect this file!"
   printf '%s\n' "$pem" | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >"$out"
   printf '%s\n' "$pem" | openssl pkey -passin fd:3 3<<<"$pw" >>"$out" ||
    {
-    err "key decryption failed"
+    cm_err "key decryption failed"
     return 1
    }
-  ok "Exported certificate + decrypted key → $out"
+  cm_ok "Exported certificate + decrypted key → $out"
  else
   printf '%s\n' "$pem" >"$out"
-  ok "Exported PEM (certificate + password-protected key) → $out"
+  cm_ok "Exported PEM (certificate + password-protected key) → $out"
  fi
  unset pem pw
 }
 
-password() {
+cm_password() {
  local name=$1
- require_unlocked "$name" || return 1
+ cm_require_unlocked "$name" || return 1
  if [[ $2 == --copy ]]; then
   if command -v wl-copy >/dev/null 2>&1; then
-   wl-copy <"$(rt "$name" pw)"
+   wl-copy <"$(cm_rt "$name" pw)"
   elif command -v xclip >/dev/null 2>&1; then
-   xclip -selection clipboard <"$(rt "$name" pw)"
+   xclip -selection clipboard <"$(cm_rt "$name" pw)"
   else
-   err "no clipboard tool (wl-copy/xclip)"
+   cm_err "no clipboard tool (wl-copy/xclip)"
    return 1
   fi
-  ok "Password copied to clipboard"
+  cm_ok "Password copied to clipboard"
  else
-  cat "$(rt "$name" pw)"
+  cat "$(cm_rt "$name" pw)"
   echo
  fi
 }
 
-curl() {
+cm_curl() {
  local name=$1
  shift
- require_unlocked "$name" || return 1
- curl --cert "$(rt "$name" pem)" --key "$(rt "$name" pem)" \
-  --pass "$(<"$(rt "$name" pw)")" "$@"
+ cm_require_unlocked "$name" || return 1
+ command curl --cert "$(cm_rt "$name" pem)" --key "$(cm_rt "$name" pem)" \
+  --pass "$(<"$(cm_rt "$name" pw)")" "$@"
 }
 
-env() {
+cm_env() {
  local name=$1
- require_unlocked "$name" || return 1
+ cm_require_unlocked "$name" || return 1
  if [[ $2 == --print ]]; then
-  printf 'export CERT_FILE=%q\nexport CERT_PASS=%q\n' "$(rt "$name" pem)" "$(<"$(rt "$name" pw)")"
+  printf 'export CM_CERT_FILE=%q\nexport CM_CERT_PASS=%q\n' "$(cm_rt "$name" pem)" "$(<"$(cm_rt "$name" pw)")"
   return 0
  fi
- export CERT_FILE
- CERT_FILE=$(rt "$name" pem)
- export CERT_PASS
- CERT_PASS=$(<"$(rt "$name" pw)")
- ok "Exported CERT_FILE and CERT_PASS  →  curl --cert \"\$CERT_FILE\" --pass \"\$CERT_PASS\" ..."
+ export CM_CERT_FILE
+ CM_CERT_FILE=$(cm_rt "$name" pem)
+ export CM_CERT_PASS
+ CM_CERT_PASS=$(<"$(cm_rt "$name" pw)")
+ cm_ok "Exported CM_CERT_FILE and CM_CERT_PASS  →  curl --cert \"\$CM_CERT_FILE\" --pass \"\$CM_CERT_PASS\" ..."
 }
-unenv() {
- unset CERT_FILE CERT_PASS
- ok "Cleared CERT_FILE / CERT_PASS"
+cm_unenv() {
+ unset CM_CERT_FILE CM_CERT_PASS
+ cm_ok "Cleared CM_CERT_FILE / CM_CERT_PASS"
 }
 
-list() {
- local n state rem
- mapfile -t all < <(entries)
+cm_list() {
+ local n state rem all
+ mapfile -t all < <(cm_entries)
  ((${#all[@]})) || {
-  info "no entries yet — add one:  cert-manager add <name> <file.pem>"
+  cm_info "no entries yet — add one:  cert-manager add <name> <file.pem>"
   return 0
  }
- printf '%s%-20s %-10s %-22s %s%s\n' "$BO" "NAME" "STATE" "REMAINING" "SUBJECT" "$N"
+ printf '%s%-20s %-10s %-22s %s%s\n' "${COLOR_BO}" "NAME" "STATE" "REMAINING" "SUBJECT" "${COLOR_N}"
  for n in "${all[@]}"; do
-  if is_unlocked "$n"; then
-   rem=$(($(meta_get "$n" expires_at) - $(now)))
-   state="${G}unlocked${N}"
-   rem=$(fmt_dur "$rem")
+  if cm_is_unlocked "$n"; then
+   rem=$(($(cm_meta_get "$n" expires_at) - $(cm_now)))
+   state="${COLOR_G}unlocked${COLOR_N}"
+   rem=$(cm_fmt_dur "$rem")
   else
-   state="${R}locked  ${N}"
+   state="${COLOR_R}locked  ${COLOR_N}"
    rem="-"
   fi
-  printf '%-20s %b   %-22s %s%s\n' "$n$([[ $n == "$DEFAULT_ENTRY" ]] && printf ' *')" "$state" "$rem" \
-   "$(info_get "$n" subject | cut -c1-50)" ""
+  printf '%-20s %b   %-22s %s%s\n' "$n$([[ $n == "$CM_DEFAULT_ENTRY" ]] && printf ' *')" "$state" "$rem" \
+   "$(cm_info_get "$n" subject | cut -c1-50)" ""
  done
- printf '%s(* = default entry;  timeout default: %s)%s\n' "$D" "$DEFAULT_TIMEOUT" "$N"
+ printf '%s(* = default entry;  timeout default: %s)%s\n' "${COLOR_D}" "$CM_DEFAULT_TIMEOUT" "${COLOR_N}"
 }
 
-remove() {
+cm_remove() {
  local name=$1 ans
- entry_exists "$name" || {
-  err "no entry '$name'"
+ cm_entry_exists "$name" || {
+  cm_err "no entry '$name'"
   return 1
  }
  read -rp "Permanently delete pass entry '$name' and its metadata? [y/N] " ans
  [[ $ans =~ ^[Yy] ]] || return 1
- kill_timer "$name"
- wipe_runtime "$name"
- pass rm -f "$(entry_path "$name")" >/dev/null && rm -f "$(info_file "$name")"
- [[ $DEFAULT_ENTRY == "$name" ]] && {
-  DEFAULT_ENTRY=""
-  save_config
+ cm_kill_timer "$name"
+ cm_wipe_runtime "$name"
+ pass rm -f "$(cm_entry_path "$name")" >/dev/null && rm -f "$(cm_info_file "$name")"
+ [[ $CM_DEFAULT_ENTRY == "$name" ]] && {
+  CM_DEFAULT_ENTRY=""
+  cm_save_config
  }
- ok "Removed '$name'"
+ cm_ok "Removed '$name'"
 }
 
-help() {
+cm_help() {
  cat <<EOF
-${BO}cert-manager${N} v$VERSION — timed unlock for password-protected TLS client certs
+${COLOR_BO}}cert-manager${COLOR_N} v$CM_VERSION — timed unlock for password-protected TLS client certs
 
-${BO}Usage:${N}  cert-manager [-e <entry>] <command> [args]
-  install                     installs self into users '\$HOME/.local/bin/s'
+${COLOR_BO}}Usage:${COLOR_N}  cert-manager [-e <entry>] <command> [args]
+  install                     install into \$HOME/.local/bin and (optionally) source from ~/.bashrc
 
-${BO}Setup / entries${N}
+${COLOR_BO}}Setup / entries${COLOR_N}
   setup                       ensure pass, gpg, openssl, curl are installed & initialised
   add <name> <file.pem>       store PEM (cert + encrypted key) AND its password in pass
   list                        list entries and their lock state
@@ -750,22 +751,22 @@ ${BO}Setup / entries${N}
   remove <name>               delete an entry
   timeout [duration]          show or set the default unlock window (default 8h)
 
-${BO}Lock control${N}
+${COLOR_BO}}Lock control${COLOR_N}
   unlock [name] [duration]    decrypt once (gpg), keep usable for <duration> (default: timeout)
   lock   [name|--all]         relock now (wipes runtime secrets, clears gpg-agent cache)
   extend [name] [duration]    push the relock time out (default +1h)
   status [name]               lock details (locked/unlocked, created, remaining, file & cert info)
   remaining [name]            live countdown clock with progress bar (q to quit)
 
-${BO}Using the cert (while unlocked, no prompts)${N}
+${COLOR_BO}}Using the cert (while unlocked, no prompts)${COLOR_N}
   curl <curl args...>         curl with --cert/--key/--pass injected automatically
   password [--copy]           print (or copy) the key password
-  env [--print]               export CERT_FILE / CERT_PASS into this shell
+  env [--print]               export CM_CERT_FILE / CM_CERT_PASS into this shell
   unenv                       clear those variables
   export [name] [out] [--cert-only|--decrypt-key]   write the PEM to a file
 
-${BO}Durations:${N} 8h, 45m, 1h30m, 2d, 90s   (bare number = hours)
-${BO}Env:${N}       ENTRY=<name> selects an entry; PASSWORD_STORE_DIR honoured
+${COLOR_BO}}Durations:${COLOR_N} 8h, 45m, 1h30m, 2d, 90s   (bare number = hours)
+${COLOR_BO}}Env:${COLOR_N}       CM_ENTRY=<name> selects an entry; PASSWORD_STORE_DIR honoured
 
 Examples:
   cert-manager add prod-client ~/certs/client.pem
@@ -779,7 +780,7 @@ EOF
 
 cert-manager() {
  local entry="" cmd
- load_config
+ cm_load_config
  while [[ $1 == -e || $1 == --entry ]]; do
   entry=$2
   shift 2
@@ -788,119 +789,123 @@ cert-manager() {
  shift 2>/dev/null
 
  case $cmd in help | -h | --help)
-  help
+  cm_help
   return 0
   ;;
+ install)
+  cm_install-system
+  return $?
+  ;;
  version | -v)
-  echo "cert-manager $VERSION"
+  echo "cert-manager $CM_VERSION"
   return 0
   ;;
  esac
- ensure_deps || return 1
+ cm_ensure_deps || return 1
 
  case $cmd in
   setup)
-   ok "All dependencies present, pass store initialised. Ready."
+   cm_ok "All dependencies present, pass store initialised. Ready."
    return 0
    ;;
   add)
-   add "$@"
+   cm_add "$@"
    return $?
    ;;
   list | ls)
-   list
+   cm_list
    return $?
    ;;
   use)
    [[ -z $1 ]] && {
-    err "usage: cert-manager use <name>"
+    cm_err "usage: cert-manager use <name>"
     return 1
    }
-   entry_exists "$1" || {
-    err "no entry '$1'"
+   cm_entry_exists "$1" || {
+    cm_err "no entry '$1'"
     return 1
    }
-   DEFAULT_ENTRY=$1
-   save_config
-   ok "Default entry → $1"
+   CM_DEFAULT_ENTRY=$1
+   cm_save_config
+   cm_ok "Default entry → $1"
    return 0
    ;;
   remove | rm)
-   remove "$1"
+   cm_remove "$1"
    return $?
    ;;
   timeout)
    if [[ -z $1 ]]; then
-    echo "default unlock window: $DEFAULT_TIMEOUT ($(fmt_dur "$(parse_duration "$DEFAULT_TIMEOUT")"))"
+    echo "default unlock window: $CM_DEFAULT_TIMEOUT ($(cm_fmt_dur "$(cm_parse_duration "$CM_DEFAULT_TIMEOUT")"))"
     return 0
    fi
-   parse_duration "$1" >/dev/null || {
-    err "bad duration '$1'"
+   cm_parse_duration "$1" >/dev/null || {
+    cm_err "bad duration '$1'"
     return 1
    }
-   DEFAULT_TIMEOUT=$1
-   save_config
-   ok "Default unlock window → $1"
+   CM_DEFAULT_TIMEOUT=$1
+   cm_save_config
+   cm_ok "Default unlock window → $1"
    return 0
    ;;
   lock) if [[ $1 == --all ]]; then
-   lock --all
+   cm_lock --all
    return $?
   fi ;;
  esac
 
  local -a all
  if [[ -z $entry ]]; then
-  if [[ -n ${ENTRY:-} ]]; then
-   entry=$ENTRY
-  elif [[ -n $1 ]] && entry_exists "$1" && [[ $cmd != curl ]]; then
+  if [[ -n ${CM_ENTRY:-} ]]; then
+   entry=$CM_ENTRY
+  elif [[ -n $1 ]] && cm_entry_exists "$1" && [[ $cmd != cm_curl ]]; then
    entry=$1
    shift
-  elif [[ -n $DEFAULT_ENTRY ]]; then
-   entry=$DEFAULT_ENTRY
+  elif [[ -n $CM_DEFAULT_ENTRY ]]; then
+   entry=$CM_DEFAULT_ENTRY
   else
-   mapfile -t all < <(entries)
+   mapfile -t all < <(cm_entries)
    ((${#all[@]} == 1)) && entry=${all[0]}
   fi
  fi
  if [[ -z $entry ]]; then
-  err "no entry selected. Add one (cert-manager add <name> <file.pem>) or pass -e <name>"
+  cm_err "no entry selected. Add one (cert-manager add <name> <file.pem>) or pass -e <name>"
   return 1
  fi
- entry_exists "$entry" || {
-  err "no entry '$entry' (cert-manager list)"
+ cm_entry_exists "$entry" || {
+  cm_err "no entry '$entry' (cert-manager list)"
   return 1
  }
 
  case $cmd in
-  install) install-system "$entry" "$@" ;;
-  unlock) unlock "$entry" "$@" ;;
-  lock) lock "$entry" ;;
-  extend) extend "$entry" "$@" ;;
-  status | show | info) status "$entry" ;;
-  remaining | time | countdown | watch) countdown "$entry" ;;
-  export) export "$entry" "$@" ;;
-  password | pass | pw) password "$entry" "$@" ;;
-  curl) curl "$entry" "$@" ;;
-  env) env "$entry" "$@" ;;
-  unenv) unenv ;;
+  unlock) cm_unlock "$entry" "$@" ;;
+  lock) cm_lock "$entry" ;;
+  extend) cm_extend "$entry" "$@" ;;
+  status | show | info) cm_status "$entry" ;;
+  remaining | time | countdown | watch) cm_countdown "$entry" ;;
+  export) cm_export "$entry" "$@" ;;
+  password | pass | pw) cm_password "$entry" "$@" ;;
+  curl) cm_curl "$entry" "$@" ;;
+  env) cm_env "$entry" "$@" ;;
+  unenv) cm_unenv ;;
   *)
-   err "unknown command '$cmd'"
-   help
+   cm_err "unknown command '$cmd'"
+   cm_help
    return 1
    ;;
  esac
 }
 
-function complete {
+function cert-manager-complete {
+
  local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD - 1]}
  case $prev in
-  cert-manager) COMPREPLY=($(compgen -W "setup add list use remove timeout unlock lock extend status remaining export password curl env unenv help" -- "$cur")) ;;
-  install | unlock | lock | extend | status | remaining | export | password | env | use | remove | -e) COMPREPLY=($(compgen -W "$(entries) --all" -- "$cur")) ;;
+  cert-manager) COMPREPLY=($(compgen -W "install setup add list use remove timeout unlock lock extend status remaining export password curl env unenv help" -- "$cur")) ;;
+  install | unlock | lock | extend | status | remaining | export | password | env | use | remove | -e) COMPREPLY=($(compgen -W "$(cm_entries) --all" -- "$cur")) ;;
   add) COMPREPLY=($(compgen -f -- "$cur")) ;;
  esac
 }
-complete -F complete cert-manager 2>/dev/null
+complete -F cert-manager-complete cert-manager 2>/dev/null
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
  cert-manager "$@"
