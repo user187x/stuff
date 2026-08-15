@@ -20,6 +20,58 @@ else
  _CM_R="" _CM_G="" _CM_Y="" _CM_B="" _CM_C="" _CM_D="" _CM_BO="" _CM_N=""
 fi
 
+function install-system {
+
+ local script_path
+ script_path=$(realpath "${BASH_SOURCE[0]:-$0}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]:-$0}")
+
+ if [[ -z "$script_path" || ! -f "$script_path" ]]; then
+  echo "Error: Could not determine the source script path." >&2
+  return 1
+ fi
+
+ local target_dir="$HOME/.local/bin"
+ local script_name
+ script_name=$(basename "$script_path")
+ local target_path="$target_dir/$script_name"
+
+ echo "Starting installation of '$script_name'..."
+
+ # Ensure the target directory exists
+ if [[ ! -d "$target_dir" ]]; then
+  echo "Creating target directory at $target_dir..."
+  mkdir -p "$target_dir" || {
+   echo "Error: Failed to create directory $target_dir." >&2
+   return 1
+  }
+ fi
+
+ # Check if it's already running from the target path to prevent overwriting itself during normal use
+ if [[ "$script_path" == "$target_path" ]]; then
+  echo "Script is already installed and running from $target_path. No action needed."
+  return 0
+ fi
+
+ # Copy the script to the target directory
+ echo "Copying to $target_path..."
+ if cp "$script_path" "$target_path"; then
+  # Ensure the installed script is executable
+  chmod +x "$target_path"
+  echo "Successfully installed '$script_name' to $target_dir."
+
+  # Check if the target directory is currently in the user's PATH
+  if [[ ":$PATH:" != *":$target_dir:"* ]]; then
+   echo ""
+   echo "Warning: $target_dir is not currently in your \$PATH."
+   echo "To use this script globally, add the following line to your ~/.bashrc, ~/.zshrc, or ~/.profile:"
+   echo "    export PATH=\"$target_dir:\$PATH\""
+  fi
+ else
+  echo "Error: Failed to copy the script to $target_dir." >&2
+  return 1
+ fi
+}
+
 _cm_ok() { printf '%s✔%s %s\n' "$_CM_G" "$_CM_N" "$*"; }
 _cm_info() { printf '%s•%s %s\n' "$_CM_B" "$_CM_N" "$*"; }
 _cm_warn() { printf '%s!%s %s\n' "$_CM_Y" "$_CM_N" "$*" >&2; }
@@ -677,6 +729,7 @@ _cm_help() {
 ${_CM_BO}cert-manager${_CM_N} v$CM_VERSION — timed unlock for password-protected TLS client certs
 
 ${_CM_BO}Usage:${_CM_N}  cert-manager [-e <entry>] <command> [args]
+  install                     installs self into users '\$HOME/.local/bin/s'
 
 ${_CM_BO}Setup / entries${_CM_N}
   setup                       ensure pass, gpg, openssl, curl are installed & initialised
@@ -809,6 +862,7 @@ cert-manager() {
  }
 
  case $cmd in
+  install) install-system "$entry" "$@" ;;
   unlock) _cm_unlock "$entry" "$@" ;;
   lock) _cm_lock "$entry" ;;
   extend) _cm_extend "$entry" "$@" ;;
@@ -832,7 +886,7 @@ _cm_complete() {
  local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD - 1]}
  case $prev in
   cert-manager) COMPREPLY=($(compgen -W "setup add list use remove timeout unlock lock extend status remaining export password curl env unenv help" -- "$cur")) ;;
-  unlock | lock | extend | status | remaining | export | password | env | use | remove | -e) COMPREPLY=($(compgen -W "$(_cm_entries) --all" -- "$cur")) ;;
+  install | unlock | lock | extend | status | remaining | export | password | env | use | remove | -e) COMPREPLY=($(compgen -W "$(_cm_entries) --all" -- "$cur")) ;;
   add) COMPREPLY=($(compgen -f -- "$cur")) ;;
  esac
 }
