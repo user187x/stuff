@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  cert-manager-pam-hook  —  executed by pam_certmanager.so AS THE USER
+#
+#  usage: cert-manager-pam-hook <open|close> <username>
+#
+#  close : if this is the user's last login session (or CM_PAM_ALWAYS=1),
+#          relock every unlocked cert-manager entry: kill the auto-relock
+#          timer, shred the runtime password/PEM/meta files, note the lock in
+#          the entry's info file and drop gpg-agent's cached passphrases.
+#  open  : wipe any stale unlocked state so an entry is never "open" for a
+#          user who was not logged in.
+#
+#  It is deliberately self-contained (does not source cert-manager) so a
+#  broken/missing user install can never leave secrets behind. It mirrors the
+#  file layout used by cert-manager:
+#     runtime : ${XDG_RUNTIME_DIR:-/tmp}/cert-manager-<uid>/<entry>.{pw,pem,meta}
+#     info    : ${XDG_CONFIG_HOME:-~/.config}/cert-manager/entries/<entry>.info
+#  Never exits non-zero for "nothing to do"; never blocks the login.
+# =============================================================================
+
+event=${1:-${CM_PAM_EVENT:-close}}
+user=${2:-${USER:-$(id -un)}}
+uid=$(id -u)
+debug=${CM_PAM_DEBUG:-0}
+tag="cert-manager-pam"
+
+log() { logger -t "$tag" -p auth.info -- "[$user/$event] $*" 2>/dev/null || true; }
+dbg() {
+ [[ $debug == 1 ]] && logger -t "$tag" -p auth.debug -- "[$user/$event] $*" 2>/dev/null
+ return 0
+}
+warnl() { logger -t "$tag" -p auth.warning -- "[$user/$event] $*" 2>/dev/null || true; }
+
+# Safety: refuse to run as root (module drops privileges; manual runs should use sudo -u)
+if [[ $uid -eq 0 ]]; then
+ warnl "refusing to run as root"
+ exit 0
+fi
+
+# ---------------------------------------------------------------- session count
+# On close: only lock when no other login session for this user remains,
+# unless CM_PAM_ALWAYS=1.  The closing session may or may not still be listed
+# by logind at this point, so "<= 1 remaining" is treated as "last session".
+other_sessions() {
+ local n=""
+ if command -v loginctl >/dev/null 2>&1; then
+  n=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$user" '$3==u' | wc -l)
+ fi
+ if [[ -z $n || $n == 0 ]] && command -v who >/dev/null 2>&1; then
+  n=$(who 2>/dev/null | awk -v u="$user" '$1==u' | wc -l)
+ fi
+ echo "${n:-0}"
+}
+
+if [[ $event == close && ${CM_PAM_ALWAYS:-0} != 1 ]]; then
+ n=$(other_sessions)
+ if ((n > 1)); then
+  dbg "$n sessions still listed for $user — not the last logout, leaving entries unlocked"
+  exit 0
+ fi
+fi
+
+# --------------------------------------------------------------- lock everything
+cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/cert-manager"
+info_dir="$cfg_dir/entries"
+stamp="$(date -Is) (pam $event)"
+locked=0
+
+record_lock() { # <entry>
+ local f="$info_dir/$1.info" tmp
+ [[ -f $f ]] || return 0
+ tmp=$(mktemp "$info_dir/.tmp.XXXXXX" 2>/dev/null) || return 0
+ grep -v '^last_locked=' "$f" >"$tmp" 2>/dev/null
+ printf 'last_locked=%s\n' "$stamp" >>"$tmp"
+ mv -f "$tmp" "$f" 2>/dev/null && chmod 600 "$f" 2>/dev/null
+}
+
+wipe_file() {
+ [[ -e $1 ]] || return 0
+ if command -v shred >/dev/null 2>&1; then shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; else rm -f -- "$1"; fi
+}
+
+for rt in "${XDG_RUNTIME_DIR:-/run/user/$uid}/cert-manager-$uid" "/tmp/cert-manager-$uid"; do
+ [[ -d $rt ]] || continue
+ # anything with a .pw/.pem/.meta is an unlocked (or half-unlocked) entry
+ for f in "$rt"/*.pw "$rt"/*.pem "$rt"/*.meta; do
+  [[ -e $f ]] || continue
+  name=$(basename "$f")
+  name=${name%.*}
+  # kill the background auto-relock timer if the meta still exists
+  if [[ -f "$rt/$name.meta" ]]; then
+   pid=$(grep -m1 '^timer_pid=' "$rt/$name.meta" 2>/dev/null | cut -d= -f2)
+   [[ -n $pid ]] && kill "$pid" 2>/dev/null
+  fi
+  wipe_file "$rt/$name.pw"
+  wipe_file "$rt/$name.pem"
+  wipe_file "$rt/$name.meta"
+  record_lock "$name"
+  log "locked entry '$name' ($rt)"
+  locked=$((locked + 1))
+ done
+done
+
+# any orphaned timers (meta already gone) — kill sleepers that reference our runtime dir
+if command -v pgrep >/dev/null 2>&1; then
+ pgrep -u "$uid" -f "cert-manager-$uid" 2>/dev/null | while read -r p; do
+  [[ $p == $$ ]] && continue
+  kill "$p" 2>/dev/null && dbg "killed orphan timer pid $p"
+ done
+fi
+
+# on final logout also drop gpg-agent's cached passphrase so `pass show` re-prompts
+if [[ $event == close ]] && command -v gpgconf >/dev/null 2>&1; then
+ gpgconf --kill gpg-agent 2>/dev/null && dbg "gpg-agent stopped (passphrase cache cleared)"
+fi
+
+if ((locked > 0)); then
+ log "relocked $locked entr$([[ $locked == 1 ]] && echo y || echo ies) on session $event"
+else
+ dbg "no unlocked entries"
+fi
+exit 0

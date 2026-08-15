@@ -1,0 +1,6 @@
+Name: cert-manager: relock TLS client-cert entries on logout
+Default: yes
+Priority: -10
+Session-Type: Additional
+Session:
+	optional			pam_certmanager.so
