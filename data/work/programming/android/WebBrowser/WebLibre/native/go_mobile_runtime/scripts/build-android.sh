@@ -187,8 +187,8 @@ if [[ -z "${JAVA_HOME:-}" && -x /usr/lib/jvm/java-17-openjdk/bin/java ]]; then
 fi
 
 JAVA_BIN="${JAVA_HOME:+$JAVA_HOME/bin/}java"
-if ! "$JAVA_BIN" --version 2>/dev/null | grep -q 'openjdk 17'; then
-  echo "gomobile Android runtime build requires OpenJDK 17." >&2
+if ! "$JAVA_BIN" --version 2>/dev/null | grep -qE 'openjdk (17|25|26)|Java\(TM\) SE'; then
+  echo "gomobile Android runtime build requires OpenJDK 17, 25, or 26." >&2
   "$JAVA_BIN" --version >&2 || true
   exit 1
 fi

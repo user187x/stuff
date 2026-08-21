@@ -25,14 +25,49 @@ import 'package:riverpod/riverpod.dart';
 import 'package:weblibre/core/database_registry.dart';
 import 'package:weblibre/core/logger.dart';
 import 'package:weblibre/features/geckoview/features/browser/domain/services/browser_data.dart';
+import 'package:weblibre/features/geckoview/features/history/domain/repositories/history.dart';
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/container.dart';
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/tab.dart';
+import 'package:weblibre/features/geckoview/features/search/domain/providers/search_modules_view.dart';
 import 'package:weblibre/features/tor/domain/services/tor_proxy.dart';
+import 'package:weblibre/features/user/data/models/general_settings.dart';
+import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 
 Future<void> exitApp(ProviderContainer container) async {
   logger.i('Preparing exit');
 
+  final settings = await container
+      .read(generalSettingsRepositoryProvider.notifier)
+      .fetchSettings();
+
+  // 0. Data clearing on exit
+  if (settings.deleteAllOnExit) {
+    logger.i('Deleting all browsing data on exit');
+    await container
+        .read(browserDataServiceProvider.notifier)
+        .deleteData(DeleteBrowsingDataType.values.toSet());
+  } else {
+    if (settings.historyClearOnExit) {
+      logger.i('Clearing history on exit');
+      await container.read(browserDataServiceProvider.notifier).deleteData({
+        DeleteBrowsingDataType.history,
+      });
+    }
+
+    if (settings.unassignedTabsClearOnExit) {
+      logger.i('Clearing unassigned tabs on exit');
+      try {
+        await container
+            .read(tabDataRepositoryProvider.notifier)
+            .deleteUnassignedTabsOlderThan(DateTime.now());
+      } catch (e, st) {
+        logger.e('Failed to close unassigned tabs', error: e, stackTrace: st);
+      }
+    }
+  }
+
   // 1. Close private tabs (clears browsing data for private contexts).
+  //    If deleteAllOnExit was true, this is already done, but it's safe to repeat.
   //    Isolated tabs are persistent and should survive app exit.
   try {
     await container
@@ -95,7 +130,7 @@ Future<void> exitApp(ProviderContainer container) async {
   //    attached so shutdown() can access the FragmentManager. Internally it:
   //    a) removes the BrowserFragment via commitNow() (view teardown with
   //       the runtime still alive),
-  //    b) stops component-level services (FxA, account manager),
+  //    b) stops component-level services,
   //    c) shuts down GeckoRuntime (safe — no views reference it anymore).
   try {
     await GeckoBrowserService().shutdown();
@@ -111,7 +146,7 @@ Future<void> exitApp(ProviderContainer container) async {
     logger.e('Failed to close databases', error: e, stackTrace: st);
   }
 
-  // 5. Dispose the Riverpod container (remaining sync cleanup).
+  // 5. Dispose the Riverpod container.
   //    This fires async onDispose callbacks (e.g. stream cancellations in
   //    GeckoView services, viewport service) as fire-and-forget futures.
   container.dispose();

@@ -88,8 +88,6 @@ import 'package:weblibre/features/proxy/domain/services/tab_routing.dart';
 import 'package:weblibre/features/proxy/presentation/controllers/ensure_proxy_started.dart';
 import 'package:weblibre/features/proxy/presentation/widgets/proxy_connection_picker_sheet.dart';
 import 'package:weblibre/features/small_web/presentation/controllers/small_web_mode_controller.dart';
-import 'package:weblibre/features/sync/domain/entities/sync_repository_state.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
 import 'package:weblibre/features/tor/domain/services/tor_proxy.dart';
 import 'package:weblibre/features/tor/presentation/controllers/start_tor_proxy.dart';
 import 'package:weblibre/features/user/data/models/proxy_routing_settings.dart';
@@ -97,7 +95,6 @@ import 'package:weblibre/features/user/domain/presentation/dialogs/quit_browser_
 import 'package:weblibre/features/user/domain/providers.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 import 'package:weblibre/features/user/domain/repositories/proxy_routing_settings.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/controllers/website_title.dart';
 import 'package:weblibre/presentation/hooks/cached_future.dart';
 import 'package:weblibre/presentation/hooks/menu_controller.dart';
@@ -540,9 +537,7 @@ class _PageActionsCard extends HookConsumerWidget {
           title: const Text('Add Bookmark'),
           onTap: () async {
             final tabState = ref.read(tabStateProvider(selectedTabId))!;
-            final bookmarkUrl =
-                ref.read(sandboxSourceUriForTabProvider(tabId: tabState.id)) ??
-                tabState.url;
+            final bookmarkUrl = tabState.url;
             Navigator.pop(context);
             await BookmarkEntryAddRoute(
               bookmarkInfo: jsonEncode(
@@ -848,10 +843,7 @@ class _PinTopSiteTile extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tabState = ref.watch(tabStateProvider(selectedTabId));
-    final sandboxSourceUri = ref.watch(
-      sandboxSourceUriForTabProvider(tabId: selectedTabId),
-    );
-    final url = sandboxSourceUri ?? tabState?.url;
+    final url = tabState?.url;
 
     final isPinned = useCachedFuture(
       () => url != null
@@ -1094,11 +1086,7 @@ class _CloneTabExpansion extends ConsumerWidget {
             icon: MdiIcons.tab,
             onTap: () async {
               final tabState = ref.read(tabStateProvider(selectedTabId))!;
-              final cloneUrl =
-                  ref.read(
-                    sandboxSourceUriForTabProvider(tabId: tabState.id),
-                  ) ??
-                  tabState.url;
+              final cloneUrl = tabState.url;
               final containerData = await ref
                   .read(tabDataRepositoryProvider.notifier)
                   .getTabContainerData(selectedTabId);
@@ -1134,11 +1122,7 @@ class _CloneTabExpansion extends ConsumerWidget {
             iconColor: appColors.privateTabPurple,
             onTap: () async {
               final tabState = ref.read(tabStateProvider(selectedTabId))!;
-              final cloneUrl =
-                  ref.read(
-                    sandboxSourceUriForTabProvider(tabId: tabState.id),
-                  ) ??
-                  tabState.url;
+              final cloneUrl = tabState.url;
               final containerData = await ref
                   .read(tabDataRepositoryProvider.notifier)
                   .getTabContainerData(selectedTabId);
@@ -1175,11 +1159,7 @@ class _CloneTabExpansion extends ConsumerWidget {
               iconColor: appColors.isolatedTabTeal,
               onTap: () async {
                 final tabState = ref.read(tabStateProvider(selectedTabId))!;
-                final cloneUrl =
-                    ref.read(
-                      sandboxSourceUriForTabProvider(tabId: tabState.id),
-                    ) ??
-                    tabState.url;
+                final cloneUrl = tabState.url;
                 final containerData = await ref
                     .read(tabDataRepositoryProvider.notifier)
                     .getTabContainerData(selectedTabId);
@@ -1375,12 +1355,7 @@ class _ShareExpansion extends HookConsumerWidget {
     final settings = ref.watch(generalSettingsWithDefaultsProvider);
     final catalogAsync = ref.watch(urlCleanerCatalogServiceProvider);
     final tabState = ref.watch(tabStateProvider(selectedTabId));
-    final sandboxSourceUri = ref.watch(
-      sandboxSourceUriForTabProvider(tabId: selectedTabId),
-    );
-    // Sandbox-captured tabs: every share/copy/QR/cleaner action must operate
-    // on the canonical source URL — never the loopback loader.
-    final tabUrl = sandboxSourceUri ?? tabState?.url;
+    final tabUrl = tabState?.url;
 
     final cleanedUrl = useState<Uri?>(null);
     final cleaner = useUrlCleanerController(
@@ -1487,9 +1462,6 @@ class _ShareExpansion extends HookConsumerWidget {
             },
           ),
 
-          // Send To Device (conditional)
-          _SendToDeviceExpansion(selectedTabId: selectedTabId),
-
           // Show QR Code
           _buildSubTile(
             'Show QR Code',
@@ -1542,130 +1514,6 @@ class _OpenInAppTile extends HookConsumerWidget {
           },
         ),
       ],
-    );
-  }
-}
-
-class _SendToDeviceExpansion extends ConsumerWidget {
-  final String selectedTabId;
-
-  const _SendToDeviceExpansion({required this.selectedTabId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isAuthenticated = ref.watch(syncIsAuthenticatedProvider);
-    final devices = ref.watch(syncDevicesProvider);
-
-    if (!isAuthenticated) return const SizedBox.shrink();
-
-    return Skeletonizer(
-      enabled: devices.isLoading && devices.value == null,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.only(left: 56, right: 16),
-          leading: const Icon(Icons.send_outlined, size: 20),
-          title: const Text('Send To Device', style: TextStyle(fontSize: 14)),
-          children: devices.when(
-            data: (deviceList) {
-              final targets = deviceList
-                  .where(
-                    (device) => !device.isCurrentDevice && device.canSendTab,
-                  )
-                  .toList(growable: false);
-
-              if (targets.isEmpty) {
-                return [
-                  const ListTile(
-                    contentPadding: EdgeInsets.only(left: 72, right: 16),
-                    title: Text(
-                      'No target devices',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ];
-              }
-
-              return targets
-                  .map(
-                    (device) => ListTile(
-                      contentPadding: const EdgeInsets.only(
-                        left: 72,
-                        right: 16,
-                      ),
-                      leading: const Icon(Icons.devices_other, size: 18),
-                      title: Text(
-                        device.displayName,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      dense: true,
-                      onTap: () async {
-                        final tabState = ref.read(
-                          tabStateProvider(selectedTabId),
-                        );
-                        if (tabState == null) return;
-
-                        final sendUrl =
-                            ref.read(
-                              sandboxSourceUriForTabProvider(
-                                tabId: tabState.id,
-                              ),
-                            ) ??
-                            tabState.url;
-                        final title = tabState.title.isNotEmpty
-                            ? tabState.title
-                            : sendUrl.toString();
-
-                        final success = await ref
-                            .read(syncRepositoryProvider.notifier)
-                            .sendTabToDevice(
-                              deviceId: device.deviceId,
-                              title: title,
-                              url: sendUrl.toString(),
-                              private: tabState.tabMode == TabMode.private,
-                            );
-
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          if (success) {
-                            ui_helper.showInfoMessage(
-                              context,
-                              'Sent tab to ${device.displayName}',
-                            );
-                          } else {
-                            ui_helper.showErrorMessage(
-                              context,
-                              'Failed to send tab',
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  )
-                  .toList(growable: false);
-            },
-            loading: () => const [
-              ListTile(
-                contentPadding: EdgeInsets.only(left: 72, right: 16),
-                leading: Icon(Icons.devices_other, size: 18),
-                title: Text(
-                  'Loading devices...',
-                  style: TextStyle(fontSize: 13),
-                ),
-              ),
-            ],
-            error: (_, _) => const [
-              ListTile(
-                contentPadding: EdgeInsets.only(left: 72, right: 16),
-                title: Text(
-                  'Failed to load devices',
-                  style: TextStyle(fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -2765,7 +2613,6 @@ class _ProfileCard extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final profile = ref.watch(selectedProfileProvider);
-    final isAuthenticated = ref.watch(syncIsAuthenticatedProvider);
 
     return _buildMenuCard(
       context,
@@ -2791,9 +2638,6 @@ class _ProfileCard extends HookConsumerWidget {
             await const SelectProfileRoute().push(context);
           },
         ),
-
-        // Sync Now (conditional)
-        if (isAuthenticated) ...[_buildDivider(), _SyncTile()],
 
         _buildDivider(),
         ListTile(
@@ -2826,70 +2670,6 @@ class _ProfileCard extends HookConsumerWidget {
           },
         ),
       ],
-    );
-  }
-}
-
-class _SyncTile extends HookConsumerWidget {
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final syncInfo = ref.watch(
-      syncRepositoryProvider.select((value) => value.value?.account),
-    );
-
-    final syncStarted = ref.watch(
-      syncEventProvider.select(
-        (value) => value.isLoading || value.value?.$1 == SyncEvent.started,
-      ),
-    );
-    final isSyncing = syncStarted || syncInfo?.syncing == true;
-
-    final disableAnimations = MediaQuery.disableAnimationsOf(context);
-
-    final controller = useAnimationController(
-      duration: disableAnimations ? Duration.zero : const Duration(seconds: 2),
-    );
-
-    useEffect(() {
-      if (isSyncing && !disableAnimations) {
-        unawaited(controller.repeat());
-      } else {
-        controller.stop();
-        controller.reset();
-      }
-      return null;
-    }, [isSyncing, disableAnimations]);
-
-    return ListTile(
-      leading: RotationTransition(
-        turns: Tween<double>(begin: 0, end: -1).animate(controller),
-        child: const Icon(Icons.sync),
-      ),
-      title: const Text('Sync Now'),
-      onTap: () async {
-        await ref.read(syncRepositoryProvider.notifier).syncNow();
-
-        final openedTabs = await ref
-            .read(syncRepositoryProvider.notifier)
-            .pollIncomingTabsAndOpen();
-
-        if (context.mounted) {
-          if (openedTabs > 0) {
-            ui_helper.showOpenedTabsFromAnotherDeviceMessage(
-              context,
-              openedTabs,
-            );
-          } else {
-            ui_helper.showInfoMessage(
-              context,
-              'Synchronization complete',
-              duration: const Duration(seconds: 2),
-            );
-          }
-        }
-
-        if (context.mounted) Navigator.pop(context);
-      },
     );
   }
 }

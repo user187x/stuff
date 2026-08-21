@@ -71,7 +71,6 @@ import 'package:weblibre/features/proxy/domain/services/tab_routing.dart';
 import 'package:weblibre/features/proxy/presentation/controllers/ensure_proxy_started.dart';
 import 'package:weblibre/features/small_web/presentation/controllers/small_web_mode_controller.dart';
 import 'package:weblibre/features/small_web/presentation/widgets/small_web_browser_overlay.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
 import 'package:weblibre/features/user/data/models/general_settings.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 import 'package:weblibre/presentation/hooks/keyed_state.dart';
@@ -1165,34 +1164,6 @@ class BrowserScreen extends HookConsumerWidget {
     useOnAppLifecycleStateChange((previous, current) {
       switch (current) {
         case AppLifecycleState.resumed:
-          if (current != AppLifecycleState.resumed) {
-            return;
-          }
-
-          if (!ref.read(syncIsAuthenticatedProvider)) {
-            return;
-          }
-
-          unawaited(() async {
-            try {
-              final openedTabs = await ref
-                  .read(syncRepositoryProvider.notifier)
-                  .pollIncomingTabsAndOpen();
-
-              if (openedTabs > 0 && context.mounted) {
-                ui_helper.showOpenedTabsFromAnotherDeviceMessage(
-                  context,
-                  openedTabs,
-                );
-              }
-            } catch (e, s) {
-              logger.e(
-                'Failed polling incoming sync tabs on resume',
-                error: e,
-                stackTrace: s,
-              );
-            }
-          }());
         case AppLifecycleState.detached:
         case AppLifecycleState.inactive:
         case AppLifecycleState.hidden:
@@ -2180,16 +2151,6 @@ class _ViewTabsSheet extends HookConsumerWidget {
     final tabsViewMode = ref.watch(tabsViewModeControllerProvider);
     final tabsReorderable = ref.watch(tabsReorderableControllerProvider);
 
-    final isSyncedScope = ref.watch(
-      effectiveTabsTrayScopeProvider.select(
-        (scope) => scope == TabsTrayScope.synced,
-      ),
-    );
-
-    final effectiveTabsViewMode = isSyncedScope
-        ? TabsViewMode.list
-        : tabsViewMode;
-
     final draggableScrollableController = useDraggableScrollableController(
       keys: [tabsReorderable],
     );
@@ -2208,7 +2169,7 @@ class _ViewTabsSheet extends HookConsumerWidget {
             topRight: Radius.circular(28),
           ),
           clipBehavior: Clip.antiAlias,
-          child: switch (effectiveTabsViewMode) {
+          child: switch (tabsViewMode) {
             TabsViewMode.list => ViewTabListWidget(
               scrollController: scrollController,
               showNewTabFab: true,

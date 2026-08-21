@@ -8,14 +8,12 @@ part of 'sharing_intent.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// Shared intent receiver instance. Both the sharing intent stream
-/// and the account callback handler listen to its broadcast events.
+/// Shared intent receiver instance.
 
 @ProviderFor(intentReceiver)
 final intentReceiverProvider = IntentReceiverProvider._();
 
-/// Shared intent receiver instance. Both the sharing intent stream
-/// and the account callback handler listen to its broadcast events.
+/// Shared intent receiver instance.
 
 final class IntentReceiverProvider
     extends
@@ -25,8 +23,7 @@ final class IntentReceiverProvider
           Raw<IntentReceiver>
         >
     with $Provider<Raw<IntentReceiver>> {
-  /// Shared intent receiver instance. Both the sharing intent stream
-  /// and the account callback handler listen to its broadcast events.
+  /// Shared intent receiver instance.
   IntentReceiverProvider._()
     : super(
         from: null,
@@ -111,56 +108,3 @@ final class SharingIntentStreamProvider
 
 String _$sharingIntentStreamHash() =>
     r'62e9e54bfa168e7400c4c496d0aca0972ccdf4c1';
-
-/// Stream of account callback handoff codes extracted from deep link intents.
-
-@ProviderFor(accountCallbackStream)
-final accountCallbackStreamProvider = AccountCallbackStreamProvider._();
-
-/// Stream of account callback handoff codes extracted from deep link intents.
-
-final class AccountCallbackStreamProvider
-    extends
-        $FunctionalProvider<
-          Raw<Stream<String>>,
-          Raw<Stream<String>>,
-          Raw<Stream<String>>
-        >
-    with $Provider<Raw<Stream<String>>> {
-  /// Stream of account callback handoff codes extracted from deep link intents.
-  AccountCallbackStreamProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'accountCallbackStreamProvider',
-        isAutoDispose: false,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$accountCallbackStreamHash();
-
-  @$internal
-  @override
-  $ProviderElement<Raw<Stream<String>>> $createElement(
-    $ProviderPointer pointer,
-  ) => $ProviderElement(pointer);
-
-  @override
-  Raw<Stream<String>> create(Ref ref) {
-    return accountCallbackStream(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(Raw<Stream<String>> value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<Raw<Stream<String>>>(value),
-    );
-  }
-}
-
-String _$accountCallbackStreamHash() =>
-    r'669354c8000657bcaea046ab6318f89cb10dd7fc';

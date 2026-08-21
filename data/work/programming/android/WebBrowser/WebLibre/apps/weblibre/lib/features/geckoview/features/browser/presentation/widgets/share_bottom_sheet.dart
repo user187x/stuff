@@ -38,9 +38,7 @@ import 'package:weblibre/features/geckoview/features/open_link_tools/presentatio
 import 'package:weblibre/features/geckoview/features/open_link_tools/presentation/hooks/url_cleaner_controller.dart';
 import 'package:weblibre/features/geckoview/features/tabs/data/entities/tab_mode.dart';
 import 'package:weblibre/features/geckoview/utils/image_helper.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/hooks/cached_future.dart';
 import 'package:weblibre/presentation/widgets/uri_breadcrumb.dart';
 import 'package:weblibre/presentation/widgets/url_icon.dart';
@@ -69,15 +67,9 @@ class ShareBottomSheet extends HookConsumerWidget {
     final settings = ref.watch(generalSettingsWithDefaultsProvider);
     final catalogAsync = ref.watch(urlCleanerCatalogServiceProvider);
 
-    final rawTabUrl = ref.watch(
+    final tabUrl = ref.watch(
       tabStateProvider(selectedTabId).select((v) => v?.url),
     );
-    final sandboxSourceUri = ref.watch(
-      sandboxSourceUriForTabProvider(tabId: selectedTabId),
-    );
-    // For sandbox-captured tabs every share/copy/QR/cleaner action must
-    // operate on the canonical source URL — never the loopback loader.
-    final tabUrl = sandboxSourceUri ?? rawTabUrl;
 
     final cleanedUrl = useState<Uri?>(null);
     final cleaner = useUrlCleanerController(
@@ -185,9 +177,6 @@ class ShareBottomSheet extends HookConsumerWidget {
                 if (context.mounted) Navigator.pop(context);
               },
             ),
-
-            // Send To Device (conditional)
-            _SendToDeviceTile(selectedTabId: selectedTabId),
 
             // Show QR Code
             ListTile(
@@ -365,113 +354,3 @@ class _OpenInAppTile extends HookConsumerWidget {
   }
 }
 
-class _SendToDeviceTile extends ConsumerWidget {
-  final String selectedTabId;
-
-  const _SendToDeviceTile({required this.selectedTabId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isAuthenticated = ref.watch(syncIsAuthenticatedProvider);
-    final devices = ref.watch(syncDevicesProvider);
-
-    if (!isAuthenticated) return const SizedBox.shrink();
-
-    return Skeletonizer(
-      enabled: devices.isLoading && devices.value == null,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          leading: const Icon(Icons.send_outlined),
-          title: const Text('Send To Device'),
-          children: devices.when(
-            data: (deviceList) {
-              final targets = deviceList
-                  .where(
-                    (device) => !device.isCurrentDevice && device.canSendTab,
-                  )
-                  .toList(growable: false);
-
-              if (targets.isEmpty) {
-                return const [
-                  ListTile(
-                    contentPadding: EdgeInsets.only(left: 72, right: 16),
-                    title: Text('No target devices'),
-                  ),
-                ];
-              }
-
-              return targets
-                  .map(
-                    (device) => ListTile(
-                      contentPadding: const EdgeInsets.only(
-                        left: 72,
-                        right: 16,
-                      ),
-                      leading: const Icon(Icons.devices_other, size: 18),
-                      title: Text(device.displayName),
-                      dense: true,
-                      onTap: () async {
-                        final tabState = ref.read(
-                          tabStateProvider(selectedTabId),
-                        );
-                        if (tabState == null) return;
-
-                        final sendUrl =
-                            ref.read(
-                              sandboxSourceUriForTabProvider(
-                                tabId: tabState.id,
-                              ),
-                            ) ??
-                            tabState.url;
-                        final title = tabState.title.isNotEmpty
-                            ? tabState.title
-                            : sendUrl.toString();
-
-                        final success = await ref
-                            .read(syncRepositoryProvider.notifier)
-                            .sendTabToDevice(
-                              deviceId: device.deviceId,
-                              title: title,
-                              url: sendUrl.toString(),
-                              private: tabState.tabMode == TabMode.private,
-                            );
-
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          if (success) {
-                            ui_helper.showInfoMessage(
-                              context,
-                              'Sent tab to ${device.displayName}',
-                            );
-                          } else {
-                            ui_helper.showErrorMessage(
-                              context,
-                              'Failed to send tab',
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  )
-                  .toList(growable: false);
-            },
-            loading: () => const [
-              ListTile(
-                contentPadding: EdgeInsets.only(left: 72, right: 16),
-                leading: Icon(Icons.devices_other, size: 18),
-                title: Text('Loading devices...'),
-              ),
-            ],
-            error: (_, _) => const [
-              ListTile(
-                contentPadding: EdgeInsets.only(left: 72, right: 16),
-                title: Text('Failed to load devices'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

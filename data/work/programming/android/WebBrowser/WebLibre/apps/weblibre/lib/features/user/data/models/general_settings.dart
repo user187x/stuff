@@ -155,6 +155,7 @@ class GeneralSettings with FastEquatable {
   final bool showModalBarrier;
   final bool enableReadability;
   final bool enforceReadability;
+  final bool deleteAllOnExit;
   final Set<DeleteBrowsingDataType>? deleteBrowsingDataOnQuit;
   final bool screenshotProtectionEnabled;
   @BangKeyConverter()
@@ -206,6 +207,7 @@ class GeneralSettings with FastEquatable {
   /// visible tab continues at the first one and vice versa, instead of the
   /// step doing nothing.
   final bool sequentialTabNavigationLoop;
+  final bool historyClearOnExit;
   final Duration historyAutoCleanInterval;
   final bool tabViewBottomSheet;
   final bool tabBarShowContextualBar;
@@ -215,6 +217,7 @@ class GeneralSettings with FastEquatable {
   final bool pullToRefreshEnabled;
   final bool useExternalDownloadManager;
   final bool doubleBackCloseTab;
+  final bool unassignedTabsClearOnExit;
   final Duration unassignedTabsAutoCleanInterval;
   final int maxSearchHistoryEntries;
   final bool allowClipboardAccess;
@@ -229,8 +232,6 @@ class GeneralSettings with FastEquatable {
   /// Whether every tab chip in the quick tab switcher shows a close button.
   /// The selected tab's chip always shows one regardless of this setting.
   final bool quickTabSwitcherShowCloseButtonOnAllTabs;
-  final String syncServerOverride;
-  final String syncTokenServerOverride;
   final bool urlCleanerEnabled;
   final bool urlCleanerAutoApply;
   final bool urlCleanerAllowReferralMarketing;
@@ -331,6 +332,7 @@ class GeneralSettings with FastEquatable {
     required this.showModalBarrier,
     required this.enableReadability,
     required this.enforceReadability,
+    required this.deleteAllOnExit,
     required this.deleteBrowsingDataOnQuit,
     required this.screenshotProtectionEnabled,
     required this.defaultSearchProvider,
@@ -353,6 +355,7 @@ class GeneralSettings with FastEquatable {
     required this.tabBarSwipeAction,
     required this.sequentialTabNavigationCrossContainers,
     required this.sequentialTabNavigationLoop,
+    required this.historyClearOnExit,
     required this.historyAutoCleanInterval,
     required this.tabViewBottomSheet,
     required this.tabBarShowContextualBar,
@@ -362,6 +365,7 @@ class GeneralSettings with FastEquatable {
     required this.pullToRefreshEnabled,
     required this.useExternalDownloadManager,
     required this.doubleBackCloseTab,
+    required this.unassignedTabsClearOnExit,
     required this.unassignedTabsAutoCleanInterval,
     required this.maxSearchHistoryEntries,
     required this.allowClipboardAccess,
@@ -371,8 +375,6 @@ class GeneralSettings with FastEquatable {
     required this.quickTabSwitcherShowHistorySuggestions,
     required this.quickTabSwitcherTitleWidth,
     required this.quickTabSwitcherShowCloseButtonOnAllTabs,
-    required this.syncServerOverride,
-    required this.syncTokenServerOverride,
     required this.urlCleanerEnabled,
     required this.urlCleanerAutoApply,
     required this.urlCleanerAllowReferralMarketing,
@@ -412,6 +414,7 @@ class GeneralSettings with FastEquatable {
     bool? showModalBarrier,
     bool? enableReadability,
     bool? enforceReadability,
+    bool? deleteAllOnExit,
     this.deleteBrowsingDataOnQuit,
     bool? screenshotProtectionEnabled,
     BangKey? defaultSearchProvider,
@@ -434,6 +437,7 @@ class GeneralSettings with FastEquatable {
     TabBarSwipeAction? tabBarSwipeAction,
     bool? sequentialTabNavigationCrossContainers,
     bool? sequentialTabNavigationLoop,
+    bool? historyClearOnExitOverride,
     Duration? historyAutoCleanInterval,
     bool? tabViewBottomSheet,
     bool? tabBarShowContextualBar,
@@ -443,6 +447,7 @@ class GeneralSettings with FastEquatable {
     bool? pullToRefreshEnabled,
     bool? useExternalDownloadManager,
     bool? doubleBackCloseTab,
+    bool? unassignedTabsClearOnExitOverride,
     Duration? unassignedTabsAutoCleanInterval,
     int? maxSearchHistoryEntries,
     bool? allowClipboardAccess,
@@ -452,8 +457,6 @@ class GeneralSettings with FastEquatable {
     bool? quickTabSwitcherShowHistorySuggestions,
     double? quickTabSwitcherTitleWidth,
     bool? quickTabSwitcherShowCloseButtonOnAllTabs,
-    String? syncServerOverride,
-    String? syncTokenServerOverride,
     bool? urlCleanerEnabled,
     bool? urlCleanerAutoApply,
     bool? urlCleanerAllowReferralMarketing,
@@ -490,6 +493,7 @@ class GeneralSettings with FastEquatable {
        showModalBarrier = showModalBarrier ?? true,
        enableReadability = enableReadability ?? true,
        enforceReadability = enforceReadability ?? false,
+       deleteAllOnExit = deleteAllOnExit ?? false,
        screenshotProtectionEnabled = screenshotProtectionEnabled ?? false,
        defaultSearchProvider = defaultSearchProvider ?? _fallbackSearchProvider,
        defaultSearchSuggestionsProvider =
@@ -519,6 +523,7 @@ class GeneralSettings with FastEquatable {
        sequentialTabNavigationCrossContainers =
            sequentialTabNavigationCrossContainers ?? true,
        sequentialTabNavigationLoop = sequentialTabNavigationLoop ?? false,
+       historyClearOnExit = historyClearOnExitOverride ?? false,
        historyAutoCleanInterval =
            historyAutoCleanInterval ?? const Duration(days: 90),
        tabViewBottomSheet = tabViewBottomSheet ?? false,
@@ -529,6 +534,7 @@ class GeneralSettings with FastEquatable {
        pullToRefreshEnabled = pullToRefreshEnabled ?? true,
        useExternalDownloadManager = useExternalDownloadManager ?? false,
        doubleBackCloseTab = doubleBackCloseTab ?? true,
+       unassignedTabsClearOnExit = unassignedTabsClearOnExitOverride ?? false,
        unassignedTabsAutoCleanInterval =
            unassignedTabsAutoCleanInterval ?? Duration.zero,
        maxSearchHistoryEntries = maxSearchHistoryEntries ?? 5,
@@ -544,8 +550,6 @@ class GeneralSettings with FastEquatable {
            quickTabSwitcherTitleWidth ?? defaultQuickTabSwitcherTitleWidth,
        quickTabSwitcherShowCloseButtonOnAllTabs =
            quickTabSwitcherShowCloseButtonOnAllTabs ?? false,
-       syncServerOverride = syncServerOverride ?? '',
-       syncTokenServerOverride = syncTokenServerOverride ?? '',
        urlCleanerEnabled = urlCleanerEnabled ?? true,
        urlCleanerAutoApply = urlCleanerAutoApply ?? false,
        urlCleanerAllowReferralMarketing =
@@ -687,6 +691,7 @@ class GeneralSettings with FastEquatable {
     showModalBarrier,
     enableReadability,
     enforceReadability,
+    deleteAllOnExit,
     deleteBrowsingDataOnQuit,
     screenshotProtectionEnabled,
     defaultSearchProvider,
@@ -709,6 +714,7 @@ class GeneralSettings with FastEquatable {
     tabBarSwipeAction,
     sequentialTabNavigationCrossContainers,
     sequentialTabNavigationLoop,
+    historyClearOnExit,
     historyAutoCleanInterval,
     tabViewBottomSheet,
     tabBarShowContextualBar,
@@ -718,6 +724,7 @@ class GeneralSettings with FastEquatable {
     pullToRefreshEnabled,
     useExternalDownloadManager,
     doubleBackCloseTab,
+    unassignedTabsClearOnExit,
     unassignedTabsAutoCleanInterval,
     maxSearchHistoryEntries,
     allowClipboardAccess,
@@ -727,8 +734,6 @@ class GeneralSettings with FastEquatable {
     quickTabSwitcherShowHistorySuggestions,
     quickTabSwitcherTitleWidth,
     quickTabSwitcherShowCloseButtonOnAllTabs,
-    syncServerOverride,
-    syncTokenServerOverride,
     urlCleanerEnabled,
     urlCleanerAutoApply,
     urlCleanerAllowReferralMarketing,

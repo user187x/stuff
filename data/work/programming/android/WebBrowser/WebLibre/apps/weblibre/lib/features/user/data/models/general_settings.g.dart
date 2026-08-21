@@ -21,6 +21,8 @@ abstract class _$GeneralSettingsCWProxy {
 
   GeneralSettings enforceReadability(bool enforceReadability);
 
+  GeneralSettings deleteAllOnExit(bool deleteAllOnExit);
+
   GeneralSettings deleteBrowsingDataOnQuit(
     Set<DeleteBrowsingDataType>? deleteBrowsingDataOnQuit,
   );
@@ -77,6 +79,8 @@ abstract class _$GeneralSettingsCWProxy {
 
   GeneralSettings sequentialTabNavigationLoop(bool sequentialTabNavigationLoop);
 
+  GeneralSettings historyClearOnExit(bool historyClearOnExit);
+
   GeneralSettings historyAutoCleanInterval(Duration historyAutoCleanInterval);
 
   GeneralSettings tabViewBottomSheet(bool tabViewBottomSheet);
@@ -94,6 +98,8 @@ abstract class _$GeneralSettingsCWProxy {
   GeneralSettings useExternalDownloadManager(bool useExternalDownloadManager);
 
   GeneralSettings doubleBackCloseTab(bool doubleBackCloseTab);
+
+  GeneralSettings unassignedTabsClearOnExit(bool unassignedTabsClearOnExit);
 
   GeneralSettings unassignedTabsAutoCleanInterval(
     Duration unassignedTabsAutoCleanInterval,
@@ -120,10 +126,6 @@ abstract class _$GeneralSettingsCWProxy {
   GeneralSettings quickTabSwitcherShowCloseButtonOnAllTabs(
     bool quickTabSwitcherShowCloseButtonOnAllTabs,
   );
-
-  GeneralSettings syncServerOverride(String syncServerOverride);
-
-  GeneralSettings syncTokenServerOverride(String syncTokenServerOverride);
 
   GeneralSettings urlCleanerEnabled(bool urlCleanerEnabled);
 
@@ -208,6 +210,7 @@ abstract class _$GeneralSettingsCWProxy {
     bool showModalBarrier,
     bool enableReadability,
     bool enforceReadability,
+    bool deleteAllOnExit,
     Set<DeleteBrowsingDataType>? deleteBrowsingDataOnQuit,
     bool screenshotProtectionEnabled,
     BangKey? defaultSearchProvider,
@@ -230,6 +233,7 @@ abstract class _$GeneralSettingsCWProxy {
     TabBarSwipeAction tabBarSwipeAction,
     bool sequentialTabNavigationCrossContainers,
     bool sequentialTabNavigationLoop,
+    bool historyClearOnExit,
     Duration historyAutoCleanInterval,
     bool tabViewBottomSheet,
     bool tabBarShowContextualBar,
@@ -239,6 +243,7 @@ abstract class _$GeneralSettingsCWProxy {
     bool pullToRefreshEnabled,
     bool useExternalDownloadManager,
     bool doubleBackCloseTab,
+    bool unassignedTabsClearOnExit,
     Duration unassignedTabsAutoCleanInterval,
     int maxSearchHistoryEntries,
     bool allowClipboardAccess,
@@ -248,8 +253,6 @@ abstract class _$GeneralSettingsCWProxy {
     bool quickTabSwitcherShowHistorySuggestions,
     double quickTabSwitcherTitleWidth,
     bool quickTabSwitcherShowCloseButtonOnAllTabs,
-    String syncServerOverride,
-    String syncTokenServerOverride,
     bool urlCleanerEnabled,
     bool urlCleanerAutoApply,
     bool urlCleanerAllowReferralMarketing,
@@ -315,6 +318,10 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
   @override
   GeneralSettings enforceReadability(bool enforceReadability) =>
       call(enforceReadability: enforceReadability);
+
+  @override
+  GeneralSettings deleteAllOnExit(bool deleteAllOnExit) =>
+      call(deleteAllOnExit: deleteAllOnExit);
 
   @override
   GeneralSettings deleteBrowsingDataOnQuit(
@@ -417,6 +424,10 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
   ) => call(sequentialTabNavigationLoop: sequentialTabNavigationLoop);
 
   @override
+  GeneralSettings historyClearOnExit(bool historyClearOnExit) =>
+      call(historyClearOnExit: historyClearOnExit);
+
+  @override
   GeneralSettings historyAutoCleanInterval(Duration historyAutoCleanInterval) =>
       call(historyAutoCleanInterval: historyAutoCleanInterval);
 
@@ -451,6 +462,10 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
   @override
   GeneralSettings doubleBackCloseTab(bool doubleBackCloseTab) =>
       call(doubleBackCloseTab: doubleBackCloseTab);
+
+  @override
+  GeneralSettings unassignedTabsClearOnExit(bool unassignedTabsClearOnExit) =>
+      call(unassignedTabsClearOnExit: unassignedTabsClearOnExit);
 
   @override
   GeneralSettings unassignedTabsAutoCleanInterval(
@@ -498,14 +513,6 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
     quickTabSwitcherShowCloseButtonOnAllTabs:
         quickTabSwitcherShowCloseButtonOnAllTabs,
   );
-
-  @override
-  GeneralSettings syncServerOverride(String syncServerOverride) =>
-      call(syncServerOverride: syncServerOverride);
-
-  @override
-  GeneralSettings syncTokenServerOverride(String syncTokenServerOverride) =>
-      call(syncTokenServerOverride: syncTokenServerOverride);
 
   @override
   GeneralSettings urlCleanerEnabled(bool urlCleanerEnabled) =>
@@ -645,6 +652,7 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
     Object? showModalBarrier = const $CopyWithPlaceholder(),
     Object? enableReadability = const $CopyWithPlaceholder(),
     Object? enforceReadability = const $CopyWithPlaceholder(),
+    Object? deleteAllOnExit = const $CopyWithPlaceholder(),
     Object? deleteBrowsingDataOnQuit = const $CopyWithPlaceholder(),
     Object? screenshotProtectionEnabled = const $CopyWithPlaceholder(),
     Object? defaultSearchProvider = const $CopyWithPlaceholder(),
@@ -668,6 +676,7 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
     Object? sequentialTabNavigationCrossContainers =
         const $CopyWithPlaceholder(),
     Object? sequentialTabNavigationLoop = const $CopyWithPlaceholder(),
+    Object? historyClearOnExit = const $CopyWithPlaceholder(),
     Object? historyAutoCleanInterval = const $CopyWithPlaceholder(),
     Object? tabViewBottomSheet = const $CopyWithPlaceholder(),
     Object? tabBarShowContextualBar = const $CopyWithPlaceholder(),
@@ -677,6 +686,7 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
     Object? pullToRefreshEnabled = const $CopyWithPlaceholder(),
     Object? useExternalDownloadManager = const $CopyWithPlaceholder(),
     Object? doubleBackCloseTab = const $CopyWithPlaceholder(),
+    Object? unassignedTabsClearOnExit = const $CopyWithPlaceholder(),
     Object? unassignedTabsAutoCleanInterval = const $CopyWithPlaceholder(),
     Object? maxSearchHistoryEntries = const $CopyWithPlaceholder(),
     Object? allowClipboardAccess = const $CopyWithPlaceholder(),
@@ -688,8 +698,6 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
     Object? quickTabSwitcherTitleWidth = const $CopyWithPlaceholder(),
     Object? quickTabSwitcherShowCloseButtonOnAllTabs =
         const $CopyWithPlaceholder(),
-    Object? syncServerOverride = const $CopyWithPlaceholder(),
-    Object? syncTokenServerOverride = const $CopyWithPlaceholder(),
     Object? urlCleanerEnabled = const $CopyWithPlaceholder(),
     Object? urlCleanerAutoApply = const $CopyWithPlaceholder(),
     Object? urlCleanerAllowReferralMarketing = const $CopyWithPlaceholder(),
@@ -760,6 +768,12 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
           ? _value.enforceReadability
           // ignore: cast_nullable_to_non_nullable
           : enforceReadability as bool,
+      deleteAllOnExit:
+          deleteAllOnExit == const $CopyWithPlaceholder() ||
+              deleteAllOnExit == null
+          ? _value.deleteAllOnExit
+          // ignore: cast_nullable_to_non_nullable
+          : deleteAllOnExit as bool,
       deleteBrowsingDataOnQuit:
           deleteBrowsingDataOnQuit == const $CopyWithPlaceholder()
           ? _value.deleteBrowsingDataOnQuit
@@ -888,6 +902,12 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
           ? _value.sequentialTabNavigationLoop
           // ignore: cast_nullable_to_non_nullable
           : sequentialTabNavigationLoop as bool,
+      historyClearOnExit:
+          historyClearOnExit == const $CopyWithPlaceholder() ||
+              historyClearOnExit == null
+          ? _value.historyClearOnExit
+          // ignore: cast_nullable_to_non_nullable
+          : historyClearOnExit as bool,
       historyAutoCleanInterval:
           historyAutoCleanInterval == const $CopyWithPlaceholder() ||
               historyAutoCleanInterval == null
@@ -941,6 +961,12 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
           ? _value.doubleBackCloseTab
           // ignore: cast_nullable_to_non_nullable
           : doubleBackCloseTab as bool,
+      unassignedTabsClearOnExit:
+          unassignedTabsClearOnExit == const $CopyWithPlaceholder() ||
+              unassignedTabsClearOnExit == null
+          ? _value.unassignedTabsClearOnExit
+          // ignore: cast_nullable_to_non_nullable
+          : unassignedTabsClearOnExit as bool,
       unassignedTabsAutoCleanInterval:
           unassignedTabsAutoCleanInterval == const $CopyWithPlaceholder() ||
               unassignedTabsAutoCleanInterval == null
@@ -997,18 +1023,6 @@ class _$GeneralSettingsCWProxyImpl implements _$GeneralSettingsCWProxy {
           ? _value.quickTabSwitcherShowCloseButtonOnAllTabs
           // ignore: cast_nullable_to_non_nullable
           : quickTabSwitcherShowCloseButtonOnAllTabs as bool,
-      syncServerOverride:
-          syncServerOverride == const $CopyWithPlaceholder() ||
-              syncServerOverride == null
-          ? _value.syncServerOverride
-          // ignore: cast_nullable_to_non_nullable
-          : syncServerOverride as String,
-      syncTokenServerOverride:
-          syncTokenServerOverride == const $CopyWithPlaceholder() ||
-              syncTokenServerOverride == null
-          ? _value.syncTokenServerOverride
-          // ignore: cast_nullable_to_non_nullable
-          : syncTokenServerOverride as String,
       urlCleanerEnabled:
           urlCleanerEnabled == const $CopyWithPlaceholder() ||
               urlCleanerEnabled == null
@@ -1206,6 +1220,7 @@ GeneralSettings _$GeneralSettingsFromJson(
   showModalBarrier: json['showModalBarrier'] as bool?,
   enableReadability: json['enableReadability'] as bool?,
   enforceReadability: json['enforceReadability'] as bool?,
+  deleteAllOnExit: json['deleteAllOnExit'] as bool?,
   deleteBrowsingDataOnQuit: (json['deleteBrowsingDataOnQuit'] as List<dynamic>?)
       ?.map((e) => $enumDecode(_$DeleteBrowsingDataTypeEnumMap, e))
       .toSet(),
@@ -1298,8 +1313,6 @@ GeneralSettings _$GeneralSettingsFromJson(
       ?.toDouble(),
   quickTabSwitcherShowCloseButtonOnAllTabs:
       json['quickTabSwitcherShowCloseButtonOnAllTabs'] as bool?,
-  syncServerOverride: json['syncServerOverride'] as String?,
-  syncTokenServerOverride: json['syncTokenServerOverride'] as String?,
   urlCleanerEnabled: json['urlCleanerEnabled'] as bool?,
   urlCleanerAutoApply: json['urlCleanerAutoApply'] as bool?,
   urlCleanerAllowReferralMarketing:
@@ -1359,6 +1372,7 @@ Map<String, dynamic> _$GeneralSettingsToJson(
   'showModalBarrier': instance.showModalBarrier,
   'enableReadability': instance.enableReadability,
   'enforceReadability': instance.enforceReadability,
+  'deleteAllOnExit': instance.deleteAllOnExit,
   'deleteBrowsingDataOnQuit': instance.deleteBrowsingDataOnQuit
       ?.map((e) => _$DeleteBrowsingDataTypeEnumMap[e]!)
       .toList(),
@@ -1414,8 +1428,6 @@ Map<String, dynamic> _$GeneralSettingsToJson(
   'quickTabSwitcherTitleWidth': instance.quickTabSwitcherTitleWidth,
   'quickTabSwitcherShowCloseButtonOnAllTabs':
       instance.quickTabSwitcherShowCloseButtonOnAllTabs,
-  'syncServerOverride': instance.syncServerOverride,
-  'syncTokenServerOverride': instance.syncTokenServerOverride,
   'urlCleanerEnabled': instance.urlCleanerEnabled,
   'urlCleanerAutoApply': instance.urlCleanerAutoApply,
   'urlCleanerAllowReferralMarketing': instance.urlCleanerAllowReferralMarketing,

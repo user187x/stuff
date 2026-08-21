@@ -1727,18 +1727,6 @@ RouteBase get $settingsRoute => GoRouteData.$route(
       factory: $ErrorLogsRoute._fromState,
     ),
     GoRouteData.$route(
-      path: 'account',
-      name: 'AccountSettingsRoute',
-      hasOverriddenOnExit: false,
-      factory: $AccountSettingsRoute._fromState,
-    ),
-    GoRouteData.$route(
-      path: 'sync',
-      name: 'SyncSettingsRoute',
-      hasOverriddenOnExit: false,
-      factory: $SyncSettingsRoute._fromState,
-    ),
-    GoRouteData.$route(
       path: 'url_cleaner',
       name: 'UrlCleanerSettingsRoute',
       hasOverriddenOnExit: false,
@@ -2299,48 +2287,6 @@ mixin $ErrorLogsRoute on GoRouteData {
 
   @override
   String get location => GoRouteData.$location('/settings/error_logs');
-
-  @override
-  void go(BuildContext context) => context.go(location);
-
-  @override
-  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
-
-  @override
-  void pushReplacement(BuildContext context) =>
-      context.pushReplacement(location);
-
-  @override
-  void replace(BuildContext context) => context.replace(location);
-}
-
-mixin $AccountSettingsRoute on GoRouteData {
-  static AccountSettingsRoute _fromState(GoRouterState state) =>
-      AccountSettingsRoute();
-
-  @override
-  String get location => GoRouteData.$location('/settings/account');
-
-  @override
-  void go(BuildContext context) => context.go(location);
-
-  @override
-  Future<T?> push<T>(BuildContext context) => context.push<T>(location);
-
-  @override
-  void pushReplacement(BuildContext context) =>
-      context.pushReplacement(location);
-
-  @override
-  void replace(BuildContext context) => context.replace(location);
-}
-
-mixin $SyncSettingsRoute on GoRouteData {
-  static SyncSettingsRoute _fromState(GoRouterState state) =>
-      SyncSettingsRoute();
-
-  @override
-  String get location => GoRouteData.$location('/settings/sync');
 
   @override
   void go(BuildContext context) => context.go(location);

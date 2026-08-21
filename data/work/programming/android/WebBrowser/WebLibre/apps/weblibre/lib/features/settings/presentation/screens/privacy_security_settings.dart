@@ -152,6 +152,12 @@ const List<SettingsSectionDefinition> privacySecuritySettingsSections = [
         child: _IncognitoModeSection(),
       ),
       SettingsEntryDefinition(
+        title: 'Delete All On Exit',
+        subtitle: 'Automatically delete all browsing data when the app is closed',
+        keywords: ['clear data', 'privacy'],
+        child: _DeleteAllOnExitTile(),
+      ),
+      SettingsEntryDefinition(
         title: 'Screenshot protection',
         subtitle: 'Prevent app content from appearing in screenshots',
         keywords: ['screenshots'],
@@ -310,6 +316,31 @@ class _IncognitoModeSection extends HookConsumerWidget {
   }
 }
 
+class _DeleteAllOnExitTile extends HookConsumerWidget {
+  const _DeleteAllOnExitTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final deleteAllOnExit = ref.watch(
+      generalSettingsWithDefaultsProvider.select((s) => s.deleteAllOnExit),
+    );
+
+    return SwitchListTile.adaptive(
+      title: const Text('Delete All On Exit'),
+      subtitle: const Text(
+        'Automatically delete all browsing data, tabs, history, cookies, and more when the app is closed.',
+      ),
+      secondary: const Icon(MdiIcons.deleteSweep),
+      value: deleteAllOnExit,
+      onChanged: (value) async {
+        await ref
+            .read(saveGeneralSettingsControllerProvider.notifier)
+            .save((s) => s.copyWith.deleteAllOnExit(value));
+      },
+    );
+  }
+}
+
 class _DeleteBrowsingDataTypes extends HookConsumerWidget {
   final Set<DeleteBrowsingDataType> selectedTypes;
 
@@ -389,6 +420,11 @@ class _AutoClearHistorySection extends HookConsumerWidget {
         (s) => s.historyAutoCleanInterval,
       ),
     );
+    final historyClearOnExit = ref.watch(
+      generalSettingsWithDefaultsProvider.select(
+        (s) => s.historyClearOnExit,
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
@@ -406,8 +442,8 @@ class _AutoClearHistorySection extends HookConsumerWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(left: 40.0),
-            child: DropdownMenu<Duration>(
-              initialSelection: historyAutoCleanInterval,
+            child: DropdownMenu<Duration?>(
+              initialSelection: historyClearOnExit ? null : historyAutoCleanInterval,
               inputDecorationTheme: InputDecorationTheme(
                 prefixIconConstraints: BoxConstraints.tight(
                   const Size.square(24),
@@ -416,6 +452,10 @@ class _AutoClearHistorySection extends HookConsumerWidget {
               width: double.infinity,
               dropdownMenuEntries: const [
                 DropdownMenuEntry(value: Duration.zero, label: 'Never'),
+                DropdownMenuEntry(
+                  value: null,
+                  label: 'Immediately (upon exit)',
+                ),
                 DropdownMenuEntry(value: Duration(days: 1), label: '1 Day'),
                 DropdownMenuEntry(value: Duration(days: 3), label: '3 Days'),
                 DropdownMenuEntry(value: Duration(days: 7), label: '1 Week'),
@@ -427,8 +467,10 @@ class _AutoClearHistorySection extends HookConsumerWidget {
                 await ref
                     .read(saveGeneralSettingsControllerProvider.notifier)
                     .save(
-                      (currentSettings) => currentSettings.copyWith
-                          .historyAutoCleanInterval(value ?? Duration.zero),
+                      (currentSettings) => currentSettings.copyWith(
+                        historyClearOnExit: value == null,
+                        historyAutoCleanInterval: value ?? Duration.zero,
+                      ),
                     );
               },
             ),
@@ -449,6 +491,11 @@ class _AutoClearUnassignedTabsSection extends HookConsumerWidget {
         (s) => s.unassignedTabsAutoCleanInterval,
       ),
     );
+    final unassignedTabsClearOnExit = ref.watch(
+      generalSettingsWithDefaultsProvider.select(
+        (s) => s.unassignedTabsClearOnExit,
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
@@ -466,8 +513,9 @@ class _AutoClearUnassignedTabsSection extends HookConsumerWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(left: 40.0),
-            child: DropdownMenu<Duration>(
-              initialSelection: unassignedTabsAutoCleanInterval,
+            child: DropdownMenu<Duration?>(
+              initialSelection:
+                  unassignedTabsClearOnExit ? null : unassignedTabsAutoCleanInterval,
               inputDecorationTheme: InputDecorationTheme(
                 prefixIconConstraints: BoxConstraints.tight(
                   const Size.square(24),
@@ -476,6 +524,10 @@ class _AutoClearUnassignedTabsSection extends HookConsumerWidget {
               width: double.infinity,
               dropdownMenuEntries: const [
                 DropdownMenuEntry(value: Duration.zero, label: 'Never'),
+                DropdownMenuEntry(
+                  value: null,
+                  label: 'Immediately (upon exit)',
+                ),
                 DropdownMenuEntry(value: Duration(days: 1), label: '1 Day'),
                 DropdownMenuEntry(value: Duration(days: 3), label: '3 Days'),
                 DropdownMenuEntry(value: Duration(days: 7), label: '1 Week'),
@@ -487,10 +539,10 @@ class _AutoClearUnassignedTabsSection extends HookConsumerWidget {
                 await ref
                     .read(saveGeneralSettingsControllerProvider.notifier)
                     .save(
-                      (currentSettings) => currentSettings.copyWith
-                          .unassignedTabsAutoCleanInterval(
-                            value ?? Duration.zero,
-                          ),
+                      (currentSettings) => currentSettings.copyWith(
+                        unassignedTabsClearOnExit: value == null,
+                        unassignedTabsAutoCleanInterval: value ?? Duration.zero,
+                      ),
                     );
               },
             ),

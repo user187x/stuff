@@ -35,8 +35,6 @@ import 'package:weblibre/features/geckoview/features/tabs/data/database/definiti
 import 'package:weblibre/features/geckoview/features/tabs/data/entities/tab_mode.dart';
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/tab.dart';
 import 'package:weblibre/features/geckoview/utils/image_helper.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/hooks/cached_future.dart';
 import 'package:weblibre/utils/ui_helper.dart' as ui_helper;
 
@@ -52,9 +50,7 @@ class ShareMenuItemButton extends HookConsumerWidget {
       closeOnActivate: false,
       onPressed: () async {
         final tabState = ref.read(tabStateProvider(selectedTabId))!;
-        final shareUrl =
-            ref.read(sandboxSourceUriForTabProvider(tabId: tabState.id)) ??
-            tabState.url;
+        final shareUrl = tabState.url;
 
         await SharePlus.instance.share(ShareParams(uri: shareUrl));
 
@@ -79,9 +75,7 @@ class ShowQrCodeMenuItemButton extends HookConsumerWidget {
       closeOnActivate: false,
       onPressed: () async {
         final tabState = ref.read(tabStateProvider(selectedTabId))!;
-        final qrUrl =
-            ref.read(sandboxSourceUriForTabProvider(tabId: tabState.id)) ??
-            tabState.url;
+        final qrUrl = tabState.url;
 
         await showQrCode(context, qrUrl.toString());
 
@@ -350,9 +344,7 @@ class CopyAddressMenuItemButton extends HookConsumerWidget {
       child: const Text('Copy Address'),
       onPressed: () async {
         final tabState = ref.read(tabStateProvider(selectedTabId))!;
-        final copyUrl =
-            ref.read(sandboxSourceUriForTabProvider(tabId: tabState.id)) ??
-            tabState.url;
+        final copyUrl = tabState.url;
 
         await Clipboard.setData(ClipboardData(text: copyUrl.toString()));
 
@@ -364,102 +356,3 @@ class CopyAddressMenuItemButton extends HookConsumerWidget {
   }
 }
 
-class SendTabToDeviceMenuItemButton extends HookConsumerWidget {
-  final String? selectedTabId;
-
-  const SendTabToDeviceMenuItemButton({super.key, required this.selectedTabId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (selectedTabId == null) {
-      return const SizedBox.shrink();
-    }
-
-    final isAuthenticated = ref.watch(syncIsAuthenticatedProvider);
-    final devices = ref.watch(syncDevicesProvider);
-
-    if (!isAuthenticated) {
-      return const SizedBox.shrink();
-    }
-
-    return Skeletonizer(
-      enabled: devices.isLoading && devices.value == null,
-      child: SubmenuButton(
-        leadingIcon: const Icon(Icons.send_outlined),
-        menuChildren: devices.when(
-          data: (deviceList) {
-            final targets = deviceList
-                .where((device) => !device.isCurrentDevice && device.canSendTab)
-                .toList(growable: false);
-
-            if (targets.isEmpty) {
-              return const [MenuItemButton(child: Text('No target devices'))];
-            }
-
-            return targets
-                .map((device) {
-                  return MenuItemButton(
-                    closeOnActivate: false,
-                    leadingIcon: const Icon(Icons.devices_other),
-                    child: Text(device.displayName),
-                    onPressed: () async {
-                      final tabState = ref.read(
-                        tabStateProvider(selectedTabId),
-                      );
-                      if (tabState == null) {
-                        return;
-                      }
-
-                      final sendUrl =
-                          ref.read(
-                            sandboxSourceUriForTabProvider(tabId: tabState.id),
-                          ) ??
-                          tabState.url;
-                      final title = tabState.title.isNotEmpty
-                          ? tabState.title
-                          : sendUrl.toString();
-
-                      final success = await ref
-                          .read(syncRepositoryProvider.notifier)
-                          .sendTabToDevice(
-                            deviceId: device.deviceId,
-                            title: title,
-                            url: sendUrl.toString(),
-                            private: tabState.tabMode == TabMode.private,
-                          );
-
-                      if (context.mounted) {
-                        if (success) {
-                          ui_helper.showInfoMessage(
-                            context,
-                            'Sent tab to ${device.displayName}',
-                          );
-                        } else {
-                          ui_helper.showErrorMessage(
-                            context,
-                            'Failed to send tab',
-                          );
-                        }
-
-                        MenuController.maybeOf(context)?.close();
-                      }
-                    },
-                  );
-                })
-                .toList(growable: false);
-          },
-          loading: () => const [
-            MenuItemButton(
-              leadingIcon: Icon(Icons.devices_other),
-              child: Text('Loading devices...'),
-            ),
-          ],
-          error: (_, _) => const [
-            MenuItemButton(child: Text('Failed to load devices')),
-          ],
-        ),
-        child: const Text('Send To Device'),
-      ),
-    );
-  }
-}

@@ -125,7 +125,6 @@ _CategoryGroups _buildCategories() {
         'sections',
         'shortcuts',
         'top sites',
-        'quote',
       ],
       sections: homeSettingsSections,
       onTap: (context) => const HomeSettingsRoute().push(context),
@@ -210,20 +209,6 @@ _CategoryGroups _buildCategories() {
       keywords: const ['addons', 'unsigned extensions'],
       sections: extensionsSettingsSections,
       onTap: (context) => ExtensionsSettingsRoute().push(context),
-    ),
-    _SettingsCategoryDefinition(
-      title: 'WebLibre Account',
-      subtitle: 'Sign in, sync settings',
-      icon: Icons.account_circle_outlined,
-      keywords: const ['account', 'subscription'],
-      onTap: (context) => AccountSettingsRoute().push(context),
-    ),
-    _SettingsCategoryDefinition(
-      title: 'Firefox Sync',
-      subtitle: 'Account, sync now, engine selection',
-      icon: Icons.sync,
-      keywords: const ['pair', 'device name', 'engines'],
-      onTap: (context) => SyncSettingsRoute().push(context),
     ),
     _SettingsCategoryDefinition(
       title: 'Advanced',

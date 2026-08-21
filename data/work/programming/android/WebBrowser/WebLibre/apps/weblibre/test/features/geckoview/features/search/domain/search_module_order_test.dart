@@ -118,14 +118,16 @@ void main() {
       // on for everyone who already customised that surface.
       const defaults = <ModuleSurfaceDefault>[
         (type: SearchModuleType.topSites, visible: true),
-        (type: SearchModuleType.quote, visible: false),
+        (type: SearchModuleType.recentHistory, visible: false),
       ];
       final persisted = [_entry(SearchModuleType.topSites)];
 
       final merged = mergeModuleOrderWithDefaults(persisted, defaults);
 
       expect(
-        merged.firstWhere((e) => e.type == SearchModuleType.quote).visible,
+        merged
+            .firstWhere((e) => e.type == SearchModuleType.recentHistory)
+            .visible,
         isFalse,
       );
     });

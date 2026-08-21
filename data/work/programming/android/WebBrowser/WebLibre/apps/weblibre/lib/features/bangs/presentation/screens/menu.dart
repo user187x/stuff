@@ -33,7 +33,7 @@ class BangMenuScreen extends HookConsumerWidget {
         child: ListView(
           children: [
             ListTile(
-              leading: const Icon(MdiIcons.accountAlert),
+              leading: const Icon(Icons.person_outline),
               title: const Text('Manage User Bangs'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {

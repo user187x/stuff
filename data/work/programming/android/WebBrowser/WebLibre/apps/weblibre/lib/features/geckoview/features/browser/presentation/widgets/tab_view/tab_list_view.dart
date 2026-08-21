@@ -49,7 +49,6 @@ import 'package:weblibre/features/geckoview/features/tabs/domain/providers/selec
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/container.dart';
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/tab.dart';
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/tab_search.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 import 'package:weblibre/presentation/widgets/reorderable_hold_drag.dart';
 
@@ -182,55 +181,7 @@ class _TabListView extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scope = ref.watch(effectiveTabsTrayScopeProvider);
-
-    return switch (scope) {
-      TabsTrayScope.synced => _buildSyncedTabsView(context, ref),
-      _ => _buildLocalTabsView(context, ref),
-    };
-  }
-
-  Widget _buildSyncedTabsView(BuildContext context, WidgetRef ref) {
-    final syncedTabs = ref.watch(syncedTabsForSelectedDeviceProvider);
-
-    return syncedTabs.when(
-      skipLoadingOnReload: true,
-      data: (tabs) {
-        if (tabs.isEmpty) {
-          return const Center(child: Text('No synced tabs available'));
-        }
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: ListView.builder(
-            controller: scrollController,
-            itemCount: tabs.length,
-            itemBuilder: (context, index) {
-              final tab = tabs[index].tab;
-              final uri = Uri.tryParse(tab.url);
-
-              if (uri == null) {
-                return const SizedBox.shrink();
-              }
-
-              return SyncedListTabPreview(
-                title: tab.title.isNotEmpty ? tab.title : tab.url,
-                url: uri,
-                deviceName: tabs[index].deviceName,
-                onTap: () async {
-                  await OpenSharedContentRoute(
-                    sharedUrl: uri.toString(),
-                  ).push(context);
-                },
-              );
-            },
-          ),
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) =>
-          Center(child: Text('Failed to load synced tabs: $error')),
-    );
+    return _buildLocalTabsView(context, ref);
   }
 
   Widget _buildLocalTabsView(BuildContext context, WidgetRef ref) {
@@ -517,11 +468,6 @@ class ViewTabListWidget extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final disableAnimations = MediaQuery.disableAnimationsOf(context);
-    final isSyncedScope = ref.watch(
-      effectiveTabsTrayScopeProvider.select(
-        (scope) => scope == TabsTrayScope.synced,
-      ),
-    );
 
     final isFabVisible = useState(true);
     final lastSheetSize = useRef(0.0);
@@ -625,7 +571,7 @@ class ViewTabListWidget extends HookConsumerWidget {
             onClose: onClose,
           ),
         ),
-        if (showNewTabFab && !isSyncedScope)
+        if (showNewTabFab)
           AnimatedSlide(
             duration: disableAnimations
                 ? Duration.zero

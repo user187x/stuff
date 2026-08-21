@@ -23,7 +23,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:nullability/nullability.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 import 'package:weblibre/features/geckoview/domain/entities/states/tab.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/controllers/website_title.dart';
 import 'package:weblibre/presentation/widgets/failure_widget.dart';
 import 'package:weblibre/presentation/widgets/safe_raw_image.dart';
@@ -37,27 +36,6 @@ class WebsiteTitleTile extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sandboxSourceUri = ref.watch(
-      sandboxSourceUriForTabProvider(tabId: initialTabState.id),
-    );
-
-    // Sandbox-captured tabs: render the canonical source URL with the
-    // cached favicon (no network fetch) and skip the page-info fetch entirely.
-    // We must not hit the source URL behind the user's back, and the loopback
-    // URL wouldn't yield anything useful.
-    if (sandboxSourceUri != null) {
-      return ListTile(
-        leading: UrlIcon([sandboxSourceUri], iconSize: 24, cacheOnly: true),
-        contentPadding: EdgeInsets.zero,
-        title: Text(
-          initialTabState.title.whenNotEmpty ?? sandboxSourceUri.authority,
-          maxLines: 6,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: UriBreadcrumb(uri: sandboxSourceUri),
-      );
-    }
-
     final pageInfoAsync = ref.watch(completePageInfoProvider(initialTabState));
 
     return Skeletonizer(

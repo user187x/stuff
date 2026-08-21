@@ -24,9 +24,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:weblibre/core/providers/router.dart';
 import 'package:weblibre/domain/services/app_initialization.dart';
 import 'package:weblibre/features/geckoview/domain/providers.dart';
-import 'package:weblibre/features/sync/domain/entities/sync_repository_state.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/widgets/failure_widget.dart';
 import 'package:weblibre/utils/ui_helper.dart' as ui_helper;
 
@@ -100,13 +97,9 @@ class MainApp extends HookConsumerWidget {
             return _AppMediaQueryOverrides(
               uiScaleFactor: uiScaleFactor,
               disableAnimations: disableAnimations,
-              child: _SyncEventListener(
-                child: _SandboxCaptureErrorListener(
-                  child: _DownloadStoppedListener(
-                    child: _StrictContainerBlockListener(
-                      child: child ?? const SizedBox.shrink(),
-                    ),
-                  ),
+              child: _DownloadStoppedListener(
+                child: _StrictContainerBlockListener(
+                  child: child ?? const SizedBox.shrink(),
                 ),
               ),
             );
@@ -326,73 +319,3 @@ class _AppTextScaler extends TextScaler {
   int get hashCode => Object.hash(baseTextScaler, uiScaleFactor);
 }
 
-class _SandboxCaptureErrorListener extends ConsumerWidget {
-  final Widget child;
-
-  const _SandboxCaptureErrorListener({required this.child});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(sandboxCaptureErrorsProvider, (previous, next) {
-      final error = next.value;
-      if (error == null) return;
-      final message = switch (error.kind) {
-        SandboxCaptureErrorKind.insufficientCredits =>
-          error.detail ??
-              'You have no search credits left. Purchase more to continue.',
-        SandboxCaptureErrorKind.tokenIssuanceFailed =>
-          error.detail ??
-              'Could not issue new search tokens. Check your connection and try again.',
-        SandboxCaptureErrorKind.fetchPolicyRejected =>
-          'Capture blocked by fetch policy: ${error.detail ?? 'not allowed'}',
-        SandboxCaptureErrorKind.captureFailed =>
-          'Capture failed: ${error.detail ?? 'unknown error'}',
-        SandboxCaptureErrorKind.downloadFailed =>
-          'Capture artifact download failed.',
-        SandboxCaptureErrorKind.unknown =>
-          'Sandbox capture error: ${error.detail ?? 'unknown error'}',
-      };
-      ui_helper.showErrorMessage(context, message);
-    });
-
-    return child;
-  }
-}
-
-class _SyncEventListener extends ConsumerWidget {
-  final Widget child;
-
-  const _SyncEventListener({required this.child});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(syncEventProvider, (previous, next) {
-      if (next.isLoading || !next.hasValue) return;
-
-      final event = next.value;
-      if (event == null) return;
-
-      final (syncEvent, syncError) = event;
-
-      switch (syncEvent) {
-        // case SyncEvent.completed:
-        //   ui_helper.showInfoMessage(
-        //     context,
-        //     'Synchronization complete',
-        //     duration: const Duration(seconds: 2),
-        //   );
-        case SyncEvent.error:
-          ui_helper.showErrorMessage(
-            context,
-            syncError ?? 'Synchronization failed',
-          );
-        case SyncEvent.started:
-        case SyncEvent.completed:
-        case null:
-          break;
-      }
-    });
-
-    return child;
-  }
-}

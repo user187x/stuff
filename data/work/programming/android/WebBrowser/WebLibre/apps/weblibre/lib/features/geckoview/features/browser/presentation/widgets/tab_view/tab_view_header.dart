@@ -36,7 +36,6 @@ import 'package:weblibre/features/geckoview/features/tabs/domain/providers/selec
 import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/tab_search.dart';
 import 'package:weblibre/features/geckoview/features/tabs/presentation/widgets/container_chips.dart';
 import 'package:weblibre/features/proxy/presentation/controllers/ensure_proxy_started.dart';
-import 'package:weblibre/features/sync/domain/repositories/sync.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 import 'package:weblibre/presentation/hooks/menu_controller.dart';
 import 'package:weblibre/presentation/widgets/speech_to_text_button.dart';
@@ -50,18 +49,9 @@ class _TabFilters extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isSyncedScope = ref.watch(
-      effectiveTabsTrayScopeProvider.select(
-        (scope) => scope == TabsTrayScope.synced,
-      ),
-    );
-
     final selectedContainer = ref.watch(
       selectedContainerDataProvider.select((value) => value.value),
     );
-
-    final isAuthenticated = ref.watch(syncIsAuthenticatedProvider);
-    final syncedTabCountAsync = ref.watch(syncedTabsTotalCountProvider);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -75,20 +65,8 @@ class _TabFilters extends ConsumerWidget {
             TabsViewMode.list || TabsViewMode.grid => true,
             TabsViewMode.tree => false,
           },
-          showSyncedChip: isAuthenticated && tabsViewMode != TabsViewMode.tree,
-          syncedChipSelected: isSyncedScope,
-          syncedTabCount: syncedTabCountAsync.when(
-            data: (count) => count,
-            loading: () => 0,
-            error: (_, _) => 0,
-          ),
-          onSyncedChipSelected: () {
-            ref.read(tabsTrayScopeControllerProvider.notifier).showSynced();
-          },
           selectedContainer: selectedContainer,
           onSelected: (container) async {
-            ref.read(tabsTrayScopeControllerProvider.notifier).showLocal();
-
             if (container != null) {
               final result = await ref
                   .read(selectedContainerProvider.notifier)
@@ -102,68 +80,15 @@ class _TabFilters extends ConsumerWidget {
             }
           },
           onDeleted: (container) {
-            ref.read(tabsTrayScopeControllerProvider.notifier).showLocal();
             ref.read(selectedContainerProvider.notifier).clearContainer();
           },
           enableContextMenu: true,
         ),
-        if (isSyncedScope) ...[
-          const SizedBox(height: 8),
-          _SyncedDeviceSelector(),
-        ],
       ],
     );
   }
 }
 
-/// Widget for synced device selector
-class _SyncedDeviceSelector extends ConsumerWidget {
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final remoteDevicesAsync = ref.watch(syncRemoteTabsProvider);
-    final selectedDeviceId = ref.watch(selectedSyncedTabsDeviceIdProvider);
-
-    return remoteDevicesAsync.when(
-      skipLoadingOnReload: true,
-      data: (devices) {
-        if (devices.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final effectiveSelectedDeviceId =
-            selectedDeviceId != null &&
-                devices.any((device) => device.deviceId == selectedDeviceId)
-            ? selectedDeviceId
-            : devices.first.deviceId;
-
-        return SizedBox(
-          height: 36,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: devices
-                .map((device) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6.0),
-                    child: ChoiceChip(
-                      label: Text(device.deviceName),
-                      selected: effectiveSelectedDeviceId == device.deviceId,
-                      onSelected: (_) {
-                        ref
-                            .read(selectedSyncedTabsDeviceIdProvider.notifier)
-                            .selectDevice(device.deviceId);
-                      },
-                    ),
-                  );
-                })
-                .toList(growable: false),
-          ),
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, _) => const SizedBox.shrink(),
-    );
-  }
-}
 
 class TabViewHeader extends HookConsumerWidget {
   static const headerSize = 124.0;
@@ -202,17 +127,11 @@ class TabViewHeader extends HookConsumerWidget {
         (settings) => settings.showContainerUi,
       ),
     );
-    final isSyncedScope = ref.watch(
-      effectiveTabsTrayScopeProvider.select(
-        (scope) => scope == TabsTrayScope.synced,
-      ),
-    );
     final canManualTabReorder = ref.watch(canManualTabReorderProvider);
 
     final tabsReorderable = ref.watch(tabsReorderableControllerProvider);
 
     final canManualReorder =
-        !isSyncedScope &&
         tabsViewMode != TabsViewMode.tree &&
         canManualTabReorder;
 
@@ -300,7 +219,7 @@ class TabViewHeader extends HookConsumerWidget {
                           searchTextFocus.requestFocus();
                         },
                       ),
-                    if (!isSyncedScope && tabsViewMode != TabsViewMode.tree)
+                    if (tabsViewMode != TabsViewMode.tree)
                       Consumer(
                         builder: (context, ref, child) {
                           final filterOptions = ref.watch(
@@ -566,15 +485,13 @@ class TabViewHeader extends HookConsumerWidget {
                           .toList(),
                       child: IconButton(
                         tooltip: 'Change view mode',
-                        onPressed: isSyncedScope
-                            ? null
-                            : () {
-                                if (viewModeMenuController.isOpen) {
-                                  viewModeMenuController.close();
-                                } else {
-                                  viewModeMenuController.open();
-                                }
-                              },
+                        onPressed: () {
+                          if (viewModeMenuController.isOpen) {
+                            viewModeMenuController.close();
+                          } else {
+                            viewModeMenuController.open();
+                          }
+                        },
                         icon: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -708,9 +625,6 @@ class TabViewHeader extends HookConsumerWidget {
                           controller: tabsActionMenuController,
                           container: selectedContainer,
                           scopeContainerId: selectedContainerId,
-                          // The synced scope lists tabs from other devices;
-                          // none of these act on them.
-                          enabled: !isSyncedScope,
                           enableCloseFilteredTabs:
                               tabsViewMode != TabsViewMode.tree,
                           builder: (context, controller, _) => IconButton(

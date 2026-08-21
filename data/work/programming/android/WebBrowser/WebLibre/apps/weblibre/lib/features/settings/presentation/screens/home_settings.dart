@@ -61,7 +61,6 @@ const List<SettingsSectionDefinition> homeSettingsSections = [
           'home',
           'sections',
           'shortcuts',
-          'quote',
           'quick actions',
           'reorder',
         ],

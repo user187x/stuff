@@ -61,7 +61,6 @@ import 'package:weblibre/features/geckoview/features/tabs/domain/repositories/ta
 import 'package:weblibre/features/geckoview/features/tabs/utils/container_colors.dart';
 import 'package:weblibre/features/user/data/models/general_settings.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/hooks/scroll_to_active_chip.dart';
 import 'package:weblibre/presentation/widgets/reorderable_hold_drag.dart';
 import 'package:weblibre/presentation/widgets/selectable_chips.dart';
@@ -889,7 +888,6 @@ class QuickTabSwitcher extends HookConsumerWidget {
               )
               .value
         : null;
-    final sandboxSourceUris = ref.watch(sandboxSourceUrisProvider).value;
     // Reorder is only meaningful when the bar renders the user's actual tab
     // order (containerTabs). Other modes (lastUsedTabs / MRU) sort by recency,
     // so dragging would just snap back on the next tab switch.
@@ -943,7 +941,6 @@ class QuickTabSwitcher extends HookConsumerWidget {
             selectedTabId: selectedTabId,
             pinnedTabIds: pinnedTabIds,
             tabDepthById: tabDepthById,
-            sandboxSourceUri: sandboxSourceUris[state.$1.id],
             isPlaceholder:
                 !restoreComplete && !nativeTabIds.contains(state.$1.id),
           ),

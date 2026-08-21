@@ -28,7 +28,6 @@ import 'package:weblibre/core/routing/widgets/bottom_sheet_page.dart';
 import 'package:weblibre/core/routing/widgets/dialog_page.dart';
 import 'package:weblibre/domain/entities/profile.dart';
 import 'package:weblibre/features/about/presentation/screens/about.dart';
-import 'package:weblibre/features/account/presentation/screens/account_settings.dart';
 import 'package:weblibre/features/addons/presentation/screens/addon_details.dart';
 import 'package:weblibre/features/addons/presentation/screens/addon_internal_settings.dart';
 import 'package:weblibre/features/addons/presentation/screens/addon_listing_details.dart';
@@ -97,7 +96,6 @@ import 'package:weblibre/features/settings/presentation/screens/web_content_sett
 import 'package:weblibre/features/settings/presentation/screens/web_engine_hardening.dart';
 import 'package:weblibre/features/settings/presentation/screens/web_engine_hardening_group.dart';
 import 'package:weblibre/features/share_intent/domain/entities/intent_container_mode.dart';
-import 'package:weblibre/features/sync/presentation/screens/sync_settings.dart';
 import 'package:weblibre/features/tor/presentation/screens/country_picker.dart';
 import 'package:weblibre/features/tor/presentation/screens/tor_proxy.dart';
 import 'package:weblibre/features/user/domain/presentation/dialogs/select_profile.dart';

@@ -62,14 +62,7 @@ import 'package:weblibre/features/geckoview/features/tabs/data/entities/tab_mode
 import 'package:weblibre/features/geckoview/features/tabs/domain/providers/selected_container.dart';
 import 'package:weblibre/features/geckoview/features/tabs/presentation/widgets/compact_container_selector.dart';
 import 'package:weblibre/features/proxy/presentation/controllers/ensure_proxy_started.dart';
-import 'package:weblibre/features/search_credits/domain/repositories/web_search_settings.dart';
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
-import 'package:weblibre/features/web_search/domain/controllers/search_controller.dart';
-import 'package:weblibre/features/web_search/presentation/open_in_new_tab.dart';
-import 'package:weblibre/features/web_search/presentation/widgets/route_through_tor_toggle.dart';
-import 'package:weblibre/features/web_search/presentation/widgets/search_filter_chips.dart';
-import 'package:weblibre/features/web_search/presentation/widgets/search_mode_selector.dart';
-import 'package:weblibre/features/web_search/presentation/widgets/web_search_results_section.dart';
 import 'package:weblibre/presentation/hooks/on_listenable_change_selector.dart';
 import 'package:weblibre/presentation/hooks/sampled_value_notifier.dart';
 import 'package:weblibre/utils/input_classification.dart';
@@ -155,24 +148,15 @@ class SearchScreen extends HookConsumerWidget {
 
     final privateTabMode = effectiveTabMode is PrivateTabMode;
 
-    final previousWebSearchQuery = ref.watch(
-      metaSearchControllerProvider.select((s) {
-        if (s.status != WebSearchStatus.idle && s.query.isNotEmpty) {
-          return s.query;
-        }
-        return null;
-      }),
-    );
-
     final searchTextController = useTextEditingController(
-      text: initialSearchText ?? previousWebSearchQuery,
+      text: initialSearchText,
     );
     final sampledSearchText = useSampledValueNotifier(
       source: searchTextController,
       sampleDuration: const Duration(milliseconds: 150),
     );
     final hasUserProvidedInput = useState(
-      initialSearchText?.isNotEmpty == true || previousWebSearchQuery != null,
+      initialSearchText?.isNotEmpty == true,
     );
 
     // Track if we started with a URL (edit mode) to show empty state initially
@@ -183,7 +167,6 @@ class SearchScreen extends HookConsumerWidget {
     });
     final hasUserModifiedInput = useState(false);
     final isUrlInput = useState(false);
-    final isEditingAfterSearch = useState(false);
 
     // Holds the original URL when reverse bang-matching has swapped the
     // address-bar text for an extracted query. First tap of the clear button
@@ -198,14 +181,6 @@ class SearchScreen extends HookConsumerWidget {
         final text = searchTextController.text;
         hasUserProvidedInput.value = text.isNotEmpty;
 
-        final metaState = ref.read(metaSearchControllerProvider);
-
-        if (text.isEmpty && metaState.status != WebSearchStatus.idle) {
-          ref.read(metaSearchControllerProvider.notifier).reset();
-        } else if (metaState.status != WebSearchStatus.idle) {
-          isEditingAfterSearch.value = text != metaState.query;
-        }
-
         if (startedWithUrl) {
           hasUserModifiedInput.value = text != initialSearchText;
         }
@@ -214,16 +189,6 @@ class SearchScreen extends HookConsumerWidget {
             classifyAddressBarInput(text) is NavigateInputClassification;
       },
     );
-
-    // Keep isEditingAfterSearch in sync when meta search state changes
-    // (e.g. after submit/ready transitions), not just on text changes.
-    ref.listen(metaSearchControllerProvider, (_, next) {
-      if (next.status == WebSearchStatus.idle) {
-        isEditingAfterSearch.value = false;
-      } else {
-        isEditingAfterSearch.value = searchTextController.text != next.query;
-      }
-    });
 
     final showNoInputSections =
         (startedWithUrl && !hasUserModifiedInput.value) ||
@@ -238,8 +203,7 @@ class SearchScreen extends HookConsumerWidget {
       searchFocusNode,
       () => searchFocusNode.hasFocus,
       () {
-        if (searchFocusNode.hasFocus &&
-            (isEditMode || previousWebSearchQuery != null)) {
+        if (searchFocusNode.hasFocus && isEditMode) {
           searchTextController.selection = TextSelection(
             baseOffset: 0,
             extentOffset: searchTextController.text.length,
@@ -249,7 +213,7 @@ class SearchScreen extends HookConsumerWidget {
     );
 
     useEffect(() {
-      if (isEditMode || previousWebSearchQuery != null) {
+      if (isEditMode) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           searchTextController.selection = TextSelection(
             baseOffset: 0,
@@ -448,28 +412,12 @@ class SearchScreen extends HookConsumerWidget {
       }
     }
 
-    /// Records the bang search, dispatches to the in-app web search engine for
-    /// `wl` and returns null in that case, otherwise returns the resolved URI.
+    /// Records the bang search and returns the resolved URI.
     Future<Uri?> resolveSearchUri(BangData bang, String query) async {
       if (!privateTabMode) {
         await ref
             .read(bangSearchProvider.notifier)
             .triggerBangSearch(bang, query);
-      }
-
-      if (isWebSearchBang(bang)) {
-        final settings = ref.read(webSearchSettingsControllerProvider);
-        await ref
-            .read(metaSearchControllerProvider.notifier)
-            .submit(
-              query,
-              mode: settings.searchMode,
-              language: settings.language,
-              region: settings.region,
-              safeSearch: settings.safeSearch,
-              timeRange: settings.timeRange,
-            );
-        return null;
       }
 
       return bang.getTemplateUrl(query);
@@ -484,44 +432,10 @@ class SearchScreen extends HookConsumerWidget {
       }
     }
 
-    final autoSubmittedInitialSearch = useRef(false);
-    useEffect(() {
-      if (!autoSubmitSearch ||
-          autoSubmittedInitialSearch.value ||
-          initialSearchText == null ||
-          initialSearchText!.trim().isEmpty ||
-          activeBang == null ||
-          !isWebSearchBang(activeBang)) {
-        return null;
-      }
-
-      autoSubmittedInitialSearch.value = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(resolveSearchUri(activeBang, initialSearchText!));
-      });
-
-      return null;
-    }, [autoSubmitSearch, initialSearchText, activeBang]);
-
     // Persist the results scroll offset across navigation so returning to
     // the search screen after opening a result restores the user's place
-    // instead of jumping back to the top. The offset provider is reset on
-    // every fresh submit/reset of the web search controller.
-    final scrollController = useScrollController(
-      initialScrollOffset: ref.read(webSearchScrollOffsetProvider),
-    );
-    useEffect(() {
-      void listener() {
-        if (scrollController.hasClients) {
-          ref
-              .read(webSearchScrollOffsetProvider.notifier)
-              .update(scrollController.offset);
-        }
-      }
-
-      scrollController.addListener(listener);
-      return () => scrollController.removeListener(listener);
-    }, [scrollController]);
+    // instead of jumping back to the top.
+    final scrollController = useScrollController();
 
     // The screen is two surfaces in one: before anything is typed it is the
     // new-tab page, afterwards it is the search results page. They are mutually
@@ -793,8 +707,6 @@ class SearchScreen extends HookConsumerWidget {
 
                             final uri = await resolveSearchUri(bang, query);
                             if (uri == null) {
-                              // Web search dispatched in-app; reset edit state.
-                              isEditingAfterSearch.value = false;
                               return;
                             }
                             await openUriInTab(uri);
@@ -815,46 +727,9 @@ class SearchScreen extends HookConsumerWidget {
                 SliverToBoxAdapter(
                   child: ClipboardFillLink(controller: searchTextController),
                 ),
-                if (isWebSearchBang(activeBang))
-                  const SliverPadding(
-                    padding: EdgeInsets.fromLTRB(0, 8, 0, 4),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _WebSearchOptionsRow(),
-                          WebSearchTorBootstrapProgress(),
-                        ],
-                      ),
-                    ),
-                  ),
                 if (reorderActive)
                   SearchModuleReorderView(surface: activeSurface)
-                else if (isWebSearchBang(activeBang) &&
-                    ref.watch(
-                      metaSearchControllerProvider.select(
-                        (s) =>
-                            s.status != WebSearchStatus.idle ||
-                            s.query.isNotEmpty,
-                      ),
-                    )) ...[
-                  // Once a web search has been dispatched, the screen shows
-                  // the fetched results only — search suggestions and search
-                  // providers belong to the normal search page, not the
-                  // results view.
-                  WebSearchResultsSection(
-                    resolveOpenTarget: () => WebSearchOpenTarget(
-                      tabMode: effectiveTabMode,
-                      containerSelection: selectedContainer == null
-                          ? const TabContainerSelection.unassigned()
-                          : TabContainerSelection.specific(selectedContainer),
-                      parentId: (selectedTabType.value == TabType.child)
-                          ? ref.read(selectedTabProvider)
-                          : null,
-                    ),
-                  ),
-                ] else if (showNoInputSections)
+                else if (showNoInputSections)
                   ModuleSurfaceSliverList(
                     surface: ModuleSurface.newTab,
                     callbacks: moduleCallbacks,
@@ -872,46 +747,6 @@ class SearchScreen extends HookConsumerWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Horizontally scrollable row of web-search filter pills.
-///
-/// Order: Tor toggle first (always-visible safety control), then search
-/// mode, then the locale/freshness/safety filter pills. The row itself
-/// scrolls horizontally — adding more chips later doesn't break the
-/// layout on narrow screens.
-class _WebSearchOptionsRow extends StatelessWidget {
-  const _WebSearchOptionsRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return FadingScroll(
-      fadingSize: 15,
-      builder: (context, controller) {
-        return SingleChildScrollView(
-          controller: controller,
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: const Row(
-            children: [
-              WebSearchStatusChip(),
-              RouteThroughTorToggle(),
-              SizedBox(width: 8),
-              SearchModeSelector(),
-              SizedBox(width: 8),
-              LanguageSelector(),
-              SizedBox(width: 8),
-              CountrySelector(),
-              SizedBox(width: 8),
-              FreshnessSelector(),
-              SizedBox(width: 8),
-              SafeSearchSelector(),
-            ],
-          ),
-        );
-      },
     );
   }
 }

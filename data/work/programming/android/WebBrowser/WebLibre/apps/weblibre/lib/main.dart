@@ -49,7 +49,6 @@ import 'package:weblibre/core/providers/defaults.dart';
 import 'package:weblibre/core/providers/router.dart';
 import 'package:weblibre/domain/services/app_initialization.dart';
 import 'package:weblibre/domain/services/display_mode.dart';
-import 'package:weblibre/features/account/domain/services/account_callback_handler.dart';
 import 'package:weblibre/features/geckoview/features/browser/domain/services/engine_settings_replication.dart';
 import 'package:weblibre/features/geckoview/features/browser/domain/services/proxy_settings_replication.dart';
 import 'package:weblibre/features/geckoview/features/history/domain/services/history_exclusion_replication.dart';
@@ -65,7 +64,6 @@ import 'package:weblibre/features/user/domain/repositories/engine_settings.dart'
 import 'package:weblibre/features/user/domain/repositories/general_settings.dart';
 import 'package:weblibre/features/web_feed/presentation/controllers/fetch_articles.dart';
 import 'package:weblibre/features/web_feed/utils/fetch_entrypoint.dart';
-import 'package:weblibre/features/web_search/domain/controllers/sandbox_capture_controller.dart';
 import 'package:weblibre/presentation/hooks/on_initialization.dart';
 import 'package:weblibre/presentation/main_app.dart';
 
@@ -153,9 +151,6 @@ class _MainWidget extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Keep the sandbox capture controller alive for the lifetime of the app
-    // so it can react to pigeon events even when no UI subscribes to it.
-    ref.watch(sandboxCaptureControllerProvider);
     // Keep proxy/Tor log subscriptions active from app start so startup
     // messages reach the ring buffer before the browser view (or logs
     // screen) mounts and would otherwise drop them.
@@ -307,8 +302,8 @@ class _MainWidget extends HookConsumerWidget {
           kDebugMode ? LogLevel.debug : LogLevel.warn,
           engineSettings.contentBlocking,
           engineSettings.addonCollection,
-          generalSettings.syncServerOverride,
-          generalSettings.syncTokenServerOverride,
+          '',
+          '',
           engineSettings,
           startupUBlockFilterListsPref,
           clearStartupUBlockFilterListsPref,
@@ -372,9 +367,6 @@ class _MainWidget extends HookConsumerWidget {
       // has forgotten (Places retention, user-initiated clears). Cheap and
       // background; failures are logged and ignored.
       unawaited(ref.read(localIndexPrunerProvider.notifier).prune());
-
-      // Activate account callback deep link handler
-      ref.read(accountCallbackHandlerProvider);
 
       // Bring up the proxy connections flagged for autostart. Their SOCKS
       // endpoints reach Gecko through the routing snapshot mounted above, and
