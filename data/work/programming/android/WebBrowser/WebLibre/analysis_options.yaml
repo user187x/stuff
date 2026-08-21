@@ -1,0 +1,31 @@
+# Root analysis options for the WebLibre monorepo
+# This file is included by all packages using relative paths
+
+include: package:lint/package.yaml
+
+linter:
+  rules:
+    unawaited_futures: true
+    discarded_futures: true
+    collection_methods_unrelated_type: true
+
+analyzer:
+  errors:
+    avoid_redundant_argument_values: ignore
+    experimental_member_use: ignore
+  exclude:
+    - "**.g.dart"
+    - "**.drift"
+    - "**.drift.dart"
+    - "test/drift/**"
+    - "build/**"
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+plugins:
+  fast_equatable_lint: ^1.0.0
+  riverpod_lint: ^3.1.3

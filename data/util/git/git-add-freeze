@@ -1,5 +1,4 @@
 #!/bin/bash
 
 git config --global alias.freeze '!f() { find . -name .git -type d ! -path "./.git" | while read -r d; do (cd "$(dirname "$d")" && zip -rm .git-frozen.zip .git); done; echo "🔒 All nested .git directories frozen successfully."; }; f'
-
 git config --global alias.unfreeze '!f() { find . -name .git-frozen.zip -type f | while read -r z; do (cd "$(dirname "$z")" && unzip -q .git-frozen.zip && rm .git-frozen.zip); done; echo "🔓 All nested .git directories unfrozen successfully."; }; f'

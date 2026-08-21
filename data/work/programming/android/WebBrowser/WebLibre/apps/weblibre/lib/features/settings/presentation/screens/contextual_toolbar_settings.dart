@@ -1,0 +1,592 @@
+/*
+ * Copyright (c) 2024-2026 Fabian Freund.
+ *
+ * This file is part of WebLibre
+ * (see https://weblibre.eu).
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/data/providers/toolbar_button_configs.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/data/repositories/toolbar_button_config_repository.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/domain/entities/toolbar_config_location.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/domain/entities/toolbar_fallback_choice.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/presentation/models/contextual_toolbar_scope.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/presentation/toolbar_button_registry.dart';
+import 'package:weblibre/features/geckoview/features/browser/features/contextual_toolbar/presentation/widgets/contextual_toolbar.dart';
+import 'package:weblibre/features/geckoview/features/browser/presentation/widgets/browser_modules/bottom_app_bar.dart';
+import 'package:weblibre/features/settings/presentation/widgets/settings_detail.dart';
+import 'package:weblibre/features/user/data/database/definitions.drift.dart';
+
+class ContextualToolbarSettingsScreen extends HookConsumerWidget {
+  const ContextualToolbarSettingsScreen({
+    super.key,
+    this.location = ToolbarConfigLocation.contextual,
+    this.title = 'Customize Toolbar',
+  });
+
+  /// Which independently-configured toolbar this screen edits.
+  final ToolbarConfigLocation location;
+
+  /// App bar title, so the quick switcher variant reads distinctly.
+  final String title;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final configs = ref.watch(effectiveToolbarButtonConfigsProvider(location));
+    final repository = ref.watch(toolbarConfigRepositoryProvider(location));
+    final search = useSettingsSearch();
+    final query = search.normalizedQuery;
+
+    bool matchesQuery(ToolbarButtonConfig config) {
+      if (query.isEmpty) return true;
+      final def = toolbarButtonRegistryById[config.buttonId];
+      if (def == null) return false;
+      return matchesSettingsSearch(query, [
+        def.label,
+        ...def.longPressActions,
+        config.buttonId,
+      ]);
+    }
+
+    final visibleConfigs = useMemoized(
+      () => configs.value
+          .where((c) => c.isVisible)
+          .where(matchesQuery)
+          .toList(growable: false),
+      [configs, query],
+    );
+    final hiddenConfigs = useMemoized(
+      () => configs.value
+          .where((c) => !c.isVisible)
+          .where(matchesQuery)
+          .toList(growable: false),
+      [configs, query],
+    );
+
+    return SettingsCustomScrollScaffold(
+      title: title,
+      searchController: search.controller,
+      searchHintText: 'Search toolbar buttons',
+      actions: [
+        MenuAnchor(
+          builder: (context, controller, child) => IconButton(
+            onPressed: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            icon: const Icon(Icons.more_vert),
+          ),
+          menuChildren: [
+            MenuItemButton(
+              leadingIcon: const Icon(Icons.restore),
+              onPressed: () => _resetToDefaults(ref, location),
+              child: const Text('Reset to Defaults'),
+            ),
+          ],
+        ),
+      ],
+      slivers: [
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _ToolbarPreviewDelegate(
+            configs: configs.value,
+            location: location,
+          ),
+        ),
+        const SliverPadding(
+          padding: EdgeInsets.fromLTRB(16, 20, 16, 0),
+          sliver: SliverToBoxAdapter(child: _SectionLabel(label: 'Enabled')),
+        ),
+        if (visibleConfigs.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                query.isEmpty
+                    ? 'No enabled buttons. Toggle a button below to enable it.'
+                    : 'No enabled buttons match "${search.rawQuery}".',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          )
+        else
+          SliverReorderableList(
+            itemCount: visibleConfigs.length,
+            onReorderItem: (oldIndex, newIndex) => _onReorder(
+              visibleConfigs,
+              oldIndex,
+              newIndex,
+              repository,
+              isVisible: true,
+            ),
+            itemBuilder: (context, index) {
+              final config = visibleConfigs[index];
+              return _ToolbarButtonConfigTile(
+                key: ValueKey(config.buttonId),
+                index: index,
+                config: config,
+                repository: repository,
+              );
+            },
+          ),
+        const SliverPadding(
+          padding: EdgeInsets.fromLTRB(16, 20, 16, 0),
+          sliver: SliverToBoxAdapter(child: _SectionLabel(label: 'Disabled')),
+        ),
+        if (hiddenConfigs.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                query.isEmpty
+                    ? 'All buttons are enabled.'
+                    : 'No disabled buttons match "${search.rawQuery}".',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          )
+        else
+          SliverReorderableList(
+            itemCount: hiddenConfigs.length,
+            onReorderItem: (oldIndex, newIndex) => _onReorder(
+              hiddenConfigs,
+              oldIndex,
+              newIndex,
+              repository,
+              isVisible: false,
+            ),
+            itemBuilder: (context, index) {
+              final config = hiddenConfigs[index];
+              return _ToolbarButtonConfigTile(
+                key: ValueKey(config.buttonId),
+                index: index,
+                config: config,
+                repository: repository,
+              );
+            },
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
+      ],
+    );
+  }
+
+  ({String movedId, int targetIndex}) _resolveToolbarReorder(
+    List<ToolbarButtonConfig> configs,
+    int oldIndex,
+    int newIndex,
+  ) {
+    final targetIndex = newIndex.clamp(0, configs.length - 1);
+    return (movedId: configs[oldIndex].buttonId, targetIndex: targetIndex);
+  }
+
+  void _onReorder(
+    List<ToolbarButtonConfig> configs,
+    int oldIndex,
+    int newIndex,
+    ToolbarButtonConfigRepository repository, {
+    required bool isVisible,
+  }) {
+    if (oldIndex == newIndex) return;
+    final reorder = _resolveToolbarReorder(configs, oldIndex, newIndex);
+    if (reorder.targetIndex == oldIndex) return;
+    unawaited(
+      _reorderViaDb(
+        repository,
+        configs,
+        oldIndex,
+        reorder.targetIndex,
+        reorder.movedId,
+        isVisible: isVisible,
+      ),
+    );
+  }
+
+  Future<void> _reorderViaDb(
+    ToolbarButtonConfigRepository repository,
+    List<ToolbarButtonConfig> configs,
+    int oldIndex,
+    int targetIndex,
+    String movedId, {
+    required bool isVisible,
+  }) async {
+    // [configs] still contains the moved item. [targetIndex] is the
+    // post-removal destination index, clamped to [0, configs.length - 1].
+    // Because of the clamp, `>= configs.length - 1` only fires when the user
+    // dropped past the very last surviving item; `configs[targetIndex + 1]`
+    // is otherwise always a valid neighbour in the original list (since the
+    // moved item sits at oldIndex < targetIndex + 1 in the else branch).
+    final String orderKey;
+    if (targetIndex <= 0) {
+      orderKey = await repository.generateLeadingOrderKey(isVisible: isVisible);
+    } else if (targetIndex >= configs.length - 1) {
+      orderKey = await repository.generateTrailingOrderKey(
+        isVisible: isVisible,
+      );
+    } else if (targetIndex < oldIndex) {
+      orderKey =
+          await repository.generateOrderKeyAfterButtonId(
+            configs[targetIndex - 1].buttonId,
+            isVisible: isVisible,
+          ) ??
+          await repository.generateLeadingOrderKey(isVisible: isVisible);
+    } else {
+      orderKey = await repository.generateOrderKeyBeforeButtonId(
+        configs[targetIndex + 1].buttonId,
+        isVisible: isVisible,
+      );
+    }
+    await repository.assignOrderKey(movedId, orderKey: orderKey);
+  }
+
+  Future<void> _resetToDefaults(
+    WidgetRef ref,
+    ToolbarConfigLocation location,
+  ) async {
+    final repository = ref.read(toolbarConfigRepositoryProvider(location));
+    await repository.replaceAll(defaultToolbarButtonConfigsFor(location).value);
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarButtonConfigTile extends HookConsumerWidget {
+  const _ToolbarButtonConfigTile({
+    super.key,
+    required this.index,
+    required this.config,
+    required this.repository,
+  });
+
+  final int index;
+  final ToolbarButtonConfig config;
+  final ToolbarButtonConfigRepository repository;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final def = toolbarButtonRegistryById[config.buttonId];
+    if (def == null) return const SizedBox.shrink();
+
+    final isVisible = config.isVisible;
+    final hasStatefulFallback =
+        def.isPrimaryAvailable != null || def.spec.defaultFallback != null;
+
+    final fallbackOptions = toolbarButtonRegistry
+        .where(
+          (d) =>
+              d.spec.id.name != config.buttonId && d.spec.canBeFallbackTarget,
+        )
+        .toList();
+
+    final longPressActions = def.longPressActions;
+
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        leading: Icon(def.icon),
+        title: Text(def.label),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (hasStatefulFallback)
+              _FallbackPicker(
+                current: ToolbarFallbackChoice.fromStored(config.fallbackId),
+                options: fallbackOptions,
+                onChanged: (newFallback) => repository.assignFallback(
+                  config.buttonId,
+                  (newFallback ?? ToolbarFallbackNone()).toStoredFallbackId(),
+                ),
+              ),
+            if (longPressActions.isNotEmpty)
+              _LongPressHint(
+                buttonLabel: def.label,
+                icon: def.icon,
+                actions: longPressActions,
+              ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch.adaptive(
+              value: isVisible,
+              onChanged: (v) =>
+                  repository.assignVisibility(config.buttonId, visible: v),
+            ),
+            ReorderableDragStartListener(
+              index: index,
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.drag_handle),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LongPressHint extends StatelessWidget {
+  const _LongPressHint({
+    required this.buttonLabel,
+    required this.icon,
+    required this.actions,
+  });
+
+  final String buttonLabel;
+  final IconData icon;
+  final List<String> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: () => _showLongPressDetails(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.touch_app,
+              size: 14,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Long press available',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 12,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.info_outline,
+              size: 14,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLongPressDetails(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 12),
+                    Text(
+                      '$buttonLabel Long Press',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Press and hold this button to access:',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...actions.map(
+                  (action) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.touch_app,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            action,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FallbackPicker extends StatelessWidget {
+  const _FallbackPicker({
+    required this.current,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final ToolbarFallbackChoice current;
+  final List<ToolbarButtonDefinition> options;
+  final ValueChanged<ToolbarFallbackChoice?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButton<ToolbarFallbackChoice>(
+      value: current,
+      hint: const Text('No fallback'),
+      isExpanded: true,
+      isDense: true,
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      underline: const SizedBox.shrink(),
+      items: [
+        DropdownMenuItem(
+          value: ToolbarFallbackNone(),
+          child: const Text('No fallback'),
+        ),
+        for (final opt in options)
+          DropdownMenuItem(
+            value: ToolbarFallbackButton(buttonId: opt.spec.id.name),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(opt.icon, size: 16),
+                const SizedBox(width: 8),
+                Text(opt.label),
+              ],
+            ),
+          ),
+      ],
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _ToolbarPreviewDelegate extends SliverPersistentHeaderDelegate {
+  const _ToolbarPreviewDelegate({
+    required this.configs,
+    required this.location,
+  });
+
+  final List<ToolbarButtonConfig> configs;
+  final ToolbarConfigLocation location;
+
+  static const _previewHeight = BrowserTabBar.contextualToolabarHeight;
+
+  @override
+  double get minExtent => _previewHeight;
+  @override
+  double get maxExtent => _previewHeight;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return SizedBox(
+      height: maxExtent,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        child: _ToolbarPreview(configs: configs, location: location),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_ToolbarPreviewDelegate old) =>
+      old.configs != configs || old.location != location;
+}
+
+class _ToolbarPreview extends ConsumerWidget {
+  const _ToolbarPreview({required this.configs, required this.location});
+
+  final List<ToolbarButtonConfig> configs;
+  final ToolbarConfigLocation location;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final visibleConfigs = configs.where((c) => c.isVisible).toList();
+
+    final scope = ContextualToolbarScope(
+      selectedTabId: null,
+      displayedSheet: null,
+      tabState: null,
+      isPreview: true,
+      location: location,
+    );
+
+    final buttons = visibleConfigs.map((config) {
+      final def = toolbarButtonRegistryById[config.buttonId];
+      if (def == null) return const SizedBox.shrink();
+      return def.builder(scope, context, ref);
+    }).toList();
+
+    return ContextualToolbarView(buttons: buttons);
+  }
+}

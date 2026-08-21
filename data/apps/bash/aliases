@@ -4,123 +4,61 @@
 # ALIASES                                      #
 ################################################
 
-SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# ==========================================
-# LZ ALIAS & FZF PREVIEW HELPER
-# ==========================================
-
-function fzf-previewer {
-
- # 1. Strip ALL ANSI sequences (The new regex catches \e[K which breaks dot files)
- local clean_line
- clean_line=$(echo "$1" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g')
-
- # 2. Strip the symlink arrow and target to isolate the link name itself
- clean_line="${clean_line%% -> *}"
-
- # 3. Extract the last field (the actual file/folder name)
- local filepath
- filepath=$(echo "$clean_line" | awk '{print $NF}')
-
- if [[ -d "$filepath" ]]; then
-  eza --color=always --icons=always -1 "$filepath" 2>/dev/null
- elif [[ -f "$filepath" || -L "$filepath" ]]; then
-
-  # Run bat once, if it fails, fallback to the unrenderable message
-  if ! bat --color=always --style=numbers "$filepath" 2>/dev/null; then
-   echo -e "\e[90m[ Non Renderable ]\e[0m"
-  fi
-
- else
-  echo -e "\e[31m[ Unreadable or File Not Found: $filepath ]\e[0m"
- fi
-}
-
-export -f fzf-previewer
-
-alias devbox="cd $HOME/devbox"
-alias dbx="cd $HOME/devbox"
-
 DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
 
+alias ls="ls --color=always ${DATE_FORMAT}"
+alias ll='ls -alF --color=always'
+alias la='ls -A --color=always'
+alias l='ls -CF --color=always'
+alias dir='dir --color=always'
+alias vdir='vdir --color=always'
+alias lh='ls -ld .* --color=always'
+
+EZA_FLAGS="--color=always --icons=always --group-directories-first"
+
 if command -v eza >/dev/null 2>&1; then
-
- EZA_FLAGS="--color=always --icons=always --group-directories-first"
-
- alias ls="eza ${EZA_FLAGS} ${DATE_FORMAT}"
- alias ll="eza -al --header ${EZA_FLAGS} ${DATE_FORMAT}"
- alias la="eza -a ${EZA_FLAGS} ${DATE_FORMAT}"
-
- alias lz='echo -e "\e[92m$(ll | fzf --ansi --border rounded --preview="fzf-previewer {}" | awk "{print \$8}")\e[0m"'
- alias l="eza -lF ${EZA_FLAGS} ${DATE_FORMAT}"
-
- alias dir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
- alias lh="eza -ld .* ${EZA_FLAGS} ${DATE_FORMAT}"
- alias vdir="eza -l ${EZA_FLAGS} ${DATE_FORMAT}"
-
-else
- alias ls="ls --color=always ${DATE_FORMAT}"
- alias ll='ls -alF --color=always'
- alias la='ls -A --color=always'
- alias l='ls -CF --color=always'
- alias dir='dir --color=always'
- alias vdir='vdir --color=always'
- alias lh='ls -ld .* --color=always'
+ alias ls="eza -Al --header ${EZA_FLAGS} ${DATE_FORMAT}"
 fi
 
-#########################################
-#
-#         LSD Enhancements
-#
-#########################################
+alias t="tmux"
+alias v="vim"
 
-if command -v lsd >/dev/null 2>&1; then
- alias tree="lsd --tree"
- alias lt="lsd --tree --depth 2"
- alias ldir="lsd -d */"
- alias lbig="lsd -l --blocks size,name --sort size --reverse"
+if command -v gnome-text-editor >/dev/null 2>&1; then
+ alias edit="gnome-text-editor"
 fi
 
-alias fd='fdfind'
+if command -v grc >/dev/null 2>&1; then
+ alias watch-ports='watch -n 1 -tc "grc --colour=on ss -tulpn"'
+ alias show-ports='grc --colour=on ss -tulpn'
+fi
+
+alias gr='cd $(git rev-parse --show-toplevel)'
+
 alias grep='grep --color=always'
 alias fgrep='fgrep --color=always'
 alias egrep='egrep --color=always'
 alias tree='tree -C'
-alias untar='tar -xvf'
 
-# ==========================================
-# Dev-Tool Aliases
-# ==========================================
-
-alias t="tmux"
-alias edit="gnome-text-editor"
-alias mk="minikube"
 alias kitty='kitty --config=~/.confg/kitty/kitty.conf'
-alias dkrfmt="dockerfmt -i 1 -w"
-alias nano='vim'
-alias watch-ports='watch -n 1 -tc "grc --colour=on ss -tulpn"'
-alias pretty-ports='grc --colour=on ss -tulpn'
+alias tf='terraform'
 
-# Dynamically alias whichever bat variant exists
-for _bat_cmd in bat batcat; do
- if command -v "$_bat_cmd" >/dev/null 2>&1; then
-  alias bat="$_bat_cmd --style=full"
+for batcmd in bat batcat; do
+ if command -v "$batcmd" >/dev/null 2>&1; then
+  alias bat="$batcmd --style=full"
   break
  fi
 done
-unset _bat_cmd
+unset batcmd
 
-# ==========================================
-# Kubernetes Aliases
-# ==========================================
-alias v="vim"
-alias tf='terraform'
-alias k='kubecolor'
+alias mk="minikube"
+
+if command -v kubecolor >/dev/null 2>&1; then
+ alias k='kubecolor'
+else
+ alias k="kubectl"
+fi
+
 alias current-context="kubectl config current-context"
 alias show-contexts="kubectl config get-contexts"
 
-# ==========================================
-# Git Aliases
-# ==========================================
-alias gr='cd $(git rev-parse --show-toplevel)'
+alias dbx="cd $HOME/devbox"

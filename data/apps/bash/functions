@@ -6,7 +6,7 @@ __FUNCTIONS_INITIALIZED__=1
 # UTILITY FUNCTIONS
 ############################################
 
-function mkcd {
+function create-dir {
  if [[ -z "$1" ]]; then
   echo "usage: mkcd <directory>"
   exit 1
@@ -14,7 +14,7 @@ function mkcd {
  mkdir -p "$1" && cd "$1"
 }
 
-function tar-get {
+function tar-extract {
 
  if [[ "$#" != 1 ]]; then
   echo "usage: tar-get <archive.tar>"
@@ -24,7 +24,7 @@ function tar-get {
  tar -xvf "$1" "$(tar -tf "$1" | fzf)"
 }
 
-function tar-put {
+function tar-insert {
 
  if [[ "$#" < 1 ]]; then
   echo "usage: tar-put <archive.tar> <file>"
@@ -35,7 +35,7 @@ function tar-put {
 }
 
 # convenience function for installing pkgs
-function get {
+function get-pkg {
 
  if [[ -z "$1" ]]; then
   exit 0
@@ -45,10 +45,10 @@ function get {
 }
 
 # convinience function for checking packages
-function has {
+function check-repo {
 
  if [[ -z "$1" ]]; then
-  echo "Usage: has <package_name>"
+  echo "Usage: check-repo <package_name>"
   return 0
  fi
 
@@ -93,26 +93,34 @@ function has {
 
 function encrypt {
 
+ if command -v zip >/dev/null 2>&1; then
+  sudo apt update && sudo apt install zip -y
+ fi
+
  if [[ ! -e "$1" ]]; then
   echo "Please provide a file or directory. Aborting..."
   exit 1
  fi
 
  filename=$(basename "$1")
- 7z a -p -mhe=on -mx=9 "$filename.7z" "$1"
+ zip -em "$filename" "$1"
 }
 
 function decrypt {
+
+ if command -v unzip >/dev/null 2>&1; then
+  sudo apt update && sudo apt install unzip -y
+ fi
 
  if [[ ! -f "$1" ]]; then
   echo "Please provide a file. Aborting..."
   exit 1
  fi
 
- 7z x "$1"
+ unzip "$1"
 }
 
-function now {
+function now-time {
 
  local time_now
 
@@ -141,7 +149,7 @@ function now {
  fi
 }
 
-function clock {
+function show-clock {
 
  if ! command -v toilet >/dev/null || ! command -v watch >/dev/null; then
   echo -e " ${RED}(!)${END} Dependencies [toilet] and [watch] are required."
@@ -400,7 +408,36 @@ function terminal-depth {
  fi
 }
 
-function fzearch {
+function preview-file {
+
+ # 1. Strip ALL ANSI sequences (The new regex catches \e[K which breaks dot files)
+ local clean_line
+ clean_line=$(echo "$1" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+
+ # 2. Strip the symlink arrow and target to isolate the link name itself
+ clean_line="${clean_line%% -> *}"
+
+ # 3. Extract the last field (the actual file/folder name)
+ local filepath
+ filepath=$(echo "$clean_line" | awk '{print $NF}')
+
+ if [[ -d "$filepath" ]]; then
+  eza --color=always --icons=always -1 "$filepath" 2>/dev/null
+ elif [[ -f "$filepath" || -L "$filepath" ]]; then
+
+  # Run bat once, if it fails, fallback to the unrenderable message
+  if ! bat --color=always --style=numbers "$filepath" 2>/dev/null; then
+   echo -e "\e[90m[ Non Renderable ]\e[0m"
+  fi
+
+ else
+  echo -e "\e[31m[ Unreadable or File Not Found: $filepath ]\e[0m"
+ fi
+}
+
+export -f preview-file
+
+function fuzzy-search {
 
  # preview helper method
  try-with() {
@@ -521,7 +558,7 @@ function fzearch {
  esac
 }
 
-function create-QRcode {
+function create-qr-code {
 
  local text="$1"
  if [[ -z "$text" ]]; then
@@ -649,7 +686,8 @@ function spin {
 }
 export -f spin
 
-function play {
+function play-audio {
+
  if [[ -f "$1" ]]; then
   mpv --no-video "$1"
  elif [[ -d "$1" ]]; then
@@ -668,8 +706,6 @@ function play {
   echo "Usage : play <filePath|dirPath>"
  fi
 }
-
-function mp3 { play "$@"; }
 
 function search {
 
@@ -699,58 +735,6 @@ function search {
   fi
  fi
 }
-
-#function list-fonts {
-#
-# local filter
-# local enabled="false"
-#
-# # List all avaialable filsters
-# local x=$(toilet --filter list)
-# local y=$(echo "$x" | awk '{print $1}')
-# local z=$(echo "$y" | xargs -I {} bash -c 'f="{}"; echo "${f%?}"')
-# local filters=$(echo "$z" | sed '1d')
-#
-# # if user entered input
-# if [[ ! -z "$1" ]]; then
-#  filter="$1"
-#  for filter in "${filters[@]}"; do
-#   if [[ "$filter" == "$input" ]]; then
-#    enabled="true"
-#    break
-#   fi
-#  done
-# fi
-#
-# if [[ "$enabled" != "true" ]]; then
-#  echo "$filters"
-#  read -r -p "Choose available filter: " input
-#  filter="$input"
-#  enabled="true"
-# fi
-#
-# counter=0
-# for f in /usr/share/figlet/*.[tf]lf; do
-#  ((counter++))
-#  font_name=$(basename "${f%.*}")
-#
-#  if [[ "$enabled" == "true" ]]; then
-#   toilet -f $font_name --filter "$filter" "Example"
-#  else
-#   toilet -f $font_name --gay "Example"
-#  fi
-#
-#  echo -e "\e[90mFont :\e[92m$font_name\e[0m"
-#  modulo=$((counter % 5))
-#  if [[ "$modulo" -eq 0 ]]; then
-#   read -r -p "Press any button to continue (or X to exit) " input
-#   if [[ "$input" =~ ^[xX]$ ]]; then
-#    return 0
-#   fi
-#  fi
-# done
-#}
-#export -f list-fonts
 
 function pki-details {
 
@@ -1196,74 +1180,19 @@ function pki-analyze {
  shopt -u nullglob
 }
 
-function minikube-start {
+function docker-extractor {
 
- local DRIVER="docker"
- local K8_VERSION="stable"
- local CPUS="4"
- local MEMORY="4096"
- local DISK_SIZE="40G"
+ read -rp "Enter image/version : " image_version
 
- local OFFER_LIST=("ingress" "metrics-server" "default-storageclass" "storage-provisioner")
- local ADDON_LIST=()
+ local tmp_cntr="temp-cntr"
+ docker create --name "${tmp_cntr}" "${image_version}"
 
- for addon in "${OFFER_LIST[@]}"; do
-  read -r -p "Turn on addon ${GREEN}$addon${END} ? (y/n) : " answer
-  if [[ "$answer" == "y" ]]; then
-   echo -e " Activating addon ${GREEN}$addon...${END}"
-   ADDON_LIST+=("$addon")
-  else
-   echo -e " ${LIGHT_GRAY}Skipping addon $addon...${END}"
-  fi
- done
+ echo "Select file to extract...."
+ sleep 1
 
- local ADDONS=$(
-  IFS=,
-  echo "${ADDONS_LIST[*]}"
- )
+ selection=$(docker export "${tmp_cntr}" | tar -tvf - | fzf)
+ docker cp "${tmp_cntr}:${selection}" .
 
- minikube config set driver "$DRIVER"
- echo -e "Setting default driver to ${HIGH_WHITE}$DRIVER${END}"
-
- minikube config set kubernetes-version "$K8_VERSION"
- echo -e "Setting kubernetes version to ${HIGH_WHITE}$K8_VERSION${END}"
-
- minikube config set cpus "$CPUS"
- echo -e "Setting CPUs ${HIGH_WHTIE}$CPUS${END}"
-
- minikube config set memory "$MEMORY"
- echo -e "Setting Memory ${HIGH_WHTIE}$MEMORY${END}"
-
- minikube config set disk-size "$DISK_SIZE"
- echo -e "Setting Disk-Size ${HIGH_WHTIE}$DISK_SIZE${END}"
-
- minikube start --addons="$ADDONS"
-}
-
-function minikube-nuke {
-
- local nuke_all=0
-
- if [[ "$1" == "-y" ]]; then
-  echo -e "\e[90m Nuking Minikube/K8 resources with extreme prejudice \e[1;91m☠\e[0m"
-  nuke_all=1
- fi
-
- minikube delete --all --purge
-
- if ((nuke_all)); then
-  rm -rf "$HOME/.minikube" >/dev/null 2>&1
-  rm -rf "$HOME/.kube" >/dev/null 2>&1
- else
-  read -r -p "Delete ~/.minikube ? (y/n) : " response
-  if [[ "$response" == "y" ]]; then
-   rm -rf "$HOME/.minikube" >/dev/null 2>&1
-  fi
-  read -r -p "Delete ~/.kube ? (y/n) : " response
-  if [[ "$response" == "y" ]]; then
-   rm -rf "$HOME/.kube" >/dev/null 2>&1
-  fi
- fi
 }
 
 function spliter-combiner {

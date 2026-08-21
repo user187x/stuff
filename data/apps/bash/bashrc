@@ -226,7 +226,5 @@ export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 # Adding golang support
 export GOPATH=$HOME/go
 export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin
-#eval "$(starship init bash)"
 
-# cert-manager (timed TLS client-cert unlock)
-source "/home/xxx/.local/bin/cert-manager"
+#eval "$(starship init bash)"

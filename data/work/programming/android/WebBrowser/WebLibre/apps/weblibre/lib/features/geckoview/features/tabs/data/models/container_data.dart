@@ -1,0 +1,266 @@
+/*
+ * Copyright (c) 2024-2026 Fabian Freund.
+ *
+ * This file is part of WebLibre
+ * (see https://weblibre.eu).
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+import 'package:copy_with_extension/copy_with_extension.dart';
+import 'package:fast_equatable/fast_equatable.dart';
+import 'package:flutter/widgets.dart';
+import 'package:json_annotation/json_annotation.dart';
+import 'package:weblibre/data/database/converters/color.dart';
+import 'package:weblibre/data/database/converters/icon_data.dart';
+import 'package:weblibre/features/proxy/data/proxy_connection.dart';
+
+part 'container_data.g.dart';
+
+@CopyWith()
+@JsonSerializable(constructor: 'withDefaults')
+class ContainerMetadata with FastEquatable {
+  @IconDataJsonConverter()
+  final IconData? iconData;
+
+  final String? contextualIdentity;
+
+  @JsonKey(
+    fromJson: _proxyConnectionIdFromJson,
+    toJson: _proxyConnectionIdToJson,
+  )
+  final ProxyConnectionId? proxyConnectionId;
+
+  @JsonKey(defaultValue: false)
+  final bool clearDataOnExit;
+
+  // Read by the `tab_to_history_on_*` SQL triggers via
+  // `json_extract(metadata, '$.excludeFromIndex')`. Keep this key name in
+  // sync with the trigger gate in definitions.drift.
+  @JsonKey(defaultValue: false)
+  final bool excludeFromIndex;
+
+  // When true, this container's browsing history is not recorded at all: the
+  // history delegate of each of its tabs skips the Mozilla Places write (hard
+  // exclude / "incognito container"), and no visit→container relation row is
+  // written. Gates history recording independently of `excludeFromIndex` (which
+  // only gates the local FTS search index).
+  //
+  // Applies to every container: the exclusion is replicated to native per tab,
+  // not per Gecko contextId, so it works with cookie isolation off — where all
+  // of the container's tabs share the default context — just as well as on.
+  @JsonKey(defaultValue: false)
+  final bool excludeFromHistory;
+
+  @JsonKey(defaultValue: false)
+  final bool bypassGlobalProxy;
+
+  // When true, ContainerData.color is used directly as primaryContainer
+  // instead of being fed through ColorScheme.fromSeed. Lets power users pick
+  // any color (including dark/black) at the cost of M3 harmonization.
+  @JsonKey(defaultValue: false)
+  final bool useCustomColor;
+
+  final List<Uri>? assignedSites;
+
+  // When true, tabs in this container may only load origins listed in
+  // [assignedSites]; any other top-level navigation is blocked. Read on the
+  // native side via `json_extract(metadata, '$.strictMode')` (see the
+  // `strictContextAssignments` query in definitions.drift) and pushed to the
+  // container-proxy web extension. Requires a Gecko contextId — the extension
+  // keys strictness on the tab's cookieStoreId — so it is normalized to false
+  // when [contextualIdentity] is null (mirrors [excludeFromHistory]).
+  @JsonKey(defaultValue: false)
+  final bool strictMode;
+
+  // When true, this container has its own app-link policy (open-in-app mode +
+  // remembered per-site rules) that fully replaces the global one for its tabs.
+  // The override itself lives in `GeneralSettings.appLinkContextOverrides` keyed
+  // by [contextualIdentity]; this flag only gates whether that override is
+  // consulted. Requires a Gecko contextId — the native interceptor keys the
+  // override on the tab's contextId, so it is normalized to false when
+  // [contextualIdentity] is null (mirrors [strictMode]/[excludeFromHistory]).
+  @JsonKey(defaultValue: false)
+  final bool isolatedAppLinkSettings;
+
+  ContainerMetadata({
+    required this.iconData,
+    required this.contextualIdentity,
+    required this.proxyConnectionId,
+    required this.clearDataOnExit,
+    required this.excludeFromIndex,
+    required this.excludeFromHistory,
+    required this.bypassGlobalProxy,
+    required this.useCustomColor,
+    required this.assignedSites,
+    required this.strictMode,
+    required this.isolatedAppLinkSettings,
+  });
+
+  ContainerMetadata.withDefaults({
+    IconData? iconData,
+    String? contextualIdentity,
+    ProxyConnectionId? proxyConnectionId,
+    bool? clearDataOnExit,
+    bool? excludeFromIndex,
+    bool? excludeFromHistory,
+    bool? bypassGlobalProxy,
+    bool? useCustomColor,
+    List<Uri>? assignedSites,
+    bool? strictMode,
+    bool? isolatedAppLinkSettings,
+  }) : this(
+         iconData: iconData,
+         contextualIdentity: contextualIdentity,
+         proxyConnectionId: proxyConnectionId,
+         clearDataOnExit: clearDataOnExit ?? false,
+         excludeFromIndex: excludeFromIndex ?? false,
+         excludeFromHistory: excludeFromHistory ?? false,
+         bypassGlobalProxy: bypassGlobalProxy ?? false,
+         useCustomColor: useCustomColor ?? false,
+         assignedSites: assignedSites,
+         // Strict mode needs a contextId (the extension keys on cookieStoreId);
+         // normalize away the invalid combination on read, and writers re-apply
+         // it via [sanitized].
+         strictMode: (strictMode ?? false) && contextualIdentity != null,
+         // Isolated app-link settings need a contextId — the native interceptor
+         // keys the override on the tab's contextId. Normalize the invalid
+         // combination on read; writers re-apply it via [sanitized].
+         isolatedAppLinkSettings:
+             (isolatedAppLinkSettings ?? false) && contextualIdentity != null,
+       );
+
+  /// Enforce the settings that only mean something for a cookie-isolated
+  /// (contextId-bearing) container before persistence. The primary constructor
+  /// can't normalize (copy_with_extension_gen requires params to map 1:1 to
+  /// fields), so writers route through this.
+  ///
+  /// [excludeFromHistory] is deliberately absent: it is keyed on tabs natively
+  /// and applies to every container.
+  ContainerMetadata sanitized() {
+    var result = this;
+    // Strict mode is meaningless without a contextId: the extension keys
+    // strictness on the tab's cookieStoreId.
+    if (result.strictMode && result.contextualIdentity == null) {
+      result = result.copyWith(strictMode: false);
+    }
+    // Isolated app-link settings need a contextId: the interceptor keys the
+    // override on the tab's contextId.
+    if (result.isolatedAppLinkSettings && result.contextualIdentity == null) {
+      result = result.copyWith(isolatedAppLinkSettings: false);
+    }
+    // Routing is keyed on the cookie-store context too: the snapshot skips a
+    // container without one, so a proxy or bypass kept here is a setting the
+    // user can see but nothing applies — the container's tabs run in the
+    // general context and follow the global route regardless.
+    if (result.contextualIdentity == null &&
+        (result.proxyConnectionId != null || result.bypassGlobalProxy)) {
+      result = result.copyWith(
+        proxyConnectionId: null,
+        bypassGlobalProxy: false,
+      );
+    }
+    return result;
+  }
+
+  bool get usesTorProxy => proxyConnectionId is TorProxyConnectionId;
+
+  factory ContainerMetadata.fromJson(Map<String, dynamic> json) =>
+      _$ContainerMetadataFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ContainerMetadataToJson(this);
+
+  @override
+  List<Object?> get hashParameters => [
+    iconData,
+    contextualIdentity,
+    proxyConnectionId,
+    clearDataOnExit,
+    excludeFromIndex,
+    excludeFromHistory,
+    bypassGlobalProxy,
+    useCustomColor,
+    assignedSites,
+    strictMode,
+    isolatedAppLinkSettings,
+  ];
+}
+
+@JsonSerializable()
+@CopyWith()
+class ContainerData with FastEquatable {
+  final String id;
+  final String? name;
+  @ColorJsonConverter()
+  final Color color;
+
+  final String orderKey;
+
+  @JsonKey(defaultValue: false)
+  final bool isPinned;
+
+  final ContainerMetadata metadata;
+
+  ContainerData({
+    required this.id,
+    this.name,
+    required this.color,
+    required this.orderKey,
+    this.isPinned = false,
+    ContainerMetadata? metadata,
+  }) : metadata = metadata ?? ContainerMetadata.withDefaults();
+
+  factory ContainerData.fromJson(Map<String, dynamic> json) =>
+      _$ContainerDataFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ContainerDataToJson(this);
+
+  @override
+  List<Object?> get hashParameters => [
+    id,
+    name,
+    color,
+    orderKey,
+    isPinned,
+    metadata,
+  ];
+}
+
+@JsonSerializable()
+class ContainerDataWithCount extends ContainerData {
+  final int? tabCount;
+
+  ContainerDataWithCount({
+    required super.id,
+    super.name,
+    required super.color,
+    required super.orderKey,
+    super.isPinned,
+    super.metadata,
+    required this.tabCount,
+  });
+
+  factory ContainerDataWithCount.fromJson(Map<String, dynamic> json) =>
+      _$ContainerDataWithCountFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ContainerDataWithCountToJson(this);
+
+  @override
+  List<Object?> get hashParameters => [...super.hashParameters, tabCount];
+}
+
+ProxyConnectionId? _proxyConnectionIdFromJson(String? json) =>
+    ProxyConnectionId.decode(json);
+
+String? _proxyConnectionIdToJson(ProxyConnectionId? object) => object?.encode();

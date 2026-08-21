@@ -1,0 +1,52 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_mozilla_components/flutter_mozilla_components.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+
+void main() {
+  runApp(const ProviderScope(child: MyApp()));
+}
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
+  @override
+  MyAppState createState() => MyAppState();
+}
+
+class MyAppState extends State<MyApp> {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('Native Fragment Example'),
+          actions: [
+            MenuAnchor(
+              builder: (context, controller, child) => IconButton(
+                onPressed: () {
+                  controller.open();
+                },
+                icon: const Icon(Icons.menu),
+              ),
+              menuChildren: [
+                MenuItemButton(
+                  onPressed: () async {
+                    await GeckoSessionService.forActiveTab().reload();
+                  },
+                  child: const Text('Reload'),
+                ),
+                MenuItemButton(
+                  onPressed: () async {
+                    await GeckoSessionService.forActiveTab().goBack();
+                  },
+                  child: const Text('Back'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        body: const SafeArea(child: Center(child: GeckoView())),
+      ),
+    );
+  }
+}

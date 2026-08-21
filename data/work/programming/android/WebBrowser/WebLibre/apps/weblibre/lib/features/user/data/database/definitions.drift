@@ -1,0 +1,186 @@
+import 'package:flutter_singbox_proxy/flutter_singbox_proxy.dart';
+
+CREATE TABLE setting (
+  "key" TEXT PRIMARY KEY NOT NULL,
+  partition_key TEXT,
+  "value" ANY
+) STRICT;
+
+CREATE TABLE proxy_profile (
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type ENUMNAME(SingboxProxyProfileType) NOT NULL,
+  config_json TEXT NOT NULL,
+  dns_override_json TEXT,
+  autostart BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) AS ProxyProfile;
+
+CREATE INDEX idx_proxy_profile_updated_at ON proxy_profile(updated_at);
+
+CREATE TABLE icon_cache (
+  origin TEXT PRIMARY KEY NOT NULL,
+  icon_data BLOB NOT NULL,
+  fetch_date DATETIME NOT NULL
+);
+
+CREATE TABLE onboarding (
+  revision INTEGER NOT NULL,
+  completion_date DATETIME NOT NULL
+);
+
+CREATE TABLE riverpod (
+  "key" TEXT PRIMARY KEY NOT NULL,
+  json TEXT NOT NULL,
+  expireAt DATETIME,
+  destroyKey TEXT
+) WITHOUT ROWID;
+
+CREATE TABLE toolbar_button_configs (
+  button_id   TEXT NOT NULL PRIMARY KEY,
+  order_key   TEXT NOT NULL,
+  is_visible  BOOLEAN NOT NULL DEFAULT TRUE,
+  fallback_id TEXT REFERENCES toolbar_button_configs(button_id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_toolbar_order_key ON toolbar_button_configs(order_key);
+
+-- Independently-configured button set for the quick tab switcher's trailing
+-- cluster. Same shape as toolbar_button_configs but a separate table so the two
+-- toolbars keep fully isolated ordering/visibility/fallbacks.
+CREATE TABLE quick_switcher_button_configs (
+  button_id   TEXT NOT NULL PRIMARY KEY,
+  order_key   TEXT NOT NULL,
+  is_visible  BOOLEAN NOT NULL DEFAULT FALSE,
+  fallback_id TEXT REFERENCES quick_switcher_button_configs(button_id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_quick_switcher_order_key ON quick_switcher_button_configs(order_key);
+
+CREATE TABLE search_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token BLOB NOT NULL,
+  inserted_at DATETIME NOT NULL,
+  issuer_key_version TEXT NOT NULL,
+  reserved_at DATETIME
+);
+
+CREATE INDEX idx_search_tokens_inserted_at ON search_tokens(inserted_at);
+CREATE INDEX idx_search_tokens_reserved_at ON search_tokens(reserved_at);
+
+-- All four queries are scoped to a visibility partition (`is_visible`) so the
+-- generated key falls strictly within the targeted section. The Customize
+-- Toolbar UI renders Enabled and Disabled as two independent reorderable
+-- lists; without the partition, leading/trailing keys would cross the section
+-- boundary and surface as buttons "jumping" after a visibility toggle.
+toolbarLeadingOrderKey(:bucket AS INTEGER, :is_visible AS BOOL):
+  SELECT lexo_rank_previous(
+    :bucket,
+    (
+      SELECT order_key
+      FROM toolbar_button_configs
+      WHERE is_visible = :is_visible
+      ORDER BY order_key
+      LIMIT 1
+    )
+  );
+
+toolbarTrailingOrderKey(:bucket AS INTEGER, :is_visible AS BOOL):
+  SELECT lexo_rank_next(
+    :bucket,
+    (
+      SELECT order_key
+      FROM toolbar_button_configs
+      WHERE is_visible = :is_visible
+      ORDER BY order_key DESC
+      LIMIT 1
+    )
+  );
+
+toolbarOrderKeyAfterButton(:button_id AS TEXT, :is_visible AS BOOL):
+  WITH ordered_table AS (
+    SELECT
+      button_id,
+      order_key,
+      LEAD(order_key) OVER (ORDER BY order_key) AS next_order_key
+    FROM toolbar_button_configs
+    WHERE is_visible = :is_visible
+  )
+  SELECT lexo_rank_reorder_after(order_key, next_order_key)
+  FROM ordered_table
+  WHERE button_id = :button_id;
+
+toolbarOrderKeyBeforeButton(:button_id AS TEXT, :is_visible AS BOOL):
+  WITH ordered_table AS (
+    SELECT
+      button_id,
+      order_key,
+      LAG(order_key) OVER (ORDER BY order_key) AS prev_order_key
+    FROM toolbar_button_configs
+    WHERE is_visible = :is_visible
+  )
+  SELECT lexo_rank_reorder_before(order_key, prev_order_key)
+  FROM ordered_table
+  WHERE button_id = :button_id;
+
+-- Quick-switcher variants of the order-key helpers above, scoped to the
+-- quick_switcher_button_configs table (see the toolbar* queries for rationale).
+quickSwitcherLeadingOrderKey(:bucket AS INTEGER, :is_visible AS BOOL):
+  SELECT lexo_rank_previous(
+    :bucket,
+    (
+      SELECT order_key
+      FROM quick_switcher_button_configs
+      WHERE is_visible = :is_visible
+      ORDER BY order_key
+      LIMIT 1
+    )
+  );
+
+quickSwitcherTrailingOrderKey(:bucket AS INTEGER, :is_visible AS BOOL):
+  SELECT lexo_rank_next(
+    :bucket,
+    (
+      SELECT order_key
+      FROM quick_switcher_button_configs
+      WHERE is_visible = :is_visible
+      ORDER BY order_key DESC
+      LIMIT 1
+    )
+  );
+
+quickSwitcherOrderKeyAfterButton(:button_id AS TEXT, :is_visible AS BOOL):
+  WITH ordered_table AS (
+    SELECT
+      button_id,
+      order_key,
+      LEAD(order_key) OVER (ORDER BY order_key) AS next_order_key
+    FROM quick_switcher_button_configs
+    WHERE is_visible = :is_visible
+  )
+  SELECT lexo_rank_reorder_after(order_key, next_order_key)
+  FROM ordered_table
+  WHERE button_id = :button_id;
+
+quickSwitcherOrderKeyBeforeButton(:button_id AS TEXT, :is_visible AS BOOL):
+  WITH ordered_table AS (
+    SELECT
+      button_id,
+      order_key,
+      LAG(order_key) OVER (ORDER BY order_key) AS prev_order_key
+    FROM quick_switcher_button_configs
+    WHERE is_visible = :is_visible
+  )
+  SELECT lexo_rank_reorder_before(order_key, prev_order_key)
+  FROM ordered_table
+  WHERE button_id = :button_id;
+
+evictCacheEntries:
+  DELETE FROM icon_cache 
+  WHERE rowid IN (
+      SELECT rowid 
+      FROM icon_cache 
+      ORDER BY fetch_date DESC 
+      LIMIT -1 OFFSET :limit
+  );

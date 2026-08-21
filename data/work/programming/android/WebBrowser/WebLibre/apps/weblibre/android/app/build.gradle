@@ -1,0 +1,175 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.plugin.compose" version "2.4.0"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+if (flutterVersionCode == null) {
+    flutterVersionCode = "1"
+}
+
+def flutterVersionName = localProperties.getProperty("flutter.versionName")
+if (flutterVersionName == null) {
+    flutterVersionName = "1.0"
+}
+
+def weblibreGoMobileAar = file("../../../../native/go_mobile_runtime/build/weblibre-go.aar")
+
+android {
+    namespace = "eu.weblibre.gecko"
+    compileSdk = 37
+    ndkVersion = rootProject.ext.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        applicationId = "eu.weblibre.gecko"
+        // https://api.flutter.dev/flutter/widgets/AndroidView-class.html
+        minSdkVersion = 26
+        targetSdk = 37
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+        // Whether the Flutter engine renders via Impeller or the legacy Skia
+        // backend. Read by io.flutter.embedding.android.EnableImpeller in
+        // AndroidManifest.xml. Overridden per-flavor below.
+        manifestPlaceholders = [enableImpeller: "true"]
+    }
+
+    flavorDimensions "track"
+    productFlavors {
+        stable {
+            dimension "track"
+            manifestPlaceholders = [appName: "WebLibre"]
+        }
+        // "alpha" stays the default alpha build (Impeller, as before this split) so
+        // existing tooling/filters keyed on the "alpha" name keep working.
+        // alphaLegacy is an additional variant using the legacy Skia renderer, for
+        // side-by-side comparison. The renderer is chosen at Flutter engine
+        // startup via a manifest meta-data flag and cannot be switched at
+        // runtime, hence a separate build rather than a single toggle.
+        alpha {
+            dimension "track"
+            applicationIdSuffix ".alpha"
+            versionNameSuffix "-alpha"
+            manifestPlaceholders = [appName: "WebLibre Alpha", enableImpeller: "true"]
+        }
+        alphaLegacy {
+            dimension "track"
+            applicationIdSuffix ".alpha"
+            versionNameSuffix "-alpha"
+            manifestPlaceholders = [appName: "WebLibre Alpha (Legacy)", enableImpeller: "false"]
+        }
+    }
+
+    sourceSets {
+        // alphaLegacy shares the existing alpha launcher icon/branding.
+        alphaLegacy {
+            res.srcDirs += 'src/alpha/res'
+        }
+    }
+
+    dependencies {
+        // implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+        if (!weblibreGoMobileAar.exists()) {
+            throw new GradleException(
+                "Missing combined gomobile runtime AAR: ${weblibreGoMobileAar}. " +
+                    "Run native/go_mobile_runtime/scripts/build-android.sh from the repository root."
+            )
+        }
+        implementation files(weblibreGoMobileAar)
+        implementation('androidx.glance:glance-appwidget') {
+            version {
+                strictly '1.1.1'
+            }
+            because 'home_widget uses 1.+ and newer alpha releases require AGP 9.1 and compileSdk 37'
+        }
+        implementation 'com.google.android.material:material:1.14.0'
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    signingConfigs {
+        release {
+            keyAlias System.getenv("KEY_ALIAS")
+            keyPassword System.getenv("KEY_PASSWORD")
+            storeFile System.getenv("KEY_PATH") ? file(System.getenv("KEY_PATH")) : null
+            storePassword System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        release {
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig = signingConfigs.release
+
+            shrinkResources = !project.hasProperty("disableOptimization")
+            minifyEnabled = !project.hasProperty("disableOptimization")
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            matchingFallbacks = ['release'] // Use on the "release" build type in dependencies (AARs)
+        }
+    }
+
+    bundle {
+        // Profiler issues require us to temporarily package native code compressed to
+        // match the previous APK packaging.
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=1865634
+        packagingOptions {
+            jniLibs {
+                it.useLegacyPackaging = true
+            }
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    //Exclude dependenciesInfo for f-droid
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk = false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle = false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+//Override version code for f-droid
+ext.abiCodes = ["x86_64": 1, "armeabi-v7a": 2, "arm64-v8a": 3]
+import com.android.build.OutputFile
+android.applicationVariants.all { variant ->
+  variant.outputs.each { output ->
+    def abiVersionCode = project.ext.abiCodes.get(output.getFilter(OutputFile.ABI))
+    if (abiVersionCode != null) {
+      output.versionCodeOverride = variant.versionCode * 10 + abiVersionCode
+    }
+  }
+}

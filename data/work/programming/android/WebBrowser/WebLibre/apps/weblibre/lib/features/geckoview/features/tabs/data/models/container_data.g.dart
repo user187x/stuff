@@ -1,0 +1,405 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+part of 'container_data.dart';
+
+// **************************************************************************
+// CopyWithGenerator
+// **************************************************************************
+
+abstract class _$ContainerMetadataCWProxy {
+  ContainerMetadata iconData(IconData? iconData);
+
+  ContainerMetadata contextualIdentity(String? contextualIdentity);
+
+  ContainerMetadata proxyConnectionId(ProxyConnectionId? proxyConnectionId);
+
+  ContainerMetadata clearDataOnExit(bool clearDataOnExit);
+
+  ContainerMetadata excludeFromIndex(bool excludeFromIndex);
+
+  ContainerMetadata excludeFromHistory(bool excludeFromHistory);
+
+  ContainerMetadata bypassGlobalProxy(bool bypassGlobalProxy);
+
+  ContainerMetadata useCustomColor(bool useCustomColor);
+
+  ContainerMetadata assignedSites(List<Uri>? assignedSites);
+
+  ContainerMetadata strictMode(bool strictMode);
+
+  ContainerMetadata isolatedAppLinkSettings(bool isolatedAppLinkSettings);
+
+  /// Creates a new instance with the provided field values.
+  /// Passing `null` to a nullable field nullifies it, while `null` for a non-nullable field is ignored. To update a single field use `ContainerMetadata(...).copyWith.fieldName(value)`.
+  ///
+  /// Example:
+  /// ```dart
+  /// ContainerMetadata(...).copyWith(id: 12, name: "My name")
+  /// ```
+  ContainerMetadata call({
+    IconData? iconData,
+    String? contextualIdentity,
+    ProxyConnectionId? proxyConnectionId,
+    bool clearDataOnExit,
+    bool excludeFromIndex,
+    bool excludeFromHistory,
+    bool bypassGlobalProxy,
+    bool useCustomColor,
+    List<Uri>? assignedSites,
+    bool strictMode,
+    bool isolatedAppLinkSettings,
+  });
+}
+
+/// Callable proxy for `copyWith` functionality.
+/// Use as `instanceOfContainerMetadata.copyWith(...)` or call `instanceOfContainerMetadata.copyWith.fieldName(value)` for a single field.
+class _$ContainerMetadataCWProxyImpl implements _$ContainerMetadataCWProxy {
+  const _$ContainerMetadataCWProxyImpl(this._value);
+
+  final ContainerMetadata _value;
+
+  @override
+  ContainerMetadata iconData(IconData? iconData) => call(iconData: iconData);
+
+  @override
+  ContainerMetadata contextualIdentity(String? contextualIdentity) =>
+      call(contextualIdentity: contextualIdentity);
+
+  @override
+  ContainerMetadata proxyConnectionId(ProxyConnectionId? proxyConnectionId) =>
+      call(proxyConnectionId: proxyConnectionId);
+
+  @override
+  ContainerMetadata clearDataOnExit(bool clearDataOnExit) =>
+      call(clearDataOnExit: clearDataOnExit);
+
+  @override
+  ContainerMetadata excludeFromIndex(bool excludeFromIndex) =>
+      call(excludeFromIndex: excludeFromIndex);
+
+  @override
+  ContainerMetadata excludeFromHistory(bool excludeFromHistory) =>
+      call(excludeFromHistory: excludeFromHistory);
+
+  @override
+  ContainerMetadata bypassGlobalProxy(bool bypassGlobalProxy) =>
+      call(bypassGlobalProxy: bypassGlobalProxy);
+
+  @override
+  ContainerMetadata useCustomColor(bool useCustomColor) =>
+      call(useCustomColor: useCustomColor);
+
+  @override
+  ContainerMetadata assignedSites(List<Uri>? assignedSites) =>
+      call(assignedSites: assignedSites);
+
+  @override
+  ContainerMetadata strictMode(bool strictMode) => call(strictMode: strictMode);
+
+  @override
+  ContainerMetadata isolatedAppLinkSettings(bool isolatedAppLinkSettings) =>
+      call(isolatedAppLinkSettings: isolatedAppLinkSettings);
+
+  /// Creates a new instance with the provided field values.
+  /// Passing `null` to a nullable field nullifies it, while `null` for a non-nullable field is ignored. To update a single field use `ContainerMetadata(...).copyWith.fieldName(value)`.
+  ///
+  /// Example:
+  /// ```dart
+  /// ContainerMetadata(...).copyWith(id: 12, name: "My name")
+  /// ```
+  @override
+  ContainerMetadata call({
+    Object? iconData = const $CopyWithPlaceholder(),
+    Object? contextualIdentity = const $CopyWithPlaceholder(),
+    Object? proxyConnectionId = const $CopyWithPlaceholder(),
+    Object? clearDataOnExit = const $CopyWithPlaceholder(),
+    Object? excludeFromIndex = const $CopyWithPlaceholder(),
+    Object? excludeFromHistory = const $CopyWithPlaceholder(),
+    Object? bypassGlobalProxy = const $CopyWithPlaceholder(),
+    Object? useCustomColor = const $CopyWithPlaceholder(),
+    Object? assignedSites = const $CopyWithPlaceholder(),
+    Object? strictMode = const $CopyWithPlaceholder(),
+    Object? isolatedAppLinkSettings = const $CopyWithPlaceholder(),
+  }) {
+    return ContainerMetadata(
+      iconData: iconData == const $CopyWithPlaceholder()
+          ? _value.iconData
+          // ignore: cast_nullable_to_non_nullable
+          : iconData as IconData?,
+      contextualIdentity: contextualIdentity == const $CopyWithPlaceholder()
+          ? _value.contextualIdentity
+          // ignore: cast_nullable_to_non_nullable
+          : contextualIdentity as String?,
+      proxyConnectionId: proxyConnectionId == const $CopyWithPlaceholder()
+          ? _value.proxyConnectionId
+          // ignore: cast_nullable_to_non_nullable
+          : proxyConnectionId as ProxyConnectionId?,
+      clearDataOnExit:
+          clearDataOnExit == const $CopyWithPlaceholder() ||
+              clearDataOnExit == null
+          ? _value.clearDataOnExit
+          // ignore: cast_nullable_to_non_nullable
+          : clearDataOnExit as bool,
+      excludeFromIndex:
+          excludeFromIndex == const $CopyWithPlaceholder() ||
+              excludeFromIndex == null
+          ? _value.excludeFromIndex
+          // ignore: cast_nullable_to_non_nullable
+          : excludeFromIndex as bool,
+      excludeFromHistory:
+          excludeFromHistory == const $CopyWithPlaceholder() ||
+              excludeFromHistory == null
+          ? _value.excludeFromHistory
+          // ignore: cast_nullable_to_non_nullable
+          : excludeFromHistory as bool,
+      bypassGlobalProxy:
+          bypassGlobalProxy == const $CopyWithPlaceholder() ||
+              bypassGlobalProxy == null
+          ? _value.bypassGlobalProxy
+          // ignore: cast_nullable_to_non_nullable
+          : bypassGlobalProxy as bool,
+      useCustomColor:
+          useCustomColor == const $CopyWithPlaceholder() ||
+              useCustomColor == null
+          ? _value.useCustomColor
+          // ignore: cast_nullable_to_non_nullable
+          : useCustomColor as bool,
+      assignedSites: assignedSites == const $CopyWithPlaceholder()
+          ? _value.assignedSites
+          // ignore: cast_nullable_to_non_nullable
+          : assignedSites as List<Uri>?,
+      strictMode:
+          strictMode == const $CopyWithPlaceholder() || strictMode == null
+          ? _value.strictMode
+          // ignore: cast_nullable_to_non_nullable
+          : strictMode as bool,
+      isolatedAppLinkSettings:
+          isolatedAppLinkSettings == const $CopyWithPlaceholder() ||
+              isolatedAppLinkSettings == null
+          ? _value.isolatedAppLinkSettings
+          // ignore: cast_nullable_to_non_nullable
+          : isolatedAppLinkSettings as bool,
+    );
+  }
+}
+
+extension $ContainerMetadataCopyWith on ContainerMetadata {
+  /// Returns a callable class used to build a new instance with modified fields.
+  /// Example: `instanceOfContainerMetadata.copyWith(...)` or `instanceOfContainerMetadata.copyWith.fieldName(...)`.
+  // ignore: library_private_types_in_public_api
+  _$ContainerMetadataCWProxy get copyWith =>
+      _$ContainerMetadataCWProxyImpl(this);
+}
+
+abstract class _$ContainerDataCWProxy {
+  ContainerData id(String id);
+
+  ContainerData name(String? name);
+
+  ContainerData color(Color color);
+
+  ContainerData orderKey(String orderKey);
+
+  ContainerData isPinned(bool isPinned);
+
+  ContainerData metadata(ContainerMetadata? metadata);
+
+  /// Creates a new instance with the provided field values.
+  /// Passing `null` to a nullable field nullifies it, while `null` for a non-nullable field is ignored. To update a single field use `ContainerData(...).copyWith.fieldName(value)`.
+  ///
+  /// Example:
+  /// ```dart
+  /// ContainerData(...).copyWith(id: 12, name: "My name")
+  /// ```
+  ContainerData call({
+    String id,
+    String? name,
+    Color color,
+    String orderKey,
+    bool isPinned,
+    ContainerMetadata? metadata,
+  });
+}
+
+/// Callable proxy for `copyWith` functionality.
+/// Use as `instanceOfContainerData.copyWith(...)` or call `instanceOfContainerData.copyWith.fieldName(value)` for a single field.
+class _$ContainerDataCWProxyImpl implements _$ContainerDataCWProxy {
+  const _$ContainerDataCWProxyImpl(this._value);
+
+  final ContainerData _value;
+
+  @override
+  ContainerData id(String id) => call(id: id);
+
+  @override
+  ContainerData name(String? name) => call(name: name);
+
+  @override
+  ContainerData color(Color color) => call(color: color);
+
+  @override
+  ContainerData orderKey(String orderKey) => call(orderKey: orderKey);
+
+  @override
+  ContainerData isPinned(bool isPinned) => call(isPinned: isPinned);
+
+  @override
+  ContainerData metadata(ContainerMetadata? metadata) =>
+      call(metadata: metadata);
+
+  /// Creates a new instance with the provided field values.
+  /// Passing `null` to a nullable field nullifies it, while `null` for a non-nullable field is ignored. To update a single field use `ContainerData(...).copyWith.fieldName(value)`.
+  ///
+  /// Example:
+  /// ```dart
+  /// ContainerData(...).copyWith(id: 12, name: "My name")
+  /// ```
+  @override
+  ContainerData call({
+    Object? id = const $CopyWithPlaceholder(),
+    Object? name = const $CopyWithPlaceholder(),
+    Object? color = const $CopyWithPlaceholder(),
+    Object? orderKey = const $CopyWithPlaceholder(),
+    Object? isPinned = const $CopyWithPlaceholder(),
+    Object? metadata = const $CopyWithPlaceholder(),
+  }) {
+    return ContainerData(
+      id: id == const $CopyWithPlaceholder() || id == null
+          ? _value.id
+          // ignore: cast_nullable_to_non_nullable
+          : id as String,
+      name: name == const $CopyWithPlaceholder()
+          ? _value.name
+          // ignore: cast_nullable_to_non_nullable
+          : name as String?,
+      color: color == const $CopyWithPlaceholder() || color == null
+          ? _value.color
+          // ignore: cast_nullable_to_non_nullable
+          : color as Color,
+      orderKey: orderKey == const $CopyWithPlaceholder() || orderKey == null
+          ? _value.orderKey
+          // ignore: cast_nullable_to_non_nullable
+          : orderKey as String,
+      isPinned: isPinned == const $CopyWithPlaceholder() || isPinned == null
+          ? _value.isPinned
+          // ignore: cast_nullable_to_non_nullable
+          : isPinned as bool,
+      metadata: metadata == const $CopyWithPlaceholder()
+          ? _value.metadata
+          // ignore: cast_nullable_to_non_nullable
+          : metadata as ContainerMetadata?,
+    );
+  }
+}
+
+extension $ContainerDataCopyWith on ContainerData {
+  /// Returns a callable class used to build a new instance with modified fields.
+  /// Example: `instanceOfContainerData.copyWith(...)` or `instanceOfContainerData.copyWith.fieldName(...)`.
+  // ignore: library_private_types_in_public_api
+  _$ContainerDataCWProxy get copyWith => _$ContainerDataCWProxyImpl(this);
+}
+
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
+ContainerMetadata _$ContainerMetadataFromJson(Map<String, dynamic> json) =>
+    ContainerMetadata.withDefaults(
+      iconData: _$JsonConverterFromJson<Map<String, dynamic>, IconData>(
+        json['iconData'],
+        const IconDataJsonConverter().fromJson,
+      ),
+      contextualIdentity: json['contextualIdentity'] as String?,
+      proxyConnectionId: _proxyConnectionIdFromJson(
+        json['proxyConnectionId'] as String?,
+      ),
+      clearDataOnExit: json['clearDataOnExit'] as bool? ?? false,
+      excludeFromIndex: json['excludeFromIndex'] as bool? ?? false,
+      excludeFromHistory: json['excludeFromHistory'] as bool? ?? false,
+      bypassGlobalProxy: json['bypassGlobalProxy'] as bool? ?? false,
+      useCustomColor: json['useCustomColor'] as bool? ?? false,
+      assignedSites: (json['assignedSites'] as List<dynamic>?)
+          ?.map((e) => Uri.parse(e as String))
+          .toList(),
+      strictMode: json['strictMode'] as bool? ?? false,
+      isolatedAppLinkSettings:
+          json['isolatedAppLinkSettings'] as bool? ?? false,
+    );
+
+Map<String, dynamic> _$ContainerMetadataToJson(
+  ContainerMetadata instance,
+) => <String, dynamic>{
+  'iconData': _$JsonConverterToJson<Map<String, dynamic>, IconData>(
+    instance.iconData,
+    const IconDataJsonConverter().toJson,
+  ),
+  'contextualIdentity': instance.contextualIdentity,
+  'proxyConnectionId': _proxyConnectionIdToJson(instance.proxyConnectionId),
+  'clearDataOnExit': instance.clearDataOnExit,
+  'excludeFromIndex': instance.excludeFromIndex,
+  'excludeFromHistory': instance.excludeFromHistory,
+  'bypassGlobalProxy': instance.bypassGlobalProxy,
+  'useCustomColor': instance.useCustomColor,
+  'assignedSites': instance.assignedSites?.map((e) => e.toString()).toList(),
+  'strictMode': instance.strictMode,
+  'isolatedAppLinkSettings': instance.isolatedAppLinkSettings,
+};
+
+Value? _$JsonConverterFromJson<Json, Value>(
+  Object? json,
+  Value? Function(Json json) fromJson,
+) => json == null ? null : fromJson(json as Json);
+
+Json? _$JsonConverterToJson<Json, Value>(
+  Value? value,
+  Json? Function(Value value) toJson,
+) => value == null ? null : toJson(value);
+
+ContainerData _$ContainerDataFromJson(
+  Map<String, dynamic> json,
+) => ContainerData(
+  id: json['id'] as String,
+  name: json['name'] as String?,
+  color: const ColorJsonConverter().fromJson((json['color'] as num).toInt()),
+  orderKey: json['orderKey'] as String,
+  isPinned: json['isPinned'] as bool? ?? false,
+  metadata: json['metadata'] == null
+      ? null
+      : ContainerMetadata.fromJson(json['metadata'] as Map<String, dynamic>),
+);
+
+Map<String, dynamic> _$ContainerDataToJson(ContainerData instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'name': instance.name,
+      'color': const ColorJsonConverter().toJson(instance.color),
+      'orderKey': instance.orderKey,
+      'isPinned': instance.isPinned,
+      'metadata': instance.metadata.toJson(),
+    };
+
+ContainerDataWithCount _$ContainerDataWithCountFromJson(
+  Map<String, dynamic> json,
+) => ContainerDataWithCount(
+  id: json['id'] as String,
+  name: json['name'] as String?,
+  color: const ColorJsonConverter().fromJson((json['color'] as num).toInt()),
+  orderKey: json['orderKey'] as String,
+  isPinned: json['isPinned'] as bool? ?? false,
+  metadata: json['metadata'] == null
+      ? null
+      : ContainerMetadata.fromJson(json['metadata'] as Map<String, dynamic>),
+  tabCount: (json['tabCount'] as num?)?.toInt(),
+);
+
+Map<String, dynamic> _$ContainerDataWithCountToJson(
+  ContainerDataWithCount instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'name': instance.name,
+  'color': const ColorJsonConverter().toJson(instance.color),
+  'orderKey': instance.orderKey,
+  'isPinned': instance.isPinned,
+  'metadata': instance.metadata.toJson(),
+  'tabCount': instance.tabCount,
+};

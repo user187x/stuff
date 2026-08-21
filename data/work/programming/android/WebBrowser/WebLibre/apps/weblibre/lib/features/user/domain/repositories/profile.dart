@@ -1,0 +1,97 @@
+/*
+ * Copyright (c) 2024-2026 Fabian Freund.
+ *
+ * This file is part of WebLibre
+ * (see https://weblibre.eu).
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:uuid/uuid.dart';
+import 'package:weblibre/core/filesystem.dart';
+import 'package:weblibre/core/logger.dart';
+import 'package:weblibre/domain/entities/profile.dart';
+import 'package:weblibre/features/user/data/models/auth_settings.dart';
+import 'package:weblibre/features/web_push/domain/providers.dart';
+
+part 'profile.g.dart';
+
+@Riverpod(keepAlive: true)
+class ProfileRepository extends _$ProfileRepository {
+  Future<List<Profile>> _readProfiles() {
+    return filesystem.getAvailableProfileDirectories().then((dirs) async {
+      final profiles = await Future.wait(
+        dirs.map(filesystem.readProfileMetadata),
+      );
+      return profiles.nonNulls.toList();
+    });
+  }
+
+  Future<void> switchProfile(String id) async {
+    final profileId = UuidValue.withValidation(id).uuid;
+    final pushService = ref.read(pushServiceProvider);
+
+    try {
+      await pushService.suspendForProfileSwitch(profileId);
+    } catch (error, stackTrace) {
+      try {
+        await pushService.renewRegistration();
+      } catch (renewError, renewStackTrace) {
+        logger.e(
+          'Failed to restore push registration after profile switch failure',
+          error: renewError,
+          stackTrace: renewStackTrace,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<Profile> createProfile({
+    required String name,
+    AuthSettings? authSettings,
+  }) async {
+    final profile = Profile.create(name: name, authSettings: authSettings);
+    if (!await filesystem.createNewProfile(profile)) {
+      throw Exception('Could not create profile');
+    }
+
+    ref.invalidateSelf();
+
+    return profile;
+  }
+
+  Future<void> updateProfileMetadata(Profile profile) async {
+    await filesystem.updateProfileMetadata(profile);
+    ref.invalidateSelf();
+  }
+
+  Future<bool> deleteProfile(String id) async {
+    final uuid = UuidValue.withValidation(id);
+    if (filesystem.selectedProfile == uuid) {
+      return false;
+    }
+
+    await filesystem.getProfileDir(uuid).delete(recursive: true);
+
+    ref.invalidateSelf();
+
+    return true;
+  }
+
+  @override
+  Future<List<Profile>> build() {
+    return _readProfiles();
+  }
+}

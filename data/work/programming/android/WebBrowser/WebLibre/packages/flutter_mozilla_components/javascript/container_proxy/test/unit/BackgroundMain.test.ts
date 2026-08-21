@@ -1,0 +1,200 @@
+import BackgroundMain, { directConnection, emergencyBreak } from '../../src/background/BackgroundMain'
+import { RoutingSnapshot, Store } from '../../src/store/Store'
+
+import { expect } from 'chai'
+import { ProxySettings } from '../../src/domain/ProxySettings'
+const tryFromDao = ProxySettings.tryFromDao
+
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+
+const chrome = require('sinon-chrome/extensions');
+
+let store: Store
+let backgroundMain: BackgroundMain
+
+function emptySnapshot (overrides: Partial<RoutingSnapshot> = {}): RoutingSnapshot {
+  return {
+    generation: 1,
+    proxies: [],
+    relations: {},
+    directScopes: {},
+    siteAssignments: {},
+    strictContexts: {},
+    ...overrides
+  }
+}
+
+describe('BackgroundMain', function () {
+  beforeEach(() => {
+    global.browser = chrome
+    store = new Store()
+    backgroundMain = new BackgroundMain({ store })
+  })
+
+  afterEach(() => {
+    // @ts-expect-error
+    delete global.browser
+  })
+
+  describe('onRequest', function () {
+    it('should block every request before a snapshot has been applied', async () => {
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: 0 })
+
+      expect(result).to.be.deep.equal([emergencyBreak])
+    })
+
+    it('should block a container request before a snapshot has been applied', async () => {
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-container-container1', url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.deep.equal([emergencyBreak])
+    })
+
+    it('should block tabless requests before a snapshot has been applied', async () => {
+      const result = await backgroundMain.onRequest({ url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.deep.equal([emergencyBreak])
+    })
+
+    it('should connect directly once an empty snapshot says so', async () => {
+      store.applySnapshot(emptySnapshot())
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: 0 })
+
+      expect(result).to.be.equal(directConnection)
+    })
+
+    it('should return proxy if proxy is set up', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'general', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: 0 })
+
+      expect(result).to.be.an('array')
+      expect(result).to.be.not.empty
+    })
+
+    it('should not use an unrelated container proxy for default tabs', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'container1', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.equal(directConnection)
+    })
+
+    it('should use request cookieStoreId when no tab is available', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'container1', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-container-container1', url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.an('array')
+      expect(result).to.be.not.empty
+    })
+
+    it('should route tabless requests without a cookie store through the general relation', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'general', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.an('array')
+      expect(result).to.be.not.empty
+    })
+
+    it('should connect tabless requests directly when the general relation is direct', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'container1', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ url: 'https://google.com', tabId: -1 })
+
+      expect(result).to.be.equal(directConnection)
+    })
+
+    it('should block if an assigned proxy no longer exists', async () => {
+      store.applySnapshot(emptySnapshot({ relations: { general: ['missing-proxy'] } }))
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: 0 })
+
+      expect(result).to.be.deep.equal([emergencyBreak])
+    })
+
+    it('should remove doNotProxyLocal flag from proxy settings if proxy is set up', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'general', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'https://google.com', tabId: 0 })
+
+      expect((result![0] as any).doNotProxyLocal).to.be.undefined
+    })
+
+    it('should preserve proxyDNS on SOCKS proxy settings', async () => {
+      givenSomeProxyIsSetUpForContainer({ containerId: 'container1', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-container-container1', url: 'https://google.com', tabId: -1 })
+
+      expect((result![0] as any).proxyDNS).to.be.true
+    })
+
+    it('should return proxy for the container if url is invalid', async () => {
+      // To be more on a safe side
+      givenSomeProxyIsSetUpForContainer({ containerId: 'general', host: undefined, doNotProxyLocal: undefined })
+
+      const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-default', url: 'np-protocol-url.com', tabId: 0 })
+
+      expect(result).to.be.an('array')
+      expect(result).to.be.not.empty
+    })
+
+    // Connections to localhost, 127.0.0.1, and ::1 are never proxied. (From FF settings)
+    const localAddresses = [
+      'http://localhost/index.html',
+      'https://localhost/index.html',
+      'http://127.0.0.1/',
+      'https://127.0.0.1/',
+      'http://[::1]/test',
+      'https://[::1]/test',
+      'http://[0:0:0:0:0:0:0:1]/test',
+      'https://[0:0:0:0:0:0:0:1]/test',
+      'https://user:password@127.0.0.1:123/',
+      'http://[::1]:123/test'
+    ]
+
+    describe('proxying of local addresses is disabled', () => {
+      localAddresses.forEach(url => {
+        it(`should connect directly if the address is local: ${url}`, async () => {
+          givenSomeProxyIsSetUpForContainer({ containerId: 'container1', host: undefined, doNotProxyLocal: true })
+
+          const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-container-container1', url, tabId: -1 })
+
+          expect(result).to.be.equal(directConnection)
+        })
+      })
+    })
+
+    describe('proxying of local addresses is enabled', () => {
+      localAddresses.forEach(url => {
+        it(`should return array with proxy: ${url}`, async () => {
+          const host = 'proxyX.example.com'
+          givenSomeProxyIsSetUpForContainer({ host, containerId: 'container1', doNotProxyLocal: false })
+
+          const result = await backgroundMain.onRequest({ cookieStoreId: 'firefox-container-container1', url, tabId: -1 })
+
+          expect(result![0].host).to.be.equal(host)
+        })
+      })
+    })
+  })
+})
+
+function givenSomeProxyIsSetUpForContainer ({ host, containerId, doNotProxyLocal }: any): void {
+  const proxyId = 'proxy1'
+  const proxy: any = {
+    id: proxyId,
+    type: 'socks',
+    host: (host as string) ?? 'example.com',
+    port: 1080
+  }
+  if (typeof doNotProxyLocal !== 'undefined') {
+    proxy.doNotProxyLocal = doNotProxyLocal
+  }
+
+  store.applySnapshot(emptySnapshot({
+    proxies: [(tryFromDao(proxy) as ProxySettings).asDao()],
+    relations: { [containerId as string]: [proxyId] }
+  }))
+}

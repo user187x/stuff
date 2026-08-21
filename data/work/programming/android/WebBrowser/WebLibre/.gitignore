@@ -1,0 +1,21 @@
+# IntelliJ
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Mac
+.DS_Store
+
+# Flutter/Dart/Pub related
+.dart_tool/
+build/
+CLAUDE.md
+AGENTS.md
+plans/
+.env
+.temp/
+certs/
+codenomad/
+native/go_mobile_runtime/.work/
+native/go_mobile_runtime/build/

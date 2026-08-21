@@ -1,0 +1,45 @@
+//Required by background_fetch build
+ext {
+    compileSdkVersion   = 37
+    targetSdkVersion    = 37
+    ndkVersion          = providers.gradleProperty("weblibre.ndkVersion").get()
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        //Required by background_fetch build
+        maven { url "${project(':background_fetch').projectDir}/libs" }
+    }
+
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'androidx.glance' &&
+                    details.requested.name == 'glance-appwidget') {
+                details.useVersion '1.1.1'
+                details.because 'home_widget uses 1.+; keep a stable Glance version for reproducible Android builds'
+            }
+        }
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    afterEvaluate {
+        if (it.hasProperty("android")) {
+            android {
+                compileSdkVersion 37
+                ndkVersion rootProject.ext.ndkVersion
+            }
+        }
+    }
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
