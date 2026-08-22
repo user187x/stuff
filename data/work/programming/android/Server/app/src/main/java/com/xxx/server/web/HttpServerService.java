@@ -58,19 +58,23 @@ public class HttpServerService extends Service {
         }
     };
 
+    private Consumer<String> currentLogger;
+
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
 
-        Consumer<String> logger = this::broadcastLog;
+        currentLogger = this::broadcastLog;
         
         ServerStatsManager statsManager = new ServerStatsManager(this);
         InactivityManager inactivityManager = new InactivityManager(this);
         RestRouteManager restRouteManager = new RestRouteManager(this);
 
         serverManager = new HttpServerManager(this,
-                logger,
+                msg -> {
+                    if (currentLogger != null) currentLogger.accept(msg);
+                },
                 req -> {}, 
                 statsManager,
                 inactivityManager,
@@ -110,7 +114,7 @@ public class HttpServerService extends Service {
     }
 
     public void setLogger(Consumer<String> logger) {
-        // You might want to update the logger in serverManager if it's dynamic
+        this.currentLogger = logger;
     }
 
     public void setRequestNotifier(Consumer<Object> requestNotifier) {

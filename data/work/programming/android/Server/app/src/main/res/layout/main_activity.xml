@@ -25,6 +25,7 @@
             android:id="@+id/serverAddressText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:paddingLeft="12dp"
             android:textColor="#00FF41"
             android:fontFamily="monospace"
             android:visibility="gone"
@@ -79,17 +80,20 @@
                         android:id="@+id/trafficChart"
                         android:layout_width="match_parent"
                         android:layout_height="180dp" />
-                    <com.google.android.material.checkbox.MaterialCheckBox
-                        android:id="@+id/autoScrollCheckbox"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="AUTO SCROLL"
-                        android:textColor="#00FF41" />
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/logRecyclerView"
                         android:layout_width="match_parent"
                         android:layout_height="250dp"
                         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+                    <Button
+                        android:id="@+id/autoScrollButton"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="AUTO_SCROLL: ON"
+                        android:fontFamily="monospace"
+                        android:textColor="#555555" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
@@ -126,26 +130,27 @@
             <Button android:id="@+id/selectFolderButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SELECT ROOT" />
             <TextView android:id="@+id/rootFolderText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="NONE" android:fontFamily="monospace" android:textColor="#888888" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/basicAuthSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BASIC AUTH" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/basicAuthSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BASIC AUTH" />
             <LinearLayout android:id="@+id/basicAuthPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:orientation="vertical">
                 <EditText android:id="@+id/usernameEditText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="USER" android:textColor="#FFFFFF" />
                 <EditText android:id="@+id/passwordEditText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="PASS" android:inputType="textPassword" android:textColor="#FFFFFF" />
             </LinearLayout>
 
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/tlsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TLS/SSL" />
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/autostartSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AUTO START" />
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/autoShutdownSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AUTO SHUTDOWN" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/tlsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TLS/SSL" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/autostartSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AUTO START" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/autoShutdownSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AUTO SHUTDOWN" />
             <SeekBar android:id="@+id/inactivitySeekBar" android:layout_width="match_parent" android:layout_height="wrap_content" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/redirectIndexSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="REDIRECT INDEX" />
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/renderFolderSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RENDER FOLDER" />
-            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/allowUploadsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ALLOW UPLOADS" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/redirectIndexSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="REDIRECT INDEX" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/renderFolderSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RENDER FOLDER" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/allowUploadsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ALLOW UPLOADS" />
 
             <!-- Hidden for compatibility -->
             <View android:id="@+id/logHandle" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
             <View android:id="@+id/fileListHandle" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
             <View android:id="@+id/fileRecyclerView" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
             <View android:id="@+id/liveLogButton" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+            <View android:id="@+id/autoScrollCheckbox" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
 
         </LinearLayout>
     </ScrollView>

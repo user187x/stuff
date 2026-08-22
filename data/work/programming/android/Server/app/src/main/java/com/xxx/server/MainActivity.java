@@ -198,10 +198,6 @@ public class MainActivity extends AppCompatActivity {
         binding.basicAuthSwitch.setOnCheckedChangeListener((bv, checked) -> {
             binding.basicAuthPanel.setVisibility(checked ? View.VISIBLE : View.GONE);
         });
-
-        binding.autoScrollCheckbox.setOnCheckedChangeListener((bv, checked) -> {
-            if (logAdapter != null) logAdapter.setAutoScroll(checked);
-        });
     }
 
     private void setupTrafficChart() {
@@ -252,14 +248,11 @@ public class MainActivity extends AppCompatActivity {
         binding.logRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         binding.logRecyclerView.setAdapter(logAdapter);
 
-        binding.logHandle.setOnClickListener(v -> {
-            boolean isVisible = binding.logRecyclerView.getVisibility() == View.VISIBLE;
-            binding.logRecyclerView.setVisibility(isVisible ? View.GONE : View.VISIBLE);
-            binding.logHandle.setRotation(isVisible ? 0 : 180);
-        });
-
-        binding.autoScrollCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            logAdapter.setAutoScroll(isChecked);
+        binding.autoScrollButton.setOnClickListener(v -> {
+            boolean current = logAdapter.isAutoScroll();
+            logAdapter.setAutoScroll(!current);
+            binding.autoScrollButton.setText("AUTO_SCROLL: " + (!current ? "ON" : "OFF"));
+            binding.autoScrollButton.setTextColor(!current ? 0xFF00FF41 : 0xFF555555);
         });
     }
 

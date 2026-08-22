@@ -611,6 +611,9 @@ public class HttpServerManager {
             context.response()
                     .putHeader("Content-Type", mimeType)
                     .putHeader("Content-Length", String.valueOf(file.length()));
+            
+            logger.accept("FILE: Accessing " + file.getName() + " [" + getClientIp(context.request()) + "]");
+
             // Stream the file
             byte[] buffer = new byte[8192];
             int bytesRead;
@@ -629,6 +632,7 @@ public class HttpServerManager {
     private void serveFile(io.vertx.ext.web.RoutingContext context, java.io.File file) {
         try {
             String mimeType = getMimeType(file.getName());
+            logger.accept("FILE: Accessing " + file.getName() + " [" + getClientIp(context.request()) + "]");
             context.response()
                     .putHeader("Content-Type", mimeType)
                     .putHeader("Content-Length", String.valueOf(file.length()))
@@ -664,6 +668,8 @@ public class HttpServerManager {
         io.vertx.ext.web.FileUpload fileUpload = context.fileUploads().iterator().next();
         String fileName = fileUpload.fileName();
         String tempFile = fileUpload.uploadedFileName();
+
+        logger.accept("FILE: Uploading " + fileName + " [" + getClientIp(context.request()) + "]");
 
         try {
             if (rootFolder.startsWith("content://")) {
