@@ -30,6 +30,7 @@ import com.xxx.server.log.LogAdapter;
 import com.xxx.server.web.HttpServerManager;
 import com.xxx.server.web.HttpServerService;
 import com.xxx.server.web.ServerStatsManager;
+import com.bumptech.glide.Glide;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.common.BitMatrix;
@@ -324,6 +325,9 @@ public class MainActivity extends AppCompatActivity {
         binding.gearsImageView.setVisibility(isHttpRunning ? View.VISIBLE : View.GONE);
         
         if (isHttpRunning) {
+            binding.onlineGifView.setVisibility(View.VISIBLE);
+            Glide.with(this).asGif().load(R.drawable.online_status).into(binding.onlineGifView);
+            
             String ip = manager.getServerAddress();
             int port = manager.getPort();
             String url = "http://" + ip + ":" + port;
@@ -332,6 +336,7 @@ public class MainActivity extends AppCompatActivity {
             binding.serverAddressText.setTextColor(0xFF00F3FF); // Neon Blue
             generateQRCode(url);
         } else {
+            binding.onlineGifView.setVisibility(View.GONE);
             binding.serverAddressText.setVisibility(View.GONE);
             binding.qrCodeCard.setVisibility(View.GONE);
         }
