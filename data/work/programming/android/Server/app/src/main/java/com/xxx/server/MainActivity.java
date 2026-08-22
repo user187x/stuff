@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -29,6 +30,9 @@ import com.xxx.server.log.LogAdapter;
 import com.xxx.server.web.HttpServerManager;
 import com.xxx.server.web.HttpServerService;
 import com.xxx.server.web.ServerStatsManager;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.MultiFormatWriter;
+import com.google.zxing.common.BitMatrix;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -322,15 +326,37 @@ public class MainActivity extends AppCompatActivity {
         if (isHttpRunning) {
             String ip = manager.getServerAddress();
             int port = manager.getPort();
+            String url = "http://" + ip + ":" + port;
             binding.serverAddressText.setVisibility(View.VISIBLE);
-            binding.serverAddressText.setText(" URL: http://" + ip + ":" + port);
+            binding.serverAddressText.setText(" URL: " + url);
             binding.serverAddressText.setTextColor(0xFF00F3FF); // Neon Blue
+            generateQRCode(url);
         } else {
             binding.serverAddressText.setVisibility(View.GONE);
+            binding.qrCodeCard.setVisibility(View.GONE);
         }
 
         binding.startStopButton.setText(isHttpRunning ? "STOP HTTP" : "START HTTP");
         binding.startStopWebSocketButton.setText(isWsRunning ? "STOP WSS" : "START WSS");
+    }
+
+    private void generateQRCode(String text) {
+        try {
+            MultiFormatWriter writer = new MultiFormatWriter();
+            BitMatrix matrix = writer.encode(text, BarcodeFormat.QR_CODE, 512, 512);
+            int width = matrix.getWidth();
+            int height = matrix.getHeight();
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
+                    bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+                }
+            }
+            binding.qrCodeImageView.setImageBitmap(bitmap);
+            binding.qrCodeCard.setVisibility(View.VISIBLE);
+        } catch (Exception e) {
+            binding.qrCodeCard.setVisibility(View.GONE);
+        }
     }
 
     private void updateStats(Intent intent) {
