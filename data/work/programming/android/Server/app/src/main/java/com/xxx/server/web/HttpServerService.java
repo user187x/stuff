@@ -114,6 +114,13 @@ public class HttpServerService extends Service {
                         serverManager.broadcastChatMessage("SERVER", chatMsg);
                     }
                     break;
+                case "send_chat_event":
+                    String eventType = intent.getStringExtra("type");
+                    String eventData = intent.getStringExtra("data");
+                    if (serverManager != null && eventType != null) {
+                        serverManager.broadcastChatEvent(eventType, "SERVER", eventData);
+                    }
+                    break;
             }
         }
         return START_STICKY;

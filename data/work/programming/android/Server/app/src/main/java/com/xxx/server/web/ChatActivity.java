@@ -31,13 +31,56 @@ public class ChatActivity extends AppCompatActivity {
     private final BroadcastReceiver chatReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String sender = intent.getStringExtra("sender");
-            String message = intent.getStringExtra("message");
-            if (sender != null && message != null) {
-                addMessage("[" + sender + "]: " + message);
+            if ("com.xxx.server.CHAT_MESSAGE".equals(intent.getAction())) {
+                String sender = intent.getStringExtra("sender");
+                String message = intent.getStringExtra("message");
+                if (sender != null && message != null) {
+                    addMessage("[" + sender + "]: " + message);
+                }
+            } else if ("com.xxx.server.CHAT_EVENT".equals(intent.getAction())) {
+                String type = intent.getStringExtra("type");
+                String sender = intent.getStringExtra("sender");
+                String data = intent.getStringExtra("data");
+                if ("TYPING".equals(type)) {
+                    handleTypingIndicator(sender, "START".equals(data));
+                }
             }
         }
     };
+
+    private void handleTypingIndicator(String sender, boolean isTyping) {
+        runOnUiThread(() -> {
+            if (isTyping && !"SERVER".equals(sender)) {
+                binding.typingIndicator.setText("(" + sender + " is typing...)");
+                binding.typingIndicator.setVisibility(View.VISIBLE);
+                startTypingAnimation();
+            } else {
+                binding.typingIndicator.setVisibility(View.INVISIBLE);
+            }
+        });
+    }
+
+    private int dotCount = 0;
+    private android.os.Handler animationHandler = new android.os.Handler();
+    private Runnable animationRunnable = new Runnable() {
+        @Override
+        public void run() {
+            String text = binding.typingIndicator.getText().toString();
+            if (text.contains("typing")) {
+                dotCount = (dotCount + 1) % 4;
+                String base = text.split("\\.")[0].replace(")", "");
+                StringBuilder dots = new StringBuilder();
+                for (int i = 0; i < dotCount; i++) dots.append(".");
+                binding.typingIndicator.setText(base + dots.toString() + ")");
+                animationHandler.postDelayed(this, 500);
+            }
+        }
+    };
+
+    private void startTypingAnimation() {
+        animationHandler.removeCallbacks(animationRunnable);
+        animationHandler.post(animationRunnable);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,8 +93,46 @@ public class ChatActivity extends AppCompatActivity {
         binding.chatRecyclerView.setAdapter(adapter);
 
         binding.chatSendButton.setOnClickListener(v -> sendMessage());
+        
+        setupTypingListener();
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(chatReceiver, new IntentFilter("com.xxx.server.CHAT_MESSAGE"));
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("com.xxx.server.CHAT_MESSAGE");
+        filter.addAction("com.xxx.server.CHAT_EVENT");
+        LocalBroadcastManager.getInstance(this).registerReceiver(chatReceiver, filter);
+    }
+
+    private void setupTypingListener() {
+        binding.chatInput.addTextChangedListener(new android.text.TextWatcher() {
+            private android.os.Handler handler = new android.os.Handler();
+            private Runnable typingTimeout = () -> sendTypingSignal(false);
+            private boolean isTyping = false;
+
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (!isTyping) {
+                    isTyping = true;
+                    sendTypingSignal(true);
+                }
+                handler.removeCallbacks(typingTimeout);
+                handler.postDelayed(typingTimeout, 2000);
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {}
+
+            private void sendTypingSignal(boolean start) {
+                if (!start) isTyping = false;
+                Intent intent = new Intent(ChatActivity.this, HttpServerService.class);
+                intent.setAction("send_chat_event");
+                intent.putExtra("type", "TYPING");
+                intent.putExtra("data", start ? "START" : "STOP");
+                startService(intent);
+            }
+        });
     }
 
     private void sendMessage() {

@@ -302,8 +302,13 @@ public class HttpServerManager {
 
         ws.textMessageHandler(msg -> {
             String name = clientNames.get(ws);
-            logger.accept("CHAT: [" + name + "] " + msg);
-            broadcastChatMessage(name, msg);
+            if (msg.startsWith("SIGNAL_TYPING:")) {
+                boolean isTyping = msg.endsWith("START");
+                broadcastChatEvent("TYPING", name, isTyping ? "START" : "STOP");
+            } else {
+                logger.accept("CHAT: [" + name + "] " + msg);
+                broadcastChatMessage(name, msg);
+            }
         });
 
         ws.closeHandler(v -> {
@@ -327,6 +332,18 @@ public class HttpServerManager {
         Intent intent = new Intent("com.xxx.server.CHAT_MESSAGE");
         intent.putExtra("sender", sender);
         intent.putExtra("message", message);
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+    }
+
+    public void broadcastChatEvent(String type, String sender, String data) {
+        String payload = "EVENT:" + type + ":" + sender + ":" + data;
+        for (ServerWebSocket client : connectedClients) {
+            client.writeTextMessage(payload);
+        }
+        Intent intent = new Intent("com.xxx.server.CHAT_EVENT");
+        intent.putExtra("type", type);
+        intent.putExtra("sender", sender);
+        intent.putExtra("data", data);
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
     }
 
@@ -498,6 +515,7 @@ public class HttpServerManager {
                 ".chat-input-wrap { display: flex; gap: 10px; }" +
                 "#chat-input { flex-grow: 1; background: #1A1A1A; border: 1px solid #333; color: white; padding: 10px; font-family: monospace; border-radius: 4px; }" +
                 "#chat-send { background: #00FF41; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 4px; }" +
+                "#typing-indicator { color: #555; font-family: monospace; font-size: 11px; height: 15px; margin-bottom: 5px; }" +
                 "</style></head><body><div class=\"container\">";
     }
 
@@ -509,6 +527,7 @@ public class HttpServerManager {
         return "</div>" +
                 "<div id=\"chat-panel\">" +
                 "<div style=\"color:#00FF41; font-family:monospace; margin-bottom:5px; font-size:12px; font-weight:bold;\">SECURE_CHAT_TERMINAL_v1.0</div>" +
+                "<div id=\"typing-indicator\"></div>" +
                 "<div id=\"chat-log\"></div>" +
                 "<div class=\"chat-input-wrap\">" +
                 "<input type=\"text\" id=\"chat-input\" placeholder=\"ENTER_MESSAGE...\" onkeypress=\"if(event.keyCode==13) sendChat()\">" +
@@ -518,18 +537,42 @@ public class HttpServerManager {
                 "<script>" +
                 "const log = document.getElementById('chat-log');" +
                 "const input = document.getElementById('chat-input');" +
+                "const typing = document.getElementById('typing-indicator');" +
                 "const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';" +
                 "const wsUrl = protocol + '//' + window.location.host + '" + WEBSOCKET_PATH + "';" +
                 "const socket = new WebSocket(wsUrl);" +
+                "let typingTimeout;" +
+                "let isTypingSent = false;" +
                 "socket.onmessage = function(e) {" +
+                "  if(e.data.startsWith('EVENT:TYPING:')) {" +
+                "    const parts = e.data.split(':');" +
+                "    const user = parts[2];" +
+                "    const status = parts[3];" +
+                "    if(status === 'START') {" +
+                "      typing.textContent = '(' + user + ' is typing...)';" +
+                "    } else {" +
+                "      typing.textContent = '';" +
+                "    }" +
+                "    return;" +
+                "  }" +
                 "  const div = document.createElement('div');" +
                 "  div.textContent = e.data;" +
                 "  log.appendChild(div);" +
                 "  log.scrollTop = log.scrollHeight;" +
                 "};" +
+                "input.addEventListener('input', () => {" +
+                "  if(!isTypingSent) {" +
+                "    socket.send('SIGNAL_TYPING:START');" +
+                "    isTypingSent = true;" +
+                "  }" +
+                "  clearTimeout(typingTimeout);" +
+                "  typingTimeout = setTimeout(() => {" +
+                "    socket.send('SIGNAL_TYPING:STOP');" +
+                "    isTypingSent = false;" +
+                "  }, 2000);" +
+                "});" +
                 "socket.onopen = () => { appendLog('SYSTEM: CONNECTION_ESTABLISHED'); };" +
                 "socket.onclose = () => { appendLog('SYSTEM: CONNECTION_LOST'); };" +
-                "socket.onerror = (err) => { appendLog('SYSTEM: SOCKET_ERROR'); };" +
                 "function appendLog(msg) {" +
                 "  const div = document.createElement('div');" +
                 "  div.textContent = msg;" +
@@ -541,6 +584,8 @@ public class HttpServerManager {
                 "  if(msg && socket.readyState === WebSocket.OPEN) {" +
                 "    socket.send(msg);" +
                 "    input.value = '';" +
+                "    socket.send('SIGNAL_TYPING:STOP');" +
+                "    isTypingSent = false;" +
                 "  }" +
                 "}" +
                 "</script></body></html>";
