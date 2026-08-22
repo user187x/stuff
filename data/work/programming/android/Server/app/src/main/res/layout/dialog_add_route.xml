@@ -1,59 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:padding="16dp"
+  android:orientation="vertical">
+
+  <Spinner
+    android:id="@+id/methodSpinner"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:layout_marginBottom="16dp" />
 
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:hint="Path (e.g., /api/users)">
+  <Spinner
+    android:id="@+id/acceptsSpinner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="16dp" />
 
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/pathEditText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+  <Spinner
+    android:id="@+id/returnsSpinner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content" />
 
-    </com.google.android.material.textfield.TextInputLayout>
+  <TextView
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:text="HTTP Method"
+    android:textColor="@color/on_surface_dark" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:text="HTTP Method"
-        android:textColor="@color/on_surface_dark" />
+  <TextView
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:text="Returns"
+    android:textColor="@color/on_surface_dark" />
 
-    <Spinner
-        android:id="@+id/methodSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp" />
+  <TextView
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:text="Accepts"
+    android:textColor="@color/on_surface_dark" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:text="Accepts"
-        android:textColor="@color/on_surface_dark" />
+  <com.google.android.material.textfield.TextInputLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="16dp"
+    android:hint="Path (e.g., /api/users)">
 
-    <Spinner
-        android:id="@+id/acceptsSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp" />
+    <com.google.android.material.textfield.TextInputEditText
+      android:id="@+id/pathEditText"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:text="Returns"
-        android:textColor="@color/on_surface_dark" />
-
-    <Spinner
-        android:id="@+id/returnsSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+  </com.google.android.material.textfield.TextInputLayout>
 
 </LinearLayout>

@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="background_dark">#0A0A0A</color>
-    <color name="surface_dark">#121212</color>
-    <color name="surface_variant_dark">#1E1E1E</color>
-    <color name="on_surface_dark">#E0E0E0</color>
-    <color name="on_surface_variant_dark">#A0A0A0</color>
+  <color name="background_dark">#0A0A0A</color>
+  <color name="surface_dark">#121212</color>
+  <color name="surface_variant_dark">#1E1E1E</color>
+  <color name="on_surface_dark">#E0E0E0</color>
+  <color name="on_surface_variant_dark">#A0A0A0</color>
 
-    <color name="primary_dark">#00F3FF</color>
-    <color name="primary_variant_dark">#0097A7</color>
-    <color name="on_primary">#000000</color>
+  <color name="primary_dark">#00F3FF</color>
+  <color name="primary_variant_dark">#0097A7</color>
+  <color name="on_primary">#000000</color>
 
-    <color name="secondary_dark">#00FF41</color>
-    <color name="secondary_variant_dark">#008F11</color>
-    <color name="on_secondary">#000000</color>
+  <color name="secondary_dark">#00FF41</color>
+  <color name="secondary_variant_dark">#008F11</color>
+  <color name="on_secondary">#000000</color>
 
-    <color name="start_color">#00FF41</color>
-    <color name="stop_color">#FF003C</color>
+  <color name="start_color">#00FF41</color>
+  <color name="stop_color">#FF003C</color>
 
-    <color name="switch_thumb_tint">@color/primary_dark</color>
-    <color name="switch_track_tint">#333333</color>
+  <color name="switch_thumb_tint">@color/primary_dark</color>
+  <color name="switch_track_tint">#333333</color>
 
-    <color name="error_dark">#FF003C</color>
-    <color name="on_error">#FFFFFF</color>
+  <color name="error_dark">#FF003C</color>
+  <color name="on_error">#FFFFFF</color>
 
-    <color name="glow_blue">#00F3FF</color>
-    <color name="glow_green">#00FF41</color>
-    <color name="terminal_bg">#000000</color>
+  <color name="glow_blue">#00F3FF</color>
+  <color name="glow_green">#00FF41</color>
+  <color name="terminal_bg">#000000</color>
 </resources>
