@@ -85,6 +85,8 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private boolean isSoundEnabled = false;
+
     private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -142,8 +144,16 @@ public class MainActivity extends AppCompatActivity {
         binding.autostartSwitch.setChecked(preferences.getBoolean("autostart_on_boot", false));
         binding.autoShutdownSwitch.setChecked(preferences.getBoolean("auto_shutdown_enabled", false));
         
+        isSoundEnabled = preferences.getBoolean("sound_enabled", false);
+        updateSoundButton();
+        
         binding.basicAuthPanel.setVisibility(binding.basicAuthSwitch.isChecked() ? View.VISIBLE : View.GONE);
         binding.inactivitySeekBar.setEnabled(binding.autoShutdownSwitch.isChecked());
+    }
+
+    private void updateSoundButton() {
+        binding.connectSoundButton.setText((isSoundEnabled ? "DISABLE" : "ENABLE") + " CONNECT SOUND");
+        binding.connectSoundButton.setTextColor(isSoundEnabled ? 0xFF00FF41 : 0xFF00F3FF);
     }
 
     private void saveSettings() {
@@ -200,6 +210,12 @@ public class MainActivity extends AppCompatActivity {
         binding.ipConfigButton.setOnClickListener(v -> toggleVisibility(binding.ipConfigLayout));
         binding.portConfigButton.setOnClickListener(v -> toggleVisibility(binding.portConfigLayout));
         
+        binding.connectSoundButton.setOnClickListener(v -> {
+            isSoundEnabled = !isSoundEnabled;
+            preferences.edit().putBoolean("sound_enabled", isSoundEnabled).apply();
+            updateSoundButton();
+        });
+
         binding.basicAuthSwitch.setOnCheckedChangeListener((bv, checked) -> {
             binding.basicAuthPanel.setVisibility(checked ? View.VISIBLE : View.GONE);
         });

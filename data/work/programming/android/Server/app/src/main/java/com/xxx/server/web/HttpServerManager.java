@@ -74,6 +74,7 @@ public class HttpServerManager {
     private final ServerStatsManager statsManager;
     private final InactivityManager inactivityManager;
     private final RestRouteManager restRouteManager;
+    private java.util.function.Consumer<Void> connectionListener;
     public static final String SERVER_IP = "0.0.0.0";
     public static final int SERVER_PORT = 8080;
     public static final int SECURE_SERVER_PORT = 8443;
@@ -220,7 +221,12 @@ public class HttpServerManager {
             }
 
             httpServer = vertx.createHttpServer(options);
-            httpServer.connectionHandler(conn -> statsManager.onConnection());
+            httpServer.connectionHandler(conn -> {
+                statsManager.onConnection();
+                if (connectionListener != null) {
+                    connectionListener.accept(null);
+                }
+            });
             httpServer.requestHandler(router);
             httpServer.webSocketHandler(this::handleWebSocketConnection);
 
@@ -816,6 +822,10 @@ public class HttpServerManager {
 
     public ServerStatsManager getStatsManager() {
         return statsManager;
+    }
+
+    public void setConnectionListener(java.util.function.Consumer<Void> listener) {
+        this.connectionListener = listener;
     }
 
     // Getters and setters

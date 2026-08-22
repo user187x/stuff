@@ -34,6 +34,7 @@ public class HttpServerService extends Service {
     public static final String EXTRA_LOG_MESSAGE = "com.xxx.server.LOG_MESSAGE";
     public static final String ACTION_START_SERVER = "start_server";
     public static final String ACTION_STOP_SERVER = "stop_server";
+    public static final String ACTION_CONNECTION_EVENT = "com.xxx.server.CONNECTION_EVENT";
     public static boolean isServerRunning = false;
 
 
@@ -80,6 +81,16 @@ public class HttpServerService extends Service {
                 inactivityManager,
                 restRouteManager
         );
+
+        serverManager.setConnectionListener(v -> {
+            Intent intent = new Intent(ACTION_CONNECTION_EVENT);
+            LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+            
+            android.content.SharedPreferences prefs = getSharedPreferences("HttpServerPrefs", MODE_PRIVATE);
+            if (prefs.getBoolean("sound_enabled", false)) {
+                playConnectionSound();
+            }
+        });
 
         LocalBroadcastManager.getInstance(this).registerReceiver(statsReceiver, new IntentFilter(ServerStatsManager.ACTION_STATS_UPDATE));
     }
@@ -194,6 +205,16 @@ public class HttpServerService extends Service {
         Intent intent = new Intent(ACTION_LOG_BROADCAST);
         intent.putExtra(EXTRA_LOG_MESSAGE, message);
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    public void playConnectionSound() {
+        try {
+            android.media.MediaPlayer mp = android.media.MediaPlayer.create(this, com.xxx.server.R.raw.connect);
+            if (mp != null) {
+                mp.setOnCompletionListener(android.media.MediaPlayer::release);
+                mp.start();
+            }
+        } catch (Exception ignored) {}
     }
 
     public HttpServerManager getServerManager() {
