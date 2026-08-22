@@ -63,7 +63,6 @@ public class ChatActivity extends AppCompatActivity {
             intent.putExtra("message", msg);
             startService(intent);
             
-            addMessage("[SERVER]: " + msg);
             binding.chatInput.setText("");
         }
     }

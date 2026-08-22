@@ -474,7 +474,7 @@ public class HttpServerManager {
                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
                 "<style>" +
                 "body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: #0A0A0A; color: #E0E0E0; }" +
-                ".container { max-width: 900px; margin: 0 auto; padding: 20px; }" +
+                ".container { max-width: 900px; margin: 0 auto; padding: 20px; padding-bottom: 400px; }" +
                 "h1 { color: #00F3FF; border-bottom: 1px solid #333; padding-bottom: 10px; font-size: 24px; }" +
                 ".path-nav { margin-bottom: 20px; color: #888; font-family: monospace; }" +
                 "ul { list-style: none; padding: 0; border: 1px solid #222; border-radius: 8px; overflow: hidden; }" +
@@ -493,11 +493,57 @@ public class HttpServerManager {
                 "input[type=file] { margin-bottom: 10px; display: block; background: #1A1A1A; color: #888; padding: 10px; width: 100%; box-sizing: border-box; border-radius: 4px; border: 1px solid #333; }" +
                 "input[type=submit] { background: #00FF41; color: #000; padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; }" +
                 "input[type=submit]:hover { background: #00E63A; }" +
+                "#chat-panel { position: fixed; bottom: 0; left: 0; right: 0; background: #121212; border-top: 2px solid #00FF41; padding: 15px; z-index: 1000; }" +
+                "#chat-log { height: 200px; overflow-y: auto; background: #050505; color: #00FF41; font-family: monospace; padding: 10px; border: 1px solid #222; margin-bottom: 10px; font-size: 13px; }" +
+                ".chat-input-wrap { display: flex; gap: 10px; }" +
+                "#chat-input { flex-grow: 1; background: #1A1A1A; border: 1px solid #333; color: white; padding: 10px; font-family: monospace; border-radius: 4px; }" +
+                "#chat-send { background: #00FF41; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 4px; }" +
                 "</style></head><body><div class=\"container\">";
     }
 
     private String getHtmlFooter() {
-        return "</div></body></html>";
+        if (!isWebSocketServerRunning.get()) {
+            return "</div></body></html>";
+        }
+
+        return "</div>" +
+                "<div id=\"chat-panel\">" +
+                "<div style=\"color:#00FF41; font-family:monospace; margin-bottom:5px; font-size:12px; font-weight:bold;\">SECURE_CHAT_TERMINAL_v1.0</div>" +
+                "<div id=\"chat-log\"></div>" +
+                "<div class=\"chat-input-wrap\">" +
+                "<input type=\"text\" id=\"chat-input\" placeholder=\"ENTER_MESSAGE...\" onkeypress=\"if(event.keyCode==13) sendChat()\">" +
+                "<button id=\"chat-send\" onclick=\"sendChat()\">SEND</button>" +
+                "</div>" +
+                "</div>" +
+                "<script>" +
+                "const log = document.getElementById('chat-log');" +
+                "const input = document.getElementById('chat-input');" +
+                "const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';" +
+                "const wsUrl = protocol + '//' + window.location.host + '" + WEBSOCKET_PATH + "';" +
+                "const socket = new WebSocket(wsUrl);" +
+                "socket.onmessage = function(e) {" +
+                "  const div = document.createElement('div');" +
+                "  div.textContent = e.data;" +
+                "  log.appendChild(div);" +
+                "  log.scrollTop = log.scrollHeight;" +
+                "};" +
+                "socket.onopen = () => { appendLog('SYSTEM: CONNECTION_ESTABLISHED'); };" +
+                "socket.onclose = () => { appendLog('SYSTEM: CONNECTION_LOST'); };" +
+                "socket.onerror = (err) => { appendLog('SYSTEM: SOCKET_ERROR'); };" +
+                "function appendLog(msg) {" +
+                "  const div = document.createElement('div');" +
+                "  div.textContent = msg;" +
+                "  log.appendChild(div);" +
+                "  log.scrollTop = log.scrollHeight;" +
+                "}" +
+                "function sendChat() {" +
+                "  const msg = input.value.trim();" +
+                "  if(msg && socket.readyState === WebSocket.OPEN) {" +
+                "    socket.send(msg);" +
+                "    input.value = '';" +
+                "  }" +
+                "}" +
+                "</script></body></html>";
     }
 
     private void generateDirectoryListingHtml(io.vertx.ext.web.RoutingContext context, DocumentFile directory, String path) {
