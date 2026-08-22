@@ -108,6 +108,12 @@ public class HttpServerService extends Service {
                 case "start_websocket_server":
                     startWebSocketServer();
                     break;
+                case "send_chat_message":
+                    String chatMsg = intent.getStringExtra("message");
+                    if (serverManager != null && chatMsg != null) {
+                        serverManager.broadcastChatMessage("SERVER", chatMsg);
+                    }
+                    break;
             }
         }
         return START_STICKY;

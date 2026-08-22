@@ -189,6 +189,16 @@
                 android:fontFamily="monospace"
                 android:textColor="@color/primary_dark" />
 
+            <Button
+                android:id="@+id/messengerButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MESSENGER"
+                android:fontFamily="monospace"
+                android:textColor="@color/secondary_dark"
+                android:visibility="gone" />
+
             <androidx.appcompat.widget.SwitchCompat android:id="@+id/basicAuthSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BASIC AUTH" />
             <LinearLayout android:id="@+id/basicAuthPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:orientation="vertical">
                 <EditText android:id="@+id/usernameEditText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="USER" android:textColor="#FFFFFF" />

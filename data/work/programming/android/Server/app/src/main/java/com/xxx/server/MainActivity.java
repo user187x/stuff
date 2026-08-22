@@ -202,6 +202,11 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        binding.messengerButton.setOnClickListener(v -> {
+            Intent intent = new Intent(this, com.xxx.server.web.ChatActivity.class);
+            startActivity(intent);
+        });
+
         binding.selectFolderButton.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             startActivityForResult(intent, 1001);
@@ -358,7 +363,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         binding.startStopButton.setText(isHttpRunning ? "STOP HTTP" : "START HTTP");
-        binding.startStopWebSocketButton.setText(isWsRunning ? "STOP WSS" : "START WSS");
+        binding.startStopWebSocketButton.setText(isWsRunning ? "STOP CHAT" : "START CHAT");
+        binding.messengerButton.setVisibility(isWsRunning ? View.VISIBLE : View.GONE);
     }
 
     private void generateQRCode(String text) {

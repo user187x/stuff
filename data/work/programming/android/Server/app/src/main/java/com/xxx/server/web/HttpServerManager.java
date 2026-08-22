@@ -2,6 +2,7 @@ package com.xxx.server.web;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
@@ -268,6 +269,19 @@ public class HttpServerManager {
         return "127.0.0.1";
     }
 
+    private final Map<ServerWebSocket, String> clientNames = new ConcurrentHashMap<>();
+
+    private String generateRandomName() {
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder();
+        java.util.Random rnd = new java.util.Random();
+        while (sb.length() < 5) {
+            int index = (int) (rnd.nextFloat() * chars.length());
+            sb.append(chars.charAt(index));
+        }
+        return sb.toString();
+    }
+
     private void handleWebSocketConnection(final ServerWebSocket ws) {
         if (!isWebSocketServerRunning.get()) {
             ws.close();
@@ -275,63 +289,45 @@ public class HttpServerManager {
         }
 
         if (!ws.path().equals(WEBSOCKET_PATH)) {
-            ws.writeFrame(WebSocketFrame.textFrame("WebSocket Server Path : " + WEBSOCKET_PATH, true));
             ws.close();
             return;
         }
+
+        String clientName = "USER_" + generateRandomName();
         connectedClients.add(ws);
-        logger.accept("WebSocket Client Connected: " + ws.remoteAddress() + " Total clients: " + connectedClients.size());
-
-
-        final long PING_INTERVAL_MS = 20_000;
-        final long ZOMBIE_THRESHOLD_MS = 90_000;
-
-        final Map<String, Long> wsState = new HashMap<>();
-        wsState.put("lastPong", System.currentTimeMillis());
-
-        long pingId = vertx.setPeriodic(PING_INTERVAL_MS, t -> {
-            if (ws.isClosed()) {
-                Long id = wsState.get("pingId");
-                if (id != null)
-                    vertx.cancelTimer(id);
-                return;
-            }
-
-            long last = Optional.ofNullable(wsState.get("lastPong")).orElse(0L);
-            long now = System.currentTimeMillis();
-
-            if (now - last > ZOMBIE_THRESHOLD_MS) {
-                ws.close((short) 1002, "No pong");
-                return;
-            }
-
-            ws.writeFrame(WebSocketFrame.pingFrame(Buffer.buffer("keepalive")));
-        });
-
-        wsState.put("pingId", pingId);
-
-        ws.pongHandler(buf -> {
-            wsState.put("lastPong", System.currentTimeMillis());
-            logger.accept("Pong <- " + ws.remoteAddress());
-        });
+        clientNames.put(ws, clientName);
+        
+        logger.accept("CHAT: " + clientName + " connected from " + ws.remoteAddress());
+        broadcastChatMessage("SYSTEM", clientName + " HAS JOINED THE SESSION.");
 
         ws.textMessageHandler(msg -> {
-            logger.accept("WebSocket Server <- " + msg);
-            // Broadcast the message to all connected clients
-            for (ServerWebSocket client : connectedClients) {
-                client.writeTextMessage(msg);
-            }
+            String name = clientNames.get(ws);
+            logger.accept("CHAT: [" + name + "] " + msg);
+            broadcastChatMessage(name, msg);
         });
 
         ws.closeHandler(v -> {
+            String name = clientNames.remove(ws);
             connectedClients.remove(ws);
-            logger.accept("WebSocket Client closed: " + ws.remoteAddress() + " Total clients: " + connectedClients.size());
-            Long id = wsState.remove("pingId");
-            if (id != null)
-                vertx.cancelTimer(id);
+            if (name != null) {
+                logger.accept("CHAT: " + name + " disconnected.");
+                broadcastChatMessage("SYSTEM", name + " HAS LEFT THE SESSION.");
+            }
         });
 
-        ws.exceptionHandler(err -> logger.accept("WebSocket Server Error : " + err.getMessage()));
+        ws.exceptionHandler(err -> logger.accept("CHAT ERROR: " + err.getMessage()));
+    }
+
+    public void broadcastChatMessage(String sender, String message) {
+        String formatted = "[" + sender + "]: " + message;
+        for (ServerWebSocket client : connectedClients) {
+            client.writeTextMessage(formatted);
+        }
+        // Also broadcast to the Android UI if listening
+        Intent intent = new Intent("com.xxx.server.CHAT_MESSAGE");
+        intent.putExtra("sender", sender);
+        intent.putExtra("message", message);
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
     }
 
     private void handleStatusRequest(io.vertx.ext.web.RoutingContext context) {

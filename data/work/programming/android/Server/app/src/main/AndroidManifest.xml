@@ -59,6 +59,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".web.ChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.HttpServer" />
+
         <service
             android:name=".web.HttpServerService"
             android:enabled="true"
