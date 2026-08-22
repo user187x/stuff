@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Define the target directory and file path
+DESKTOP_DIR="$HOME/.local/share/applications"
+DESKTOP_FILE="$DESKTOP_DIR/android-studio.desktop"
+
+# Ensure the applications directory exists
+mkdir -p "$DESKTOP_DIR"
+
+# Create the .desktop file
+cat <<EOF > "$DESKTOP_FILE"
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Android Studio
+Comment=The official Android IDE
+Exec="/opt/android-studio/bin/studio.sh" %f
+Icon=/opt/android-studio/bin/studio.svg
+Categories=Development;IDE;
+Terminal=false
+StartupNotify=true
+StartupWMClass=jetbrains-studio
+EOF
+
+# Make the desktop entry executable
+chmod +x "$DESKTOP_FILE"
+
+# Refresh the desktop database so GNOME picks it up immediately
+update-desktop-database "$DESKTOP_DIR"
+
+echo "✅ Android Studio desktop entry created successfully at $DESKTOP_FILE"
+echo "You should now be able to search for 'Android Studio' in your app grid and pin it to your dock."
