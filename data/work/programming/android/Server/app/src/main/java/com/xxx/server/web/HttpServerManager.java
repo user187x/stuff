@@ -305,6 +305,13 @@ public class HttpServerManager {
             if (msg.startsWith("SIGNAL_TYPING:")) {
                 boolean isTyping = msg.endsWith("START");
                 broadcastChatEvent("TYPING", name, isTyping ? "START" : "STOP");
+            } else if (msg.startsWith("SIGNAL_NAME_CHANGE:")) {
+                String newName = msg.substring("SIGNAL_NAME_CHANGE:".length()).trim();
+                if (!newName.isEmpty() && newName.length() <= 15) {
+                    String oldName = clientNames.get(ws);
+                    clientNames.put(ws, newName);
+                    broadcastChatMessage("SYSTEM", oldName + " IS NOW KNOWN AS " + newName);
+                }
             } else {
                 logger.accept("CHAT: [" + name + "] " + msg);
                 broadcastChatMessage(name, msg);
@@ -526,7 +533,10 @@ public class HttpServerManager {
 
         return "</div>" +
                 "<div id=\"chat-panel\">" +
-                "<div style=\"color:#00FF41; font-family:monospace; margin-bottom:5px; font-size:12px; font-weight:bold;\">SECURE_CHAT_TERMINAL_v1.0</div>" +
+                "<div style=\"display:flex; justify-content:space-between; color:#00FF41; font-family:monospace; margin-bottom:5px; font-size:12px; font-weight:bold;\">" +
+                "<span>SECURE_CHAT_TERMINAL_v1.0</span>" +
+                "<span id=\"my-name\" title=\"Double-click to change name\" ondblclick=\"changeName()\" style=\"cursor:pointer; border-bottom:1px dashed #00FF41;\">CONNECTING...</span>" +
+                "</div>" +
                 "<div id=\"typing-indicator\"></div>" +
                 "<div id=\"chat-log\"></div>" +
                 "<div class=\"chat-input-wrap\">" +
@@ -538,11 +548,13 @@ public class HttpServerManager {
                 "const log = document.getElementById('chat-log');" +
                 "const input = document.getElementById('chat-input');" +
                 "const typing = document.getElementById('typing-indicator');" +
+                "const nameEl = document.getElementById('my-name');" +
                 "const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';" +
                 "const wsUrl = protocol + '//' + window.location.host + '" + WEBSOCKET_PATH + "';" +
                 "const socket = new WebSocket(wsUrl);" +
                 "let typingTimeout;" +
                 "let isTypingSent = false;" +
+                "let currentName = 'USER_WAITING';" +
                 "socket.onmessage = function(e) {" +
                 "  if(e.data.startsWith('EVENT:TYPING:')) {" +
                 "    const parts = e.data.split(':');" +
@@ -555,11 +567,24 @@ public class HttpServerManager {
                 "    }" +
                 "    return;" +
                 "  }" +
+                "  if(currentName === 'USER_WAITING' && e.data.includes('HAS JOINED THE SESSION')) {" +
+                "    currentName = e.data.split(' ')[0];" +
+                "    nameEl.textContent = currentName;" +
+                "  }" +
                 "  const div = document.createElement('div');" +
                 "  div.textContent = e.data;" +
                 "  log.appendChild(div);" +
                 "  log.scrollTop = log.scrollHeight;" +
                 "};" +
+                "function changeName() {" +
+                "  const newName = prompt('Enter new display name (max 15 chars):', currentName);" +
+                "  if(newName && newName.trim() !== '' && newName !== currentName) {" +
+                "    const cleaned = newName.trim().substring(0, 15).replace(/[^a-zA-Z0-9_]/g, '');" +
+                "    socket.send('SIGNAL_NAME_CHANGE:' + cleaned);" +
+                "    currentName = cleaned;" +
+                "    nameEl.textContent = currentName;" +
+                "  }" +
+                "}" +
                 "input.addEventListener('input', () => {" +
                 "  if(!isTypingSent) {" +
                 "    socket.send('SIGNAL_TYPING:START');" +

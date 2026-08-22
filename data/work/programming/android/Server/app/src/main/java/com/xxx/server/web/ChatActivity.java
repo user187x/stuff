@@ -82,6 +82,8 @@ public class ChatActivity extends AppCompatActivity {
         animationHandler.post(animationRunnable);
     }
 
+    private String serverName = "SERVER";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -94,12 +96,53 @@ public class ChatActivity extends AppCompatActivity {
 
         binding.chatSendButton.setOnClickListener(v -> sendMessage());
         
+        setupNameChangeListener();
         setupTypingListener();
 
         IntentFilter filter = new IntentFilter();
         filter.addAction("com.xxx.server.CHAT_MESSAGE");
         filter.addAction("com.xxx.server.CHAT_EVENT");
         LocalBroadcastManager.getInstance(this).registerReceiver(chatReceiver, filter);
+    }
+
+    private void setupNameChangeListener() {
+        binding.chatTitleText.setOnClickListener(new View.OnClickListener() {
+            private long lastClickTime = 0;
+            @Override
+            public void onClick(View v) {
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastClickTime < 300) {
+                    showNameChangeDialog();
+                }
+                lastClickTime = currentTime;
+            }
+        });
+    }
+
+    private void showNameChangeDialog() {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setText(serverName);
+        input.setSingleLine(true);
+        input.setFilters(new android.text.InputFilter[] { new android.text.InputFilter.LengthFilter(15) });
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Update Name")
+                .setView(input)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    String newName = input.getText().toString().trim();
+                    if (!newName.isEmpty() && !newName.equals(serverName)) {
+                        Intent intent = new Intent(this, HttpServerService.class);
+                        intent.setAction("send_chat_event");
+                        intent.putExtra("type", "NAME_CHANGE");
+                        intent.putExtra("data", newName);
+                        startService(intent);
+                        
+                        serverName = newName;
+                        binding.chatTitleText.setText(serverName);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void setupTypingListener() {

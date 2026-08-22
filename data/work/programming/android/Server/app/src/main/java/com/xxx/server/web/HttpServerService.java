@@ -118,7 +118,11 @@ public class HttpServerService extends Service {
                     String eventType = intent.getStringExtra("type");
                     String eventData = intent.getStringExtra("data");
                     if (serverManager != null && eventType != null) {
-                        serverManager.broadcastChatEvent(eventType, "SERVER", eventData);
+                        if ("NAME_CHANGE".equals(eventType)) {
+                            serverManager.broadcastChatMessage("SYSTEM", "SERVER IS NOW KNOWN AS " + eventData);
+                        } else {
+                            serverManager.broadcastChatEvent(eventType, "SERVER", eventData);
+                        }
                     }
                     break;
             }
