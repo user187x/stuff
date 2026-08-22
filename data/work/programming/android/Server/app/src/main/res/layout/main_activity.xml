@@ -18,17 +18,12 @@
       android:layout_width="20dp"
       android:layout_height="20dp"
       android:visibility="gone" />
-    <ImageView
-      android:id="@+id/gearsImageView"
-      android:layout_width="20dp"
-      android:layout_height="20dp"
-      android:src="@drawable/ic_server_notification"
-      android:visibility="gone" />
     <TextView
       android:id="@+id/serverAddressText"
-      android:layout_width="wrap_content"
+      android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:fontFamily="monospace"
+      android:gravity="center"
       android:textColor="#00FF41"
       android:visibility="gone"
       tools:text=" 192.168.1.5:8080"
@@ -65,19 +60,19 @@
         android:id="@+id/ipConfigButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="CONFIG IP" />
+        android:text="SERVER IP" />
 
       <Button
         android:id="@+id/portConfigButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="CONFIG PORT" />
+        android:text="SERVER PORT" />
 
       <Button
         android:id="@+id/selectFolderButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SELECT ROOT" />
+        android:text="SHARE DIRECTORY" />
 
       <Button
         android:id="@+id/connectSoundButton"

@@ -352,9 +352,8 @@ public class MainActivity extends AppCompatActivity {
     boolean isHttpRunning = manager.isHttpServerRunning();
     boolean isWsRunning = manager.isWebSocketServerRunning();
 
-    binding.serverStatusText.setText(isHttpRunning ? "RUNNING" : "OFFLINE");
+    binding.serverStatusText.setText(isHttpRunning ? "" : "OFFLINE");
     binding.serverStatusText.setTextColor(isHttpRunning ? 0xFF00FF41 : 0xFFFF003C);
-    binding.gearsImageView.setVisibility(isHttpRunning ? View.VISIBLE : View.GONE);
 
     if (isHttpRunning) {
       binding.onlineGifView.setVisibility(View.VISIBLE);
@@ -364,7 +363,7 @@ public class MainActivity extends AppCompatActivity {
       int port = manager.getPort();
       String url = "http://" + ip + ":" + port;
       binding.serverAddressText.setVisibility(View.VISIBLE);
-      binding.serverAddressText.setText(url);
+      binding.serverAddressText.setText(" " + url);
       binding.serverAddressText.setTextColor(0xFF00F3FF); // Neon Blue
       generateQRCode(url);
     } else {
@@ -373,8 +372,8 @@ public class MainActivity extends AppCompatActivity {
       binding.qrCodeCard.setVisibility(View.GONE);
     }
 
-    binding.startStopButton.setText(isHttpRunning ? "STOP HTTP" : "START HTTP");
-    binding.startStopWebSocketButton.setText(isWsRunning ? "STOP CHAT" : "START CHAT");
+    binding.startStopButton.setText(isHttpRunning ? "STOP SERVER" : "START SERVER");
+    binding.startStopWebSocketButton.setText(isWsRunning ? "DISABLE CHAT" : "ENABLE CHAT");
     binding.messengerButton.setVisibility(isWsRunning ? View.VISIBLE : View.GONE);
   }
 
