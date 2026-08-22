@@ -1,0 +1,10 @@
+#!/bin/bash
+
+read -rp "Enter path command to resolve: " cli_cmd
+
+output=$(readlink -f $(which "${cli_cmd}"))
+if [[ "$?" == 0 ]]; then
+ echo -e "\e[92m${output}\e[0m"
+else
+ echo -e "\e[91mCommand not found\e[0m"
+fi

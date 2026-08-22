@@ -25,6 +25,7 @@ data/work/kv4p-ht/.git
 *.git
 *.iso
 *.class
+*.hprof
 
 # certificate related
 **/certs/
