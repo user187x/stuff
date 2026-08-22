@@ -5,7 +5,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
@@ -19,6 +22,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.xxx.server.MainActivity;
 import com.xxx.server.R;
 
+import java.util.Locale;
 import java.util.function.Consumer;
 
 public class HttpServerService extends Service {
@@ -28,6 +32,9 @@ public class HttpServerService extends Service {
 
     public static final String ACTION_LOG_BROADCAST = "com.xxx.server.LOG_BROADCAST";
     public static final String EXTRA_LOG_MESSAGE = "com.xxx.server.LOG_MESSAGE";
+    public static final String ACTION_START_SERVER = "start_server";
+    public static final String ACTION_STOP_SERVER = "stop_server";
+    public static boolean isServerRunning = false;
 
 
     private final IBinder binder = new LocalBinder();
@@ -40,21 +47,37 @@ public class HttpServerService extends Service {
         }
     }
 
+    private final BroadcastReceiver statsReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (ServerStatsManager.ACTION_STATS_UPDATE.equals(intent.getAction())) {
+                double rx = intent.getDoubleExtra(ServerStatsManager.EXTRA_CURRENT_RX_RATE, 0);
+                double tx = intent.getDoubleExtra(ServerStatsManager.EXTRA_CURRENT_TX_RATE, 0);
+                updateNotification(String.format(Locale.getDefault(), "RX: %.1f KB/s, TX: %.1f KB/s", rx/1024, tx/1024));
+            }
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
 
         Consumer<String> logger = this::broadcastLog;
-        // The consumers will be updated later when the UI is ready
+        
+        ServerStatsManager statsManager = new ServerStatsManager(this);
+        InactivityManager inactivityManager = new InactivityManager(this);
+        RestRouteManager restRouteManager = new RestRouteManager(this);
+
         serverManager = new HttpServerManager(this,
                 logger,
-                req -> {}, // Placeholder for requestNotifier
-                new ServerStatsManager(this::updateNotification),
-                new InactivityManager(this::stopServer),
-                new RestRouteManager(this),
-                this::broadcastLog
+                req -> {}, 
+                statsManager,
+                inactivityManager,
+                restRouteManager
         );
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(statsReceiver, new IntentFilter(ServerStatsManager.ACTION_STATS_UPDATE));
     }
 
     @Override
@@ -94,17 +117,34 @@ public class HttpServerService extends Service {
         // You might want to update the notifier in serverManager if it's dynamic
     }
 
+    public static final String ACTION_SERVER_STATE_CHANGED = "com.xxx.server.SERVER_STATE_CHANGED";
+    public static final String EXTRA_SERVER_STATE = "server_state";
+
     public void startServer() {
-        serverManager.startServer(() -> {
+        serverManager.startServer(v -> {
+            isServerRunning = true;
+            serverManager.getStatsManager().startTracking();
             startForeground(NOTIFICATION_ID, createNotification("Server is running"));
+            broadcastState();
         });
     }
 
     public void stopServer() {
-        serverManager.stopServer(() -> {
-            stopForeground(true);
-            stopSelf();
-        });
+        if (serverManager != null) {
+            serverManager.getStatsManager().stopTracking();
+            serverManager.stopServer(v -> {
+                isServerRunning = false;
+                stopForeground(true);
+                stopSelf();
+                broadcastState();
+            });
+        }
+    }
+
+    private void broadcastState() {
+        Intent intent = new Intent(ACTION_SERVER_STATE_CHANGED);
+        intent.putExtra(EXTRA_SERVER_STATE, isServerRunning);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
     public void startWebSocketServer() {

@@ -11,8 +11,12 @@ import androidx.documentfile.provider.DocumentFile;
 import com.xxx.server.web.tls.TLSCertificateManager;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Collections;
@@ -90,6 +94,10 @@ public class HttpServerManager {
         this.restRouteManager = restRouteManager;
     }
 
+    public int getPort() {
+        return port;
+    }
+
     public synchronized void stopServer(Handler<Void> onStopped) {
         if (!isHttpServerRunning.get() || httpServer == null) {
             Log.w(TAG, "Server is not running");
@@ -117,16 +125,14 @@ public class HttpServerManager {
         router.route().handler(this::handleSecurityChecks);
         // Add custom headers
         router.route().handler(this::addCustomHeaders);
-        // Route for the root path to display server status
-        router.get("/").handler(this::handleStatusRequest);
-        // Handle uploads if enabled
-        if (allowUploads) {
-            router.route().handler(BodyHandler.create());
-            router.post("/upload").handler(this::handleFileUpload);
-        }
+        
+        // Body handler for uploads
+        router.route().handler(BodyHandler.create());
+        router.post("/upload").handler(this::handleFileUpload);
 
         restRouteManager.applyRoutesToRouter(router);
-        // Handle all requests
+        
+        // Handle all requests including root /
         router.route("/*").handler(this::handleRequest);
     }
 
@@ -165,6 +171,8 @@ public class HttpServerManager {
         context.response().endHandler(v -> {
             long responseTime = System.currentTimeMillis() - startTime;
             int statusCode = context.response().getStatusCode();
+            long bytesSent = context.response().bytesWritten();
+            statsManager.onRequest(0, bytesSent); // Log bytes sent
             logRequest(request, clientIp, statusCode, responseTime);
         });
 
@@ -187,88 +195,71 @@ public class HttpServerManager {
     public synchronized void startServer(Handler<Void> onSuccess) {
         if (isHttpServerRunning.get()) {
             Log.w(TAG, "Server is already running");
-            if (onSuccess != null) {
-                onSuccess.handle(null);
-            }
+            if (onSuccess != null) onSuccess.handle(null);
             return;
         }
 
         try {
             setupRouter();
             HttpServerOptions options = new HttpServerOptions()
-                    .setPort(SERVER_PORT)
-                    .setHost(SERVER_IP)
-                    .setIdleTimeout(0)
-                    .setIdleTimeoutUnit(TimeUnit.SECONDS)
-                    .setTcpKeepAlive(true);
+                    .setPort(port)
+                    .setHost("0.0.0.0")
+                    .setLogActivity(true);
 
             if (tlsEnabled) {
                 TLSCertificateManager certManager = new TLSCertificateManager(context);
                 if (certManager.certificateExists()) {
-                    // Correctly get the path to the keystore in the app's private files directory
                     File keystoreFile = new File(context.getFilesDir(), "server_keystore.p12");
-
-                    options
-                            .setSsl(true)
+                    options.setSsl(true)
                             .setKeyCertOptions(new PfxOptions()
-                                    .setPath(keystoreFile.getAbsolutePath()) // Path to your PKCS12 keystore
-                                    .setPassword(TLSCertificateManager.KEYSTORE_PASSWORD) // Password for your keystore
-                            )
-                            // Optional: Specify enabled TLS protocols
+                                    .setPath(keystoreFile.getAbsolutePath())
+                                    .setPassword(TLSCertificateManager.KEYSTORE_PASSWORD))
                             .addEnabledSecureTransportProtocol("TLSv1.3")
                             .addEnabledSecureTransportProtocol("TLSv1.2");
-
-                    Log.i(TAG, "TLS is enabled. Server will use HTTPS.");
-
-                } else {
-                    Log.w(TAG, "TLS is enabled in settings, but no certificate was found. Starting without encryption.");
-                    logger.accept("Warning: TLS is enabled, but no certificate found. Server is NOT secure.");
                 }
             }
 
-
-            // Create the server with options
             httpServer = vertx.createHttpServer(options);
-
-            httpServer.connectionHandler(conn -> {
-                statsManager.onConnection();
-                conn.closeHandler(v -> {
-                });
-            });
-
-            // Set the request handler to the router for HTTP requests
+            httpServer.connectionHandler(conn -> statsManager.onConnection());
             httpServer.requestHandler(router);
-
-            // Set the WebSocket handler. It will be active based on isWebSocketServerRunning flag.
             httpServer.webSocketHandler(this::handleWebSocketConnection);
 
-            httpServer.listen(port)
+            httpServer.listen()
                     .onSuccess(s -> {
                         isHttpServerRunning.set(true);
-                        @SuppressLint("DefaultLocale") String startMessage = String.format("Server was started at %s://%s:%d in '%s'",
-                                (tlsEnabled ? "https" : "http"), getServerAddress(), port, rootFolder);
-                        logger.accept(startMessage);
-                        Log.i(TAG, "Server started on port " + port);
-                        if (onSuccess != null) {
-                            onSuccess.handle(null);
-                        }
+                        String addr = getServerAddress();
+                        logger.accept("SYSTEM: Server started on " + addr + ":" + s.actualPort());
+                        if (onSuccess != null) onSuccess.handle(null);
                     })
-                    .onFailure(err -> Log.e(TAG, "Failed to start server: " + err.getMessage()));
-
+                    .onFailure(err -> {
+                        logger.accept("ERROR: Failed to start: " + err.getMessage());
+                        Log.e(TAG, "Failed to start server", err);
+                    });
         } catch (Exception e) {
-            Log.e(TAG, "Error starting server", e);
+            logger.accept("CRITICAL: " + e.getMessage());
+            Log.e(TAG, "Critical start error", e);
         }
     }
 
-
-    private String getServerAddress() {
-        // Try to get the actual server address
+    public String getServerAddress() {
         try {
-            java.net.InetAddress localHost = java.net.InetAddress.getLocalHost();
-            return localHost.getHostAddress();
+            java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces();
+            while (en.hasMoreElements()) {
+                java.net.NetworkInterface intf = en.nextElement();
+                if (intf.getName().contains("wlan") || intf.getName().contains("eth")) {
+                    java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses();
+                    while (enumIpAddr.hasMoreElements()) {
+                        java.net.InetAddress inetAddress = enumIpAddr.nextElement();
+                        if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
+                            return inetAddress.getHostAddress();
+                        }
+                    }
+                }
+            }
         } catch (Exception e) {
-            return "0.0.0.0";
+            Log.e(TAG, "Error getting IP", e);
         }
+        return "127.0.0.1";
     }
 
     private void handleWebSocketConnection(final ServerWebSocket ws) {
@@ -361,6 +352,13 @@ public class HttpServerManager {
 
     private void handleRequest(io.vertx.ext.web.RoutingContext context) {
         String path = context.request().path();
+        logger.accept("REQ: " + path + " (Root: " + (rootFolder.isEmpty() ? "NOT_SET" : "ACTIVE") + ")");
+        
+        if (rootFolder == null || rootFolder.isEmpty()) {
+            context.response().setStatusCode(404).end("ERROR: Root directory not configured in app settings.");
+            return;
+        }
+
         try {
             // Handle root folder based on type (URI or file path)
             if (rootFolder.startsWith("content://")) {
@@ -368,10 +366,10 @@ public class HttpServerManager {
             } else {
                 handleFileSystemRequest(context, path);
             }
-
         } catch (Exception e) {
             Log.e(TAG, "Error handling request", e);
-            context.response().setStatusCode(500).end("Internal server error");
+            logger.accept("ERROR: " + e.getMessage());
+            context.response().setStatusCode(500).end("Internal server error: " + e.getMessage());
         }
     }
 
@@ -469,86 +467,128 @@ public class HttpServerManager {
         generateDirectoryListingHtmlFile(context, directory, path);
     }
 
+    private String getHtmlHeader(String title) {
+        return "<!DOCTYPE html><html><head><title>" + title + "</title>" +
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+                "<style>" +
+                "body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: #0A0A0A; color: #E0E0E0; }" +
+                ".container { max-width: 900px; margin: 0 auto; padding: 20px; }" +
+                "h1 { color: #00F3FF; border-bottom: 1px solid #333; padding-bottom: 10px; font-size: 24px; }" +
+                ".path-nav { margin-bottom: 20px; color: #888; font-family: monospace; }" +
+                "ul { list-style: none; padding: 0; border: 1px solid #222; border-radius: 8px; overflow: hidden; }" +
+                "li { padding: 12px 15px; background: #121212; border-bottom: 1px solid #222; display: flex; align-items: center; transition: background 0.2s; }" +
+                "li:last-child { border-bottom: none; }" +
+                "li:hover { background: #1A1A1A; }" +
+                "li a { color: #E0E0E0; text-decoration: none; flex-grow: 1; display: flex; align-items: center; }" +
+                "li a:hover { color: #00F3FF; }" +
+                ".icon { margin-right: 15px; font-size: 20px; min-width: 25px; text-align: center; }" +
+                ".actions { display: flex; gap: 10px; }" +
+                ".btn { padding: 6px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; cursor: pointer; border: none; font-weight: bold; }" +
+                ".btn-download { background: #00F3FF; color: #000; }" +
+                ".btn-download:hover { background: #00D1FF; }" +
+                ".upload-sect { margin-top: 30px; padding: 20px; background: #121212; border-radius: 8px; border: 1px dashed #333; }" +
+                ".upload-sect h2 { margin-top: 0; font-size: 18px; color: #00FF41; }" +
+                "input[type=file] { margin-bottom: 10px; display: block; background: #1A1A1A; color: #888; padding: 10px; width: 100%; box-sizing: border-box; border-radius: 4px; border: 1px solid #333; }" +
+                "input[type=submit] { background: #00FF41; color: #000; padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; }" +
+                "input[type=submit]:hover { background: #00E63A; }" +
+                "</style></head><body><div class=\"container\">";
+    }
+
+    private String getHtmlFooter() {
+        return "</div></body></html>";
+    }
+
     private void generateDirectoryListingHtml(io.vertx.ext.web.RoutingContext context, DocumentFile directory, String path) {
         StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html>\n");
-        html.append("<html><head><title>Directory listing for ").append(path).append("</title>");
-        html.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        html.append("<style>");
-        html.append("body { font-family: Arial, sans-serif; margin: 20px; background: #121212; color: #ffffff; }");
-        html.append("h1 { color: #bb86fc; }");
-        html.append("a { color: #03dac6; text-decoration: none; }");
-        html.append("a:hover { text-decoration: underline; }");
-        html.append("ul { list-style-type: none; padding: 0; }");
-        html.append("li { margin: 5px 0; padding: 10px; background: #1e1e1e; border-radius: 5px; }");
-        html.append("</style></head><body>");
-        html.append("<h1>Directory listing for ").append(path).append("</h1>");
+        html.append(getHtmlHeader("File Explorer - " + path));
+        html.append("<h1>FILE_EXPLORER_v1.0</h1>");
+        html.append("<div class=\"path-nav\">ROOT" + path.replace("/", " > ") + "</div>");
+        
         html.append("<ul>");
-        // Add parent directory link if not root
         if (!path.equals("/")) {
             String parentPath = path.substring(0, path.lastIndexOf('/'));
             if (parentPath.isEmpty()) parentPath = "/";
-            html.append("<li><a href=\"").append(parentPath).append("\">.. (parent directory)</a></li>");
+            html.append("<li><a href=\"").append(parentPath).append("\"><span class=\"icon\">&#11013;</span> .. (Parent Directory)</a></li>");
         }
 
-        // List directory contents
         DocumentFile[] files = directory.listFiles();
-        for (DocumentFile file : files) {
-            String fileName = file.getName();
-            if (fileName != null) {
-                String filePath = path.endsWith("/") ?
-                        path + fileName : path + "/" + fileName;
-                String icon = file.isDirectory() ? "&#128193;" : "&#128196;";
-                html.append("<li><a href=\"").append(filePath).append("\">")
-                        .append(icon).append(" ").append(fileName).append("</a></li>");
+        if (files == null || files.length == 0) {
+            html.append("<li style=\"color:#888;justify-content:center;\">NO_FILES_FOUND_IN_DIRECTORY</li>");
+        } else {
+            for (DocumentFile file : files) {
+                String fileName = file.getName();
+                if (fileName == null) continue;
+                String filePath = path.endsWith("/") ? path + fileName : path + "/" + fileName;
+                boolean isDir = file.isDirectory();
+                String icon = isDir ? "&#128193;" : "&#128196;";
+                
+                html.append("<li>");
+                html.append("<a href=\"").append(filePath).append("\"><span class=\"icon\">").append(icon).append("</span> ").append(fileName).append("</a>");
+                if (!isDir) {
+                    html.append("<div class=\"actions\"><a href=\"").append(filePath).append("\" download class=\"btn btn-download\">DOWNLOAD</a></div>");
+                }
+                html.append("</li>");
             }
         }
+        html.append("</ul>");
 
-        html.append("</ul></body></html>");
-        context.response()
-                .putHeader("Content-Type", "text/html; charset=utf-8")
-                .end(html.toString());
+        if (allowUploads) {
+            html.append("<div class=\"upload-sect\">");
+            html.append("<h2>UPLOAD_NEW_FILE</h2>");
+            html.append("<form action=\"/upload?dir=").append(path).append("\" method=\"post\" enctype=\"multipart/form-data\">");
+            html.append("<input type=\"file\" name=\"file\" required>");
+            html.append("<input type=\"submit\" value=\"EXECUTE_UPLOAD\">");
+            html.append("</form></div>");
+        }
+
+        html.append(getHtmlFooter());
+        context.response().putHeader("Content-Type", "text/html; charset=utf-8").end(html.toString());
     }
 
     private void generateDirectoryListingHtmlFile(io.vertx.ext.web.RoutingContext context, java.io.File directory, String path) {
         StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html>\n");
-        html.append("<html><head><title>Directory listing for ").append(path).append("</title>");
-        html.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        html.append("<style>");
-        html.append("body { font-family: Arial, sans-serif; margin: 20px; background: #121212; color: #ffffff; }");
-        html.append("h1 { color: #bb86fc; }");
-        html.append("a { color: #03dac6; text-decoration: none; }");
-        html.append("a:hover { text-decoration: underline; }");
-        html.append("ul { list-style-type: none; padding: 0; }");
-        html.append("li { margin: 5px 0; padding: 10px; background: #1e1e1e; border-radius: 5px; }");
-        html.append("</style></head><body>");
-        html.append("<h1>Directory listing for ").append(path).append("</h1>");
+        html.append(getHtmlHeader("File Explorer - " + path));
+        html.append("<h1>FILE_EXPLORER_v1.0</h1>");
+        html.append("<div class=\"path-nav\">ROOT" + path.replace("/", " > ") + "</div>");
+        
         html.append("<ul>");
-        // Add parent directory link if not root
         if (!path.equals("/")) {
             String parentPath = path.substring(0, path.lastIndexOf('/'));
             if (parentPath.isEmpty()) parentPath = "/";
-            html.append("<li><a href=\"").append(parentPath).append("\">.. (parent directory)</a></li>");
+            html.append("<li><a href=\"").append(parentPath).append("\"><span class=\"icon\">&#11013;</span> .. (Parent Directory)</a></li>");
         }
 
-        // List directory contents
         java.io.File[] files = directory.listFiles();
-        if (files != null) {
+        if (files == null || files.length == 0) {
+            html.append("<li style=\"color:#888;justify-content:center;\">NO_FILES_FOUND_IN_DIRECTORY</li>");
+        } else {
             for (java.io.File file : files) {
                 String fileName = file.getName();
                 String filePath = path.endsWith("/") ? path + fileName : path + "/" + fileName;
-                String icon = file.isDirectory() ?
-                        "&#128193;" : "&#128196;";
-                html.append("<li><a href=\"").append(filePath).append("\">")
-                        .append(icon).append(" ").append(fileName).append("</a></li>");
+                boolean isDir = file.isDirectory();
+                String icon = isDir ? "&#128193;" : "&#128196;";
+                
+                html.append("<li>");
+                html.append("<a href=\"").append(filePath).append("\"><span class=\"icon\">").append(icon).append("</span> ").append(fileName).append("</a>");
+                if (!isDir) {
+                    html.append("<div class=\"actions\"><a href=\"").append(filePath).append("\" download class=\"btn btn-download\">DOWNLOAD</a></div>");
+                }
+                html.append("</li>");
             }
         }
+        html.append("</ul>");
 
-        html.append("</ul></body></html>");
-        context.response()
-                .putHeader("Content-Type", "text/html; charset=utf-8")
-                .end(html.toString());
+        if (allowUploads) {
+            html.append("<div class=\"upload-sect\">");
+            html.append("<h2>UPLOAD_NEW_FILE</h2>");
+            html.append("<form action=\"/upload?dir=").append(path).append("\" method=\"post\" enctype=\"multipart/form-data\">");
+            html.append("<input type=\"file\" name=\"file\" required>");
+            html.append("<input type=\"submit\" value=\"EXECUTE_UPLOAD\">");
+            html.append("</form></div>");
+        }
+
+        html.append(getHtmlFooter());
+        context.response().putHeader("Content-Type", "text/html; charset=utf-8").end(html.toString());
     }
 
     private void serveDocumentFile(io.vertx.ext.web.RoutingContext context, DocumentFile file) {
@@ -612,8 +652,67 @@ public class HttpServerManager {
     }
 
     private void handleFileUpload(io.vertx.ext.web.RoutingContext context) {
-        // File upload implementation would go here
-        context.response().setStatusCode(501).end("File upload not yet implemented");
+        String dirParam = context.request().getParam("dir");
+        if (dirParam == null) dirParam = "/";
+        final String targetDir = dirParam;
+
+        if (context.fileUploads().isEmpty()) {
+            context.response().setStatusCode(400).end("No file uploaded");
+            return;
+        }
+
+        io.vertx.ext.web.FileUpload fileUpload = context.fileUploads().iterator().next();
+        String fileName = fileUpload.fileName();
+        String tempFile = fileUpload.uploadedFileName();
+
+        try {
+            if (rootFolder.startsWith("content://")) {
+                saveToDocumentTree(context, targetDir, fileName, tempFile);
+            } else {
+                saveToFileSystem(context, targetDir, fileName, tempFile);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Upload failed", e);
+            context.response().setStatusCode(500).end("Upload failed: " + e.getMessage());
+        }
+    }
+
+    private void saveToDocumentTree(io.vertx.ext.web.RoutingContext context, String path, String fileName, String tempFile) throws IOException {
+        DocumentFile rootDoc = DocumentFile.fromTreeUri(this.context, Uri.parse(rootFolder));
+        DocumentFile targetFolder = navigateToPath(rootDoc, path);
+        
+        if (targetFolder == null || !targetFolder.isDirectory()) {
+            context.response().setStatusCode(500).end("Target directory invalid");
+            return;
+        }
+
+        DocumentFile newFile = targetFolder.createFile(getMimeType(fileName), fileName);
+        if (newFile == null) {
+            context.response().setStatusCode(500).end("Could not create file in SAF");
+            return;
+        }
+
+        try (InputStream is = new java.io.FileInputStream(tempFile);
+             java.io.OutputStream os = this.context.getContentResolver().openOutputStream(newFile.getUri())) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) != -1) {
+                os.write(buffer, 0, len);
+            }
+        }
+        
+        // Redirect back to the directory listing
+        context.response().setStatusCode(302).putHeader("Location", path).end();
+    }
+
+    private void saveToFileSystem(io.vertx.ext.web.RoutingContext context, String path, String fileName, String tempFile) throws IOException {
+        java.io.File rootDir = new java.io.File(rootFolder);
+        java.io.File targetDir = new java.io.File(rootDir, path);
+        java.io.File destFile = new java.io.File(targetDir, fileName);
+
+        java.nio.file.Files.move(new java.io.File(tempFile).toPath(), destFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        
+        context.response().setStatusCode(302).putHeader("Location", path).end();
     }
 
     private DocumentFile navigateToPath(DocumentFile root, String path) {
@@ -707,6 +806,10 @@ public class HttpServerManager {
     public void startWebSocketServer() {
         isWebSocketServerRunning.set(true);
         logger.accept("WebSocket Server enabled");
+    }
+
+    public ServerStatsManager getStatsManager() {
+        return statsManager;
     }
 
     // Getters and setters

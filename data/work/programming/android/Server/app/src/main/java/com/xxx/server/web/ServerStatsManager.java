@@ -36,13 +36,43 @@ public class ServerStatsManager {
     private double websocketRxRate = 0.0;
     private double websocketTxRate = 0.0;
 
+    private long lastCheckTime = 0;
+    private long lastBytesReceived = 0;
+    private long lastBytesSent = 0;
+    private long lastWsBytesReceived = 0;
+    private long lastWsBytesSent = 0;
+
     private final Runnable statsUpdateRunnable = new Runnable() {
         @Override
         public void run() {
+            calculateRates();
             broadcastStats();
             handler.postDelayed(this, 1000); // Update every second
         }
     };
+
+    private void calculateRates() {
+        long now = System.currentTimeMillis();
+        if (lastCheckTime > 0) {
+            long timeDiff = now - lastCheckTime;
+            if (timeDiff > 0) {
+                long rxDiff = totalBytesReceived.get() - lastBytesReceived;
+                long txDiff = totalBytesSent.get() - lastBytesSent;
+                long wsRxDiff = websocketBytesReceived.get() - lastWsBytesReceived;
+                long wsTxDiff = websocketBytesSent.get() - lastWsBytesSent;
+
+                currentRxRate = (rxDiff * 1000.0) / timeDiff;
+                currentTxRate = (txDiff * 1000.0) / timeDiff;
+                websocketRxRate = (wsRxDiff * 1000.0) / timeDiff;
+                websocketTxRate = (wsTxDiff * 1000.0) / timeDiff;
+            }
+        }
+        lastCheckTime = now;
+        lastBytesReceived = totalBytesReceived.get();
+        lastBytesSent = totalBytesSent.get();
+        lastWsBytesReceived = websocketBytesReceived.get();
+        lastWsBytesSent = websocketBytesSent.get();
+    }
 
     public ServerStatsManager(Context context) {
         this.context = context;

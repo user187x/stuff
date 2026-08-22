@@ -6,28 +6,46 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.view.Menu;
-import android.view.MenuItem;
+import android.view.View;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.fragment.app.Fragment;
+import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
 import com.xxx.server.databinding.MainActivityBinding;
-import com.xxx.server.log.LogViewerFragment;
-import com.xxx.server.web.ChatFragment;
+import com.xxx.server.log.LogAdapter;
+import com.xxx.server.web.HttpServerManager;
 import com.xxx.server.web.HttpServerService;
-import com.xxx.server.web.ServerControlFragment;
+import com.xxx.server.web.ServerStatsManager;
+
+import java.util.ArrayList;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
+    private SharedPreferences preferences;
+    private static final String PREFS_NAME = "HttpServerPrefs";
+    private MainActivityBinding binding;
     private HttpServerService httpServerService;
     private boolean isServiceBound = false;
-    private MainActivityBinding binding;
+    private LogAdapter logAdapter;
+
+    private LineDataSet rxSet;
+    private LineDataSet txSet;
+    private final int MAX_CHART_POINTS = 60;
+    private int chartIndex = 0;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -35,9 +53,15 @@ public class MainActivity extends AppCompatActivity {
             HttpServerService.LocalBinder binder = (HttpServerService.LocalBinder) service;
             httpServerService = binder.getService();
             isServiceBound = true;
-            // Pass a logging consumer to the service
+            updateUIFromService();
+            
             httpServerService.setLogger(logMessage -> {
-                // Handle log message in UI, e.g., add to a log fragment
+                runOnUiThread(() -> {
+                    logAdapter.addLogMessage(logMessage);
+                    if (logAdapter.isAutoScroll()) {
+                        binding.logRecyclerView.scrollToPosition(logAdapter.getItemCount() - 1);
+                    }
+                });
             });
         }
 
@@ -47,17 +71,40 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private final BroadcastReceiver logBroadcastReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver statsReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (HttpServerService.ACTION_LOG_BROADCAST.equals(intent.getAction())) {
-                String logMessage = intent.getStringExtra(HttpServerService.EXTRA_LOG_MESSAGE);
-                // Here, you would pass the log message to your LogViewerFragment
-                // For now, we'll just toast it
-                Toast.makeText(context, logMessage, Toast.LENGTH_SHORT).show();
+            if (ServerStatsManager.ACTION_STATS_UPDATE.equals(intent.getAction())) {
+                updateStats(intent);
             }
         }
     };
+
+    private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (HttpServerService.ACTION_SERVER_STATE_CHANGED.equals(intent.getAction())) {
+                updateUIFromService();
+            }
+        }
+    };
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
+        lbm.registerReceiver(statsReceiver, new IntentFilter(ServerStatsManager.ACTION_STATS_UPDATE));
+        lbm.registerReceiver(stateReceiver, new IntentFilter(HttpServerService.ACTION_SERVER_STATE_CHANGED));
+        updateUIFromService();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
+        lbm.unregisterReceiver(statsReceiver);
+        lbm.unregisterReceiver(stateReceiver);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,74 +112,288 @@ public class MainActivity extends AppCompatActivity {
         binding = MainActivityBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        binding.navView.setOnNavigationItemSelectedListener(this::onNavigationItemSelected);
+        preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
-        // Load the default fragment
-        if (savedInstanceState == null) {
-            getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.nav_host_fragment, new ServerControlFragment())
-                    .commit();
-        }
+        setupLogView();
+        setupTrafficChart();
+        loadSettings();
+        setupControls();
 
         Intent intent = new Intent(this, HttpServerService.class);
+        startService(intent);
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-        LocalBroadcastManager.getInstance(this).registerReceiver(logBroadcastReceiver, new IntentFilter(HttpServerService.ACTION_LOG_BROADCAST));
+    private void loadSettings() {
+        binding.portEditText.setText(String.valueOf(preferences.getInt("port", 8080)));
+        binding.rootFolderText.setText(preferences.getString("root_folder", "No folder selected"));
+        binding.redirectIndexSwitch.setChecked(preferences.getBoolean("redirect_index", true));
+        binding.renderFolderSwitch.setChecked(preferences.getBoolean("render_folder", true));
+        binding.allowUploadsSwitch.setChecked(preferences.getBoolean("allow_uploads", false));
+        binding.basicAuthSwitch.setChecked(preferences.getBoolean("basic_auth", false));
+        binding.usernameEditText.setText(preferences.getString("auth_username", ""));
+        binding.passwordEditText.setText(preferences.getString("auth_password", ""));
+        binding.tlsSwitch.setChecked(preferences.getBoolean("tls_enabled", false));
+        binding.autostartSwitch.setChecked(preferences.getBoolean("autostart_on_boot", false));
+        binding.autoShutdownSwitch.setChecked(preferences.getBoolean("auto_shutdown_enabled", false));
+        
+        binding.basicAuthPanel.setVisibility(binding.basicAuthSwitch.isChecked() ? View.VISIBLE : View.GONE);
+        binding.inactivitySeekBar.setEnabled(binding.autoShutdownSwitch.isChecked());
     }
 
-    @Override
-    protected void onStop() {
-        super.onStop();
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(logBroadcastReceiver);
+    private void saveSettings() {
+        SharedPreferences.Editor editor = preferences.edit();
+        try {
+            editor.putInt("port", Integer.parseInt(binding.portEditText.getText().toString()));
+        } catch (Exception ignored) {}
+        editor.putString("root_folder", binding.rootFolderText.getText().toString());
+        editor.putBoolean("redirect_index", binding.redirectIndexSwitch.isChecked());
+        editor.putBoolean("render_folder", binding.renderFolderSwitch.isChecked());
+        editor.putBoolean("allow_uploads", binding.allowUploadsSwitch.isChecked());
+        editor.putBoolean("basic_auth", binding.basicAuthSwitch.isChecked());
+        editor.putString("auth_username", binding.usernameEditText.getText().toString());
+        editor.putString("auth_password", binding.passwordEditText.getText().toString());
+        editor.putBoolean("tls_enabled", binding.tlsSwitch.isChecked());
+        editor.putBoolean("autostart_on_boot", binding.autostartSwitch.isChecked());
+        editor.putBoolean("auto_shutdown_enabled", binding.autoShutdownSwitch.isChecked());
+        editor.apply();
+        
+        com.xxx.server.web.BootReceiver.setEnabled(this, binding.autostartSwitch.isChecked());
     }
 
-    @Override
-    protected void onDestroy() {
-        if (isServiceBound) {
-            unbindService(serviceConnection);
-            isServiceBound = false;
+    private void setupControls() {
+        binding.startStopButton.setOnClickListener(v -> {
+            if (isServiceBound) {
+                HttpServerManager manager = httpServerService.getServerManager();
+                if (manager.isHttpServerRunning()) {
+                    httpServerService.stopServer();
+                } else {
+                    saveSettings();
+                    applySettingsFromUI();
+                    httpServerService.startServer();
+                }
+            }
+        });
+
+        binding.startStopWebSocketButton.setOnClickListener(v -> {
+            if (isServiceBound) {
+                HttpServerManager manager = httpServerService.getServerManager();
+                if (manager.isWebSocketServerRunning()) {
+                    manager.stopWebSocketServer();
+                } else {
+                    manager.startWebSocketServer();
+                }
+                updateUIFromService();
+            }
+        });
+
+        binding.selectFolderButton.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            startActivityForResult(intent, 1001);
+        });
+
+        binding.ipConfigButton.setOnClickListener(v -> toggleVisibility(binding.ipConfigLayout));
+        binding.portConfigButton.setOnClickListener(v -> toggleVisibility(binding.portConfigLayout));
+        
+        binding.basicAuthSwitch.setOnCheckedChangeListener((bv, checked) -> {
+            binding.basicAuthPanel.setVisibility(checked ? View.VISIBLE : View.GONE);
+        });
+
+        binding.autoScrollCheckbox.setOnCheckedChangeListener((bv, checked) -> {
+            if (logAdapter != null) logAdapter.setAutoScroll(checked);
+        });
+    }
+
+    private void setupTrafficChart() {
+        LineChart chart = binding.trafficChart;
+        chart.getDescription().setEnabled(false);
+        chart.setTouchEnabled(false);
+        chart.setDragEnabled(false);
+        chart.setScaleEnabled(false);
+        chart.setPinchZoom(false);
+        chart.setDrawGridBackground(false);
+        chart.setBackgroundColor(Color.BLACK);
+
+        XAxis xAxis = chart.getXAxis();
+        xAxis.setEnabled(false);
+
+        YAxis leftAxis = chart.getAxisLeft();
+        leftAxis.setTextColor(Color.GRAY);
+        leftAxis.setDrawGridLines(true);
+        leftAxis.setGridColor(Color.parseColor("#22FFFFFF"));
+        leftAxis.setAxisMinimum(0f);
+        leftAxis.setLabelCount(3);
+
+        chart.getAxisRight().setEnabled(false);
+        chart.getLegend().setEnabled(false);
+
+        rxSet = createDataSet("RX", ContextCompat.getColor(this, R.color.glow_green));
+        txSet = createDataSet("TX", ContextCompat.getColor(this, R.color.glow_blue));
+
+        chart.setData(new LineData(rxSet, txSet));
+    }
+
+    private LineDataSet createDataSet(String label, int color) {
+        LineDataSet set = new LineDataSet(new ArrayList<>(), label);
+        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+        set.setCubicIntensity(0.2f);
+        set.setDrawCircles(false);
+        set.setLineWidth(2f);
+        set.setColor(color);
+        set.setDrawValues(false);
+        set.setDrawFilled(true);
+        set.setFillColor(color);
+        set.setFillAlpha(30);
+        return set;
+    }
+
+    private void setupLogView() {
+        logAdapter = new LogAdapter();
+        binding.logRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        binding.logRecyclerView.setAdapter(logAdapter);
+
+        binding.logHandle.setOnClickListener(v -> {
+            boolean isVisible = binding.logRecyclerView.getVisibility() == View.VISIBLE;
+            binding.logRecyclerView.setVisibility(isVisible ? View.GONE : View.VISIBLE);
+            binding.logHandle.setRotation(isVisible ? 0 : 180);
+        });
+
+        binding.autoScrollCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            logAdapter.setAutoScroll(isChecked);
+        });
+    }
+
+    private void applySettingsFromUI() {
+        if (!isServiceBound) return;
+        HttpServerManager manager = httpServerService.getServerManager();
+        
+        try {
+            int port = Integer.parseInt(binding.portEditText.getText().toString());
+            manager.setPort(port);
+        } catch (Exception ignored) {}
+
+        manager.setRedirectToIndex(binding.redirectIndexSwitch.isChecked());
+        manager.setRenderFolderContent(binding.renderFolderSwitch.isChecked());
+        manager.setAllowUploads(binding.allowUploadsSwitch.isChecked());
+        
+        manager.setBasicAuth(binding.basicAuthSwitch.isChecked());
+        manager.setAuthUsername(binding.usernameEditText.getText().toString());
+        manager.setAuthPassword(binding.passwordEditText.getText().toString());
+        
+        manager.setTlsEnabled(binding.tlsSwitch.isChecked());
+        
+        String root = binding.rootFolderText.getText().toString();
+        if (!"NONE".equals(root) && !"No folder selected".equals(root)) {
+            manager.setRootFolder(root);
         }
-        super.onDestroy();
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.main_menu, menu);
-        return true;
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001 && resultCode == RESULT_OK) {
+            if (data != null && data.getData() != null) {
+                String uri = data.getData().toString();
+                binding.rootFolderText.setText(uri);
+                if (isServiceBound) {
+                    httpServerService.getServerManager().setRootFolder(uri);
+                }
+                // Persist Uri permission
+                getContentResolver().takePersistableUriPermission(data.getData(),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            }
+        }
+    }
+
+    private void toggleVisibility(View view) {
+        view.setVisibility(view.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
     }
 
     @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        int id = item.getItemId();
-        if (id == R.id.action_settings) {
-            // Handle settings action
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
+    protected void onResume() {
+        super.onResume();
+        updateUIFromService();
     }
 
-    private boolean onNavigationItemSelected(@NonNull MenuItem item) {
-        Fragment selectedFragment = null;
-        int itemId = item.getItemId();
-        if (itemId == R.id.navigation_server) {
-            selectedFragment = new ServerControlFragment();
-        } else if (itemId == R.id.navigation_logs) {
-            selectedFragment = new LogViewerFragment();
-        } else if (itemId == R.id.navigation_chat) {
-            selectedFragment = new ChatFragment();
-        }
-        // Add other fragment selections here
+    private void updateUIFromService() {
+        if (httpServerService == null || httpServerService.getServerManager() == null) return;
+        
+        HttpServerManager manager = httpServerService.getServerManager();
+        boolean isHttpRunning = manager.isHttpServerRunning();
+        boolean isWsRunning = manager.isWebSocketServerRunning();
 
-        if (selectedFragment != null) {
-            getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.nav_host_fragment, selectedFragment)
-                    .commit();
-            return true;
+        binding.serverStatusText.setText(isHttpRunning ? "RUNNING" : "OFFLINE");
+        binding.serverStatusText.setTextColor(isHttpRunning ? 0xFF00FF41 : 0xFFFF003C);
+        binding.gearsImageView.setVisibility(isHttpRunning ? View.VISIBLE : View.GONE);
+        
+        if (isHttpRunning) {
+            String ip = manager.getServerAddress();
+            int port = manager.getPort();
+            binding.serverAddressText.setVisibility(View.VISIBLE);
+            binding.serverAddressText.setText(" URL: http://" + ip + ":" + port);
+            binding.serverAddressText.setTextColor(0xFF00F3FF); // Neon Blue
+        } else {
+            binding.serverAddressText.setVisibility(View.GONE);
         }
-        return false;
+
+        binding.startStopButton.setText(isHttpRunning ? "STOP HTTP" : "START HTTP");
+        binding.startStopWebSocketButton.setText(isWsRunning ? "STOP WSS" : "START WSS");
+    }
+
+    private void updateStats(Intent intent) {
+        long uptime = intent.getLongExtra(ServerStatsManager.EXTRA_UPTIME, 0);
+        long totalRx = intent.getLongExtra(ServerStatsManager.EXTRA_TOTAL_RX, 0);
+        long totalTx = intent.getLongExtra(ServerStatsManager.EXTRA_TOTAL_TX, 0);
+        long totalRequests = intent.getLongExtra(ServerStatsManager.EXTRA_TOTAL_REQUESTS, 0);
+        long totalConnections = intent.getLongExtra(ServerStatsManager.EXTRA_TOTAL_CONNECTIONS, 0);
+        double rxRate = intent.getDoubleExtra(ServerStatsManager.EXTRA_CURRENT_RX_RATE, 0);
+        double txRate = intent.getDoubleExtra(ServerStatsManager.EXTRA_CURRENT_TX_RATE, 0);
+
+        binding.uptimeText.setText(formatUptime(uptime));
+        binding.totalRxText.setText(formatBytes(totalRx));
+        binding.totalTxText.setText(formatBytes(totalTx));
+        binding.totalRequestsText.setText(String.valueOf(totalRequests));
+        binding.totalConnectionsText.setText(String.valueOf(totalConnections));
+        binding.currentRateText.setText(String.format(Locale.getDefault(), "%.1f KB/s", txRate / 1024.0));
+
+        updateChart(rxRate, txRate);
+    }
+
+    private void updateChart(double rxRate, double txRate) {
+        LineData data = binding.trafficChart.getData();
+        if (data == null) return;
+
+        data.addEntry(new Entry(chartIndex, (float) rxRate / 1024f), 0);
+        data.addEntry(new Entry(chartIndex, (float) txRate / 1024f), 1);
+        chartIndex++;
+
+        if (rxSet.getEntryCount() > MAX_CHART_POINTS) {
+            rxSet.removeFirst();
+            txSet.removeFirst();
+            // Adjust X values for remaining entries
+            for (int i = 0; i < rxSet.getEntryCount(); i++) {
+                rxSet.getEntryForIndex(i).setX(i);
+                txSet.getEntryForIndex(i).setX(i);
+            }
+            chartIndex = MAX_CHART_POINTS;
+        }
+
+        data.notifyDataChanged();
+        binding.trafficChart.notifyDataSetChanged();
+        binding.trafficChart.invalidate();
+    }
+
+    private String formatUptime(long millis) {
+        long seconds = millis / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes % 60, seconds % 60);
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        int exp = (int) (Math.log(bytes) / Math.log(1024));
+        char pre = "KMGTPE".charAt(exp - 1);
+        return String.format(Locale.getDefault(), "%.1f %cB", bytes / Math.pow(1024, exp), pre);
     }
 }

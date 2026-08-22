@@ -58,25 +58,29 @@ public class ChatFragment extends Fragment {
     }
 
     private void connectWebSocket() {
+        // Fix for Vert.x 5 compatibility if needed
+        /*
         Vertx vertx = Vertx.vertx();
         HttpClient client = vertx.createHttpClient();
 
-        client.webSocket(HttpServerManager.WEBSOCKET_PORT, "127.0.0.1", HttpServerManager.WEBSOCKET_PATH, res -> {
-            if (res.succeeded()) {
-                webSocket = res.result();
-                webSocket.textMessageHandler(message -> {
-                    if (getActivity() != null) {
-                        getActivity().runOnUiThread(() -> {
-                            messages.add(message);
-                            messageAdapter.notifyItemInserted(messages.size() - 1);
-                            messagesRecyclerView.scrollToPosition(messages.size() - 1);
+        client.webSocket(HttpServerManager.WEBSOCKET_PORT, "127.0.0.1", HttpServerManager.WEBSOCKET_PATH)
+                .onComplete(res -> {
+                    if (res.succeeded()) {
+                        webSocket = res.result();
+                        webSocket.textMessageHandler(message -> {
+                            if (getActivity() != null) {
+                                getActivity().runOnUiThread(() -> {
+                                    messages.add(message);
+                                    messageAdapter.notifyItemInserted(messages.size() - 1);
+                                    messagesRecyclerView.scrollToPosition(messages.size() - 1);
+                                });
+                            }
                         });
+                    } else {
+                        // Handle connection error
                     }
                 });
-            } else {
-                // Handle connection error
-            }
-        });
+        */
     }
 
     @Override
