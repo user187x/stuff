@@ -155,6 +155,21 @@ openssl verify -CAfile "$CA_BUNDLE" "$TLS_CRT" >/dev/null 2>&1 && ok "certificat
  warn "openssl verify failed against CA bundle — continuing, but browsers/agents may not trust Coder"
 
 # minikube must be running and be the active kube context
+MINIKUBE_RUNNING=$(minikube status --format='{{.Host}}' 2>/dev/null | grep -q "Running" && status=0 || status=1)
+
+if ! ((MINIKUBE_RUNNING)); then
+ minikube start \
+  --driver=docker \
+  --container-runtime=docker \
+  --cpus=4 \
+  --memory=9384 \
+  --disk-size=40g \
+  --kubernetes-version=stable \
+  --addons=default-storageclass,storage-provisioner \
+  --wait=apiserver,system_pods,default_sa,apps_running \
+  --wait-timeout=6m
+fi
+
 minikube status --format '{{.Host}}' 2>/dev/null | grep -q Running || die "minikube is not running"
 kubectl config use-context minikube >/dev/null
 kubectl cluster-info >/dev/null 2>&1 || die "kubectl cannot reach minikube"
@@ -338,23 +353,58 @@ helm upgrade --install coder coder-v2/coder \
 ok "helm release 'coder' deployed (${ACCESS_URL})"
 
 # ----------------------------------------------------------------------------
-# 4. Name resolution from this workstation (needed for `coder login`)
+# 4. Reachability from this workstation (needed for `coder login`)
 # ----------------------------------------------------------------------------
-log "Checking that ${CODER_DOMAIN} resolves"
-if ! getent hosts "$CODER_DOMAIN" >/dev/null 2>&1 && ! ping -c1 -W1 "$CODER_DOMAIN" >/dev/null 2>&1; then
+log "Verifying ${CODER_DOMAIN} reaches this Coder install"
+
+RESOLVED_IP=$(getent ahostsv4 "$CODER_DOMAIN" 2>/dev/null | awk 'NR==1{print $1}' || true)
+PF_PID=""
+
+probe() { # probe <ip>  -> 0 if buildinfo answers at that IP with the right hostname
+ curl -fsS --max-time 5 --cacert "$CA_BUNDLE" \
+  --resolve "${CODER_DOMAIN}:${HTTPS_NODE_PORT}:$1" \
+  "https://${CODER_DOMAIN}:${HTTPS_NODE_PORT}/api/v2/buildinfo" >/dev/null 2>&1
+}
+
+# Wait for Coder to answer at the minikube IP (bypasses DNS entirely)
+REACHABLE_VIA=""
+for i in $(seq 1 40); do
+ if probe "$MINIKUBE_IP"; then
+  REACHABLE_VIA="$MINIKUBE_IP"
+  break
+ fi
+ sleep 3
+done
+
+if [[ -z "$REACHABLE_VIA" ]]; then
+ warn "NodePort not reachable at ${MINIKUBE_IP}:${HTTPS_NODE_PORT} — minikube's network is not routable from this host"
+ warn "Falling back to kubectl port-forward on 127.0.0.1:${HTTPS_NODE_PORT}"
+ kubectl -n "$NAMESPACE" port-forward --address 127.0.0.1 svc/coder "${HTTPS_NODE_PORT}:443" >"${WORKDIR}/port-forward.log" 2>&1 &
+ PF_PID=$!
+ trap '[[ -n "$PF_PID" ]] && kill "$PF_PID" 2>/dev/null || true' EXIT
+ for i in $(seq 1 20); do
+  if probe 127.0.0.1; then
+   REACHABLE_VIA="127.0.0.1"
+   break
+  fi
+  sleep 2
+ done
+ [[ -n "$REACHABLE_VIA" ]] || die "Coder is running but unreachable even via port-forward. Check: kubectl -n ${NAMESPACE} logs deploy/coder"
+fi
+ok "Coder answers at ${REACHABLE_VIA}:${HTTPS_NODE_PORT}"
+
+# Now make sure the *name* lands on that IP, since the CLI and browsers use the name
+if [[ "$RESOLVED_IP" != "$REACHABLE_VIA" ]]; then
+ warn "${CODER_DOMAIN} resolves to '${RESOLVED_IP:-nothing}' but Coder is at ${REACHABLE_VIA}"
  if [[ "$ADD_HOSTS_ENTRY" == "true" ]]; then
-  warn "Adding /etc/hosts entry: ${MINIKUBE_IP} ${CODER_DOMAIN} (requires sudo)"
-  echo "${MINIKUBE_IP} ${CODER_DOMAIN}" | sudo tee -a /etc/hosts >/dev/null
+  sudo sed -i "/[[:space:]]${CODER_DOMAIN}\$/d" /etc/hosts
+  echo "${REACHABLE_VIA} ${CODER_DOMAIN}" | sudo tee -a /etc/hosts >/dev/null
+  ok "/etc/hosts now maps ${CODER_DOMAIN} -> ${REACHABLE_VIA}"
  else
-  die "${CODER_DOMAIN} does not resolve. Point DNS (A record for ${CODER_DOMAIN} and *.${CODER_DOMAIN}) at ${MINIKUBE_IP}, or re-run with --add-hosts-entry for a local-only override."
+  die "Fix DNS so ${CODER_DOMAIN} (and *.${CODER_DOMAIN}) -> ${REACHABLE_VIA}, or re-run with --add-hosts-entry"
  fi
 fi
-ok "${CODER_DOMAIN} resolves"
-
-if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
- EXT_IP=$(kubectl -n "$NAMESPACE" get svc coder -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
- [[ -n "$EXT_IP" ]] || warn "Service is LoadBalancer with no external IP yet — run 'minikube tunnel' in another terminal"
-fi
+ok "${CODER_DOMAIN} -> ${REACHABLE_VIA}"
 
 # ----------------------------------------------------------------------------
 # 5. Coder CLI + first-user bootstrap

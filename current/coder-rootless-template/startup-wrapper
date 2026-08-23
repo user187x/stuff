@@ -1,0 +1,8 @@
+#!/bin/bash
+
+./setup-install-coder \
+ --domain coder.xxx.com \
+ --ca-bundle certs/ca.crt \
+ --tls-crt certs/server-wildcard.crt \
+ --tls-key certs/server-wildcard.key \
+ --add-hosts-entry
