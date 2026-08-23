@@ -41,6 +41,8 @@ public class MainActivity extends AppCompatActivity {
   private SharedPreferences preferences;
   private MainActivityBinding binding;
   private HttpServerService httpServerService;
+  private String currentRootUri = "NONE";
+
   private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -126,7 +128,12 @@ public class MainActivity extends AppCompatActivity {
 
   private void loadSettings() {
     binding.portEditText.setText(String.valueOf(preferences.getInt("port", 8080)));
-    binding.rootFolderText.setText(preferences.getString("root_folder", "No folder selected"));
+
+    // Replace: binding.rootFolderText.setText(preferences.getString("root_folder", "No folder selected"));
+    currentRootUri = preferences.getString("root_folder", "No folder selected");
+    binding.rootFolderText.setText(getDirectoryName(currentRootUri));
+    updateServingGifVisibility();
+
     binding.redirectIndexSwitch.setChecked(preferences.getBoolean("redirect_index", true));
     binding.renderFolderSwitch.setChecked(preferences.getBoolean("render_folder", true));
     binding.allowUploadsSwitch.setChecked(preferences.getBoolean("allow_uploads", false));
@@ -156,7 +163,9 @@ public class MainActivity extends AppCompatActivity {
       editor.putInt("port", Integer.parseInt(binding.portEditText.getText().toString()));
     } catch (Exception ignored) {
     }
-    editor.putString("root_folder", binding.rootFolderText.getText().toString());
+    //editor.putString("root_folder", binding.rootFolderText.getText().toString());
+    editor.putString("root_folder", currentRootUri);
+
     editor.putBoolean("redirect_index", binding.redirectIndexSwitch.isChecked());
     editor.putBoolean("render_folder", binding.renderFolderSwitch.isChecked());
     editor.putBoolean("allow_uploads", binding.allowUploadsSwitch.isChecked());
@@ -310,7 +319,8 @@ public class MainActivity extends AppCompatActivity {
 
     manager.setTlsEnabled(binding.tlsSwitch.isChecked());
 
-    String root = binding.rootFolderText.getText().toString();
+    String root = currentRootUri;
+    //String root = binding.rootFolderText.getText().toString();
     if (!"NONE".equals(root) && !"No folder selected".equals(root)) {
       manager.setRootFolder(root);
     }
@@ -322,7 +332,12 @@ public class MainActivity extends AppCompatActivity {
     if (requestCode == 1001 && resultCode == RESULT_OK) {
       if (data != null && data.getData() != null) {
         String uri = data.getData().toString();
-        binding.rootFolderText.setText(uri);
+        //binding.rootFolderText.setText(uri);
+
+        currentRootUri = uri;
+        binding.rootFolderText.setText(getDirectoryName(currentRootUri));
+        updateServingGifVisibility();
+
         if (isServiceBound) {
           httpServerService.getServerManager().setRootFolder(uri);
         }
@@ -461,5 +476,33 @@ public class MainActivity extends AppCompatActivity {
     int exp = (int) (Math.log(bytes) / Math.log(1024));
     char pre = "KMGTPE".charAt(exp - 1);
     return String.format(Locale.getDefault(), "%.1f %cB", bytes / Math.pow(1024, exp), pre);
+  }
+
+  private String getDirectoryName(String uriString) {
+    if (uriString == null || uriString.equals("NONE") || uriString.equals("No folder selected")) {
+      return uriString;
+    }
+    try {
+      android.net.Uri uri = android.net.Uri.parse(uriString);
+      String path = uri.getPath();
+      if (path != null) {
+        // Document tree URIs typically use colons or slashes to separate the folder name
+        int lastColon = path.lastIndexOf(':');
+        if (lastColon != -1) return path.substring(lastColon + 1);
+
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash != -1) return path.substring(lastSlash + 1);
+      }
+    } catch (Exception ignored) {}
+    return uriString;
+  }
+
+  private void updateServingGifVisibility() {
+    if (!"NONE".equals(currentRootUri) && !"No folder selected".equals(currentRootUri)) {
+      binding.servingDirectoryGif.setVisibility(View.VISIBLE);
+      Glide.with(this).asGif().load(R.drawable.serving_directory).into(binding.servingDirectoryGif);
+    } else {
+      binding.servingDirectoryGif.setVisibility(View.GONE);
+    }
   }
 }

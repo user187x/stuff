@@ -119,18 +119,21 @@ public class HttpServerManager {
 
   private void setupRouter() {
     router = Router.router(vertx);
-    // Add security middleware
+
     router.route().handler(this::handleSecurityChecks);
-    // Add custom headers
     router.route().handler(this::addCustomHeaders);
 
-    // Body handler for uploads
-    router.route().handler(BodyHandler.create());
+    // Create the staging directory if it doesn't exist
+    java.io.File uploadDir = new java.io.File(context.getCacheDir(), "file-uploads");
+
+    if (!uploadDir.exists()) {
+      uploadDir.mkdirs();
+    }
+
+    router.route().handler(BodyHandler.create().setUploadsDirectory(uploadDir.getAbsolutePath()));
     router.post("/upload").handler(this::handleFileUpload);
 
     restRouteManager.applyRoutesToRouter(router);
-
-    // Handle all requests including root /
     router.route("/*").handler(this::handleRequest);
   }
 
