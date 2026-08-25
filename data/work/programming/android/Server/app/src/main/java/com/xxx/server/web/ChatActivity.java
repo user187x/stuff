@@ -85,6 +85,13 @@ public class ChatActivity extends AppCompatActivity {
     binding = ActivityChatBinding.inflate(getLayoutInflater());
     setContentView(binding.getRoot());
 
+    // Force Android to respect system windows (status bar and navigation bar)
+    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content), (v, insets) -> {
+      androidx.core.graphics.Insets systemBars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+      v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+      return insets;
+    });
+
     adapter = new ChatMessageAdapter(messages);
     binding.chatRecyclerView.setLayoutManager(new LinearLayoutManager(this));
     binding.chatRecyclerView.setAdapter(adapter);

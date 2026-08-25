@@ -110,6 +110,8 @@ public class MainActivity extends AppCompatActivity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+
+    System.setProperty("java.net.preferIPv4Stack", "true");
     super.onCreate(savedInstanceState);
     binding = MainActivityBinding.inflate(getLayoutInflater());
     setContentView(binding.getRoot());
@@ -208,6 +210,12 @@ public class MainActivity extends AppCompatActivity {
 
     binding.messengerButton.setOnClickListener(v -> {
       Intent intent = new Intent(this, com.xxx.server.web.ChatActivity.class);
+      startActivity(intent);
+    });
+
+    // ---> ADD YOUR CAMERA BUTTON LISTENER HERE <---
+    binding.cameraButton.setOnClickListener(v -> {
+      Intent intent = new Intent(MainActivity.this, com.xxx.server.web.CameraStreamActivity.class);
       startActivity(intent);
     });
 

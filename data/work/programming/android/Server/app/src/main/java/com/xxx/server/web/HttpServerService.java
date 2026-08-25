@@ -145,10 +145,19 @@ public class HttpServerService extends Service {
   }
 
   public void startServer() {
+    // 1. Call startForeground IMMEDIATELY before the async server startup begins
+    startForeground(NOTIFICATION_ID, createNotification("Starting server..."));
+
     serverManager.startServer(v -> {
       isServerRunning = true;
       serverManager.getStatsManager().startTracking();
-      startForeground(NOTIFICATION_ID, createNotification("Server is running"));
+
+      // 2. Update the existing notification once the server is actually running
+      android.app.NotificationManager manager = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+      if (manager != null) {
+        manager.notify(NOTIFICATION_ID, createNotification("Server is running"));
+      }
+
       broadcastState();
     });
   }

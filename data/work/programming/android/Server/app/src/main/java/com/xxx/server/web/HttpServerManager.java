@@ -120,20 +120,37 @@ public class HttpServerManager {
   private void setupRouter() {
     router = Router.router(vertx);
 
+    // 1. Global Handlers
     router.route().handler(this::handleSecurityChecks);
     router.route().handler(this::addCustomHeaders);
 
-    // Create the staging directory if it doesn't exist
+    // 2. File Uploads (Strictly scoped to POST /upload)
     java.io.File uploadDir = new java.io.File(context.getCacheDir(), "file-uploads");
-
     if (!uploadDir.exists()) {
       uploadDir.mkdirs();
     }
-
-    router.route().handler(BodyHandler.create().setUploadsDirectory(uploadDir.getAbsolutePath()));
+    router.post("/upload").handler(io.vertx.ext.web.handler.BodyHandler.create().setUploadsDirectory(uploadDir.getAbsolutePath()));
     router.post("/upload").handler(this::handleFileUpload);
 
+    // 3. Camera Streams
+    router.get("/stream").handler(ctx -> {
+      CameraStreamManager.getInstance().addClient(ctx.response());
+    });
+    router.get("/camera").handler(ctx -> {
+      String html = "<!DOCTYPE html><html><head><title>Camera Live View</title>" +
+          "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+          "<style>body{margin:0;background:#0a0a0a;display:flex;justify-content:center;" +
+          "align-items:center;height:100vh;color:#00F3FF;font-family:monospace;flex-direction:column;}" +
+          "img{max-width:90%;border:2px solid #00FF41;border-radius:8px;}</style></head>" +
+          "<body><h2>LIVE_CAMERA_FEED</h2>" +
+          "<img src=\"/stream\" /></body></html>";
+      ctx.response().putHeader("Content-Type", "text/html").end(html);
+    });
+
+    // 4. REST Routes
     restRouteManager.applyRoutesToRouter(router);
+
+    // 5. Catch-All for file serving (MUST BE LAST)
     router.route("/*").handler(this::handleRequest);
   }
 
@@ -203,10 +220,14 @@ public class HttpServerManager {
     }
 
     try {
+
       setupRouter();
+
+      String hostIp = getServerAddress(); // Grabs the 192.168.x.x address
+
       HttpServerOptions options = new HttpServerOptions()
           .setPort(port)
-          .setHost("0.0.0.0")
+          .setHost(hostIp) // Bind explicitly to the Wi-Fi IP instead of 0.0.0.0
           .setLogActivity(true);
 
       if (tlsEnabled) {
@@ -254,18 +275,49 @@ public class HttpServerManager {
   public String getServerAddress() {
     try {
       java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces();
+      String fallbackIp = null;
+
+      Log.i(TAG, "========== NETWORK INTERFACE SCAN START ==========");
+
       while (en.hasMoreElements()) {
         java.net.NetworkInterface intf = en.nextElement();
-        if (intf.getName().contains("wlan") || intf.getName().contains("eth")) {
-          java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses();
-          while (enumIpAddr.hasMoreElements()) {
-            java.net.InetAddress inetAddress = enumIpAddr.nextElement();
-            if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
-              return inetAddress.getHostAddress();
+        java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses();
+
+        while (enumIpAddr.hasMoreElements()) {
+          java.net.InetAddress inetAddress = enumIpAddr.nextElement();
+
+          // Only look at IPv4 addresses that aren't the local loopback (127.0.0.1)
+          if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
+            String name = intf.getName();
+            String ip = inetAddress.getHostAddress();
+
+            // PRINT TO LOGCAT:
+            Log.d(TAG, "Discovered -> Interface: [" + name + "] | IP: [" + ip + "]");
+
+            // Priority 1: Physical Wi-Fi always wins
+            if (name.startsWith("wlan")) {
+              Log.i(TAG, "SELECTED PRIMARY -> " + ip + " on " + name);
+              return ip;
+            }
+            // Priority 2: Save virtual/eth as a fallback
+            else if (name.contains("eth") && fallbackIp == null) {
+              Log.i(TAG, "SAVED FALLBACK -> " + ip + " on " + name);
+              fallbackIp = ip;
             }
           }
         }
       }
+
+      Log.i(TAG, "========== NETWORK INTERFACE SCAN END ==========");
+
+      if (fallbackIp != null) {
+        Log.i(TAG, "RETURNING FALLBACK -> " + fallbackIp);
+        return fallbackIp;
+      } else {
+        Log.w(TAG, "NO VALID IP FOUND. RETURNING LOCALHOST.");
+        return "127.0.0.1";
+      }
+
     } catch (Exception e) {
       Log.e(TAG, "Error getting IP", e);
     }
@@ -857,18 +909,15 @@ public class HttpServerManager {
       String fileName, String tempFile) throws IOException {
     DocumentFile rootDoc = DocumentFile.fromTreeUri(this.context, Uri.parse(rootFolder));
     DocumentFile targetFolder = navigateToPath(rootDoc, path);
-
     if (targetFolder == null || !targetFolder.isDirectory()) {
       context.response().setStatusCode(500).end("Target directory invalid");
       return;
     }
-
     DocumentFile newFile = targetFolder.createFile(getMimeType(fileName), fileName);
     if (newFile == null) {
       context.response().setStatusCode(500).end("Could not create file in SAF");
       return;
     }
-
     try (InputStream is = new java.io.FileInputStream(tempFile);
         java.io.OutputStream os = this.context.getContentResolver()
             .openOutputStream(newFile.getUri())) {
@@ -878,6 +927,9 @@ public class HttpServerManager {
         os.write(buffer, 0, len);
       }
     }
+
+    // FIX: Delete the staging file after streaming it to the document tree
+    new java.io.File(tempFile).delete();
 
     // Redirect back to the directory listing
     context.response().setStatusCode(302).putHeader("Location", path).end();
@@ -889,8 +941,10 @@ public class HttpServerManager {
     java.io.File targetDir = new java.io.File(rootDir, path);
     java.io.File destFile = new java.io.File(targetDir, fileName);
 
-    java.nio.file.Files.move(new java.io.File(tempFile).toPath(), destFile.toPath(),
+    // FIX: Copy across partitions and delete the temp file
+    java.nio.file.Files.copy(new java.io.File(tempFile).toPath(), destFile.toPath(),
         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    new java.io.File(tempFile).delete();
 
     context.response().setStatusCode(302).putHeader("Location", path).end();
   }

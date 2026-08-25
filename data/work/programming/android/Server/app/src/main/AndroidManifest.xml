@@ -12,6 +12,7 @@
     android:roundIcon="@mipmap/ic_launcher_round"
     android:supportsRtl="true"
     android:theme="@style/Theme.HttpServer"
+    android:usesCleartextTraffic="true"
     tools:targetApi="31">
 
     <activity
@@ -69,6 +70,10 @@
       android:foregroundServiceType="dataSync"
       android:name=".web.HttpServerService" />
 
+    <activity
+      android:name=".web.CameraStreamActivity"
+      android:theme="@style/Theme.HttpServer" />
+
   </application>
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -92,9 +97,11 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
 </manifest>

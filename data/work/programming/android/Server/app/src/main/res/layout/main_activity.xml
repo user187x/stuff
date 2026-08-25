@@ -5,6 +5,7 @@
   android:layout_width="match_parent"
   android:layout_height="match_parent"
   android:background="#0A0A0A"
+  android:fitsSystemWindows="true"
   android:orientation="vertical">
 
   <LinearLayout
@@ -92,6 +93,14 @@
         android:text="MESSENGER"
         android:textColor="@color/secondary_dark"
         android:visibility="gone" />
+      <Button
+        android:id="@+id/cameraButton"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:text="START CAMERA STREAM"
+        android:textColor="@color/primary_dark" />
       <LinearLayout
         android:id="@+id/ipConfigLayout"
         android:layout_width="match_parent"
