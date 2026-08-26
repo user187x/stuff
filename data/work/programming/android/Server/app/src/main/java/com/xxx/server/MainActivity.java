@@ -399,13 +399,13 @@ public class MainActivity extends AppCompatActivity {
               binding.chatPanel.setAlpha(1f);
             }
           });
-      if (isServiceBound && httpServerService != null) {
-        httpServerService.getServerManager().stopWebSocketServer();
-      }
+      // Note: closing the local view does NOT disable the WebSocket, so the
+      // client portal keeps its chat column beside the camera feed.
       isChatOpen = false;
       binding.messengerButton.setText("MESSENGER");
     } else {
       if (isServiceBound && httpServerService != null) {
+        // Make sure chat is enabled for connected clients.
         httpServerService.getServerManager().startWebSocketServer();
       }
       binding.chatPanel.setVisibility(View.VISIBLE);
@@ -720,6 +720,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     binding.startStopButton.setText(isHttpRunning ? "STOP SERVER" : "START SERVER");
+
+    // Freeze or animate the serving-directory GIF to match the running state.
+    updateServingGifVisibility();
   }
 
   private void generateQRCode(String text) {
@@ -826,11 +829,27 @@ public class MainActivity extends AppCompatActivity {
   }
 
   private void updateServingGifVisibility() {
-    if (!"NONE".equals(currentRootUri) && !"No folder selected".equals(currentRootUri)) {
-      binding.servingDirectoryGif.setVisibility(View.VISIBLE);
-      Glide.with(this).asGif().load(R.drawable.serving_directory).into(binding.servingDirectoryGif);
-    } else {
+    boolean hasFolder = !"NONE".equals(currentRootUri)
+        && !"No folder selected".equals(currentRootUri);
+    if (!hasFolder) {
       binding.servingDirectoryGif.setVisibility(View.GONE);
+      return;
+    }
+
+    binding.servingDirectoryGif.setVisibility(View.VISIBLE);
+
+    boolean serverRunning = isServiceBound && httpServerService != null
+        && httpServerService.getServerManager() != null
+        && httpServerService.getServerManager().isHttpServerRunning();
+
+    if (serverRunning) {
+      // Server is live and serving — play the animation.
+      Glide.with(this).asGif().load(R.drawable.serving_directory)
+          .into(binding.servingDirectoryGif);
+    } else {
+      // Server idle — freeze on frame one (asBitmap decodes only the first frame).
+      Glide.with(this).asBitmap().load(R.drawable.serving_directory)
+          .into(binding.servingDirectoryGif);
     }
   }
 

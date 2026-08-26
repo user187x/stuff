@@ -566,16 +566,6 @@ public class HttpServerManager {
   }
 
   private String getHtmlFooter() {
-    if (!isWebSocketServerRunning.get()) {
-      return "</div>" +
-          "<div id=\"chat-panel\">" +
-          "<div class=\"panel-row\">" +
-          "<div class=\"camera-col\"><div class=\"cam-label\">LIVE_CAMERA_FEED</div><img id=\"cam-feed\" src=\"/stream\" alt=\"CAMERA OFFLINE\" /></div>" +
-          "</div>" +
-          "</div>" +
-          "</body></html>";
-    }
-
     return "</div>" +
         "<div id=\"chat-panel\">" +
         "<div class=\"panel-row\">" +

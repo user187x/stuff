@@ -57,17 +57,49 @@
       android:padding="12dp"
       android:orientation="vertical">
 
+      <!-- Master control: starts/stops the whole server. Filled neon to stand apart. -->
       <Button
-        android:id="@+id/ipConfigButton"
+        android:id="@+id/startStopButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SERVER IP" />
+        android:layout_marginBottom="12dp"
+        android:backgroundTint="#00FF41"
+        android:fontFamily="monospace"
+        android:text="START SERVER"
+        android:textColor="#000000"
+        android:textStyle="bold" />
 
-      <Button
-        android:id="@+id/portConfigButton"
+      <!-- IP + Port: tightly-coupled params shown as one connected pair -->
+      <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SERVER PORT" />
+        android:layout_marginBottom="4dp"
+        android:background="#1A1A1A"
+        android:orientation="horizontal">
+
+        <Button
+          android:id="@+id/ipConfigButton"
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:insetTop="0dp"
+          android:insetBottom="0dp"
+          android:text="SERVER IP" />
+
+        <View
+          android:layout_width="1dp"
+          android:layout_height="match_parent"
+          android:background="#333333" />
+
+        <Button
+          android:id="@+id/portConfigButton"
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:insetTop="0dp"
+          android:insetBottom="0dp"
+          android:text="SERVER PORT" />
+      </LinearLayout>
 
       <Button
         android:id="@+id/selectFolderButton"
@@ -302,23 +334,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="ALLOW UPLOADS" />
-      <androidx.cardview.widget.CardView
-        android:id="@+id/manageCard"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardBackgroundColor="#222222">
-        <LinearLayout
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:padding="8dp">
-          <Button
-            android:id="@+id/startStopButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="START SERVER" />
-        </LinearLayout>
-      </androidx.cardview.widget.CardView>
       <androidx.cardview.widget.CardView
         android:id="@+id/generalCard"
         android:layout_width="match_parent"
