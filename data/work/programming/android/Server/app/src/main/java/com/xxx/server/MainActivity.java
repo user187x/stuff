@@ -1,6 +1,7 @@
 package com.xxx.server;
 
-import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -10,14 +11,21 @@ import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.media.Image;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
@@ -31,6 +39,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
@@ -51,6 +60,7 @@ import com.xxx.server.web.ServerStatsManager;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -70,6 +80,35 @@ public class MainActivity extends AppCompatActivity {
   private ExecutorService cameraExecutor;
   private ProcessCameraProvider cameraProvider;
   private boolean isCameraOn = false;
+
+  // ---- Inline chat/messenger state ----
+  private final List<String> chatMessages = new ArrayList<>();
+  private ChatMessageAdapter chatAdapter;
+  private boolean isChatOpen = false;
+  private final Handler typingHandler = new Handler(Looper.getMainLooper());
+  private boolean typingSignalSent = false;
+  private final Runnable typingTimeout = () -> sendTypingSignal(false);
+
+  private final BroadcastReceiver chatReceiver = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      String action = intent.getAction();
+      if ("com.xxx.server.CHAT_MESSAGE".equals(action)) {
+        String sender = intent.getStringExtra("sender");
+        String message = intent.getStringExtra("message");
+        if (sender != null && message != null) {
+          addChatMessage("[" + sender + "]: " + message);
+        }
+      } else if ("com.xxx.server.CHAT_EVENT".equals(action)) {
+        String type = intent.getStringExtra("type");
+        String sender = intent.getStringExtra("sender");
+        String data = intent.getStringExtra("data");
+        if ("TYPING".equals(type)) {
+          showTyping(sender, "START".equals(data));
+        }
+      }
+    }
+  };
 
   private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
     @Override
@@ -125,6 +164,12 @@ public class MainActivity extends AppCompatActivity {
     lbm.registerReceiver(statsReceiver, new IntentFilter(ServerStatsManager.ACTION_STATS_UPDATE));
     lbm.registerReceiver(stateReceiver,
         new IntentFilter(HttpServerService.ACTION_SERVER_STATE_CHANGED));
+
+    IntentFilter chatFilter = new IntentFilter();
+    chatFilter.addAction("com.xxx.server.CHAT_MESSAGE");
+    chatFilter.addAction("com.xxx.server.CHAT_EVENT");
+    lbm.registerReceiver(chatReceiver, chatFilter);
+
     updateUIFromService();
   }
 
@@ -134,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
     LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
     lbm.unregisterReceiver(statsReceiver);
     lbm.unregisterReceiver(stateReceiver);
+    lbm.unregisterReceiver(chatReceiver);
   }
 
   private void ensureLocalNetworkPermission() {
@@ -170,7 +216,7 @@ public class MainActivity extends AppCompatActivity {
             "Local network permission denied — other devices may not be able to connect.",
             android.widget.Toast.LENGTH_LONG).show();
       }
-      startServerNow(); // start either way; the server runs, LAN reach needs the grant
+      startServerNow();
     } else if (requestCode == CAMERA_REQ_CODE) {
       if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
         startInlineCamera();
@@ -191,6 +237,7 @@ public class MainActivity extends AppCompatActivity {
 
     setupLogView();
     setupTrafficChart();
+    setupChat();
     loadSettings();
     setupControls();
 
@@ -204,12 +251,12 @@ public class MainActivity extends AppCompatActivity {
   private void toggleCameraPreview() {
     if (isCameraOn) {
       stopInlineCamera();
-    } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+    } else if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
         == PackageManager.PERMISSION_GRANTED) {
       startInlineCamera();
     } else {
-      ActivityCompat.requestPermissions(this, new String[]{ Manifest.permission.CAMERA },
-          CAMERA_REQ_CODE);
+      ActivityCompat.requestPermissions(this,
+          new String[]{ android.Manifest.permission.CAMERA }, CAMERA_REQ_CODE);
     }
   }
 
@@ -260,10 +307,29 @@ public class MainActivity extends AppCompatActivity {
   private void processImageProxy(ImageProxy imageProxy) {
     Image image = imageProxy.getImage();
     if (image != null) {
+      // How many degrees the buffer must be rotated to appear upright on this device.
+      int rotation = imageProxy.getImageInfo().getRotationDegrees();
       byte[] jpeg = yuv420ToJpeg(imageProxy);
+      jpeg = rotateJpeg(jpeg, rotation);
       CameraStreamManager.getInstance().pushFrame(jpeg);
     }
     imageProxy.close();
+  }
+
+  private byte[] rotateJpeg(byte[] jpeg, int degrees) {
+    if (degrees == 0 || jpeg == null) return jpeg;
+    Bitmap src = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+    if (src == null) return jpeg;
+    Matrix matrix = new Matrix();
+    matrix.postRotate(degrees);
+    Bitmap rotated = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), matrix, true);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    rotated.compress(Bitmap.CompressFormat.JPEG, 60, out);
+    if (rotated != src) {
+      rotated.recycle();
+    }
+    src.recycle();
+    return out.toByteArray();
   }
 
   private byte[] yuv420ToJpeg(ImageProxy image) {
@@ -286,6 +352,114 @@ public class MainActivity extends AppCompatActivity {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     yuvImage.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()), 60, out);
     return out.toByteArray();
+  }
+
+  // ---------------- Inline chat / messenger ----------------
+
+  private void setupChat() {
+    chatAdapter = new ChatMessageAdapter(chatMessages);
+    binding.chatRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+    binding.chatRecyclerView.setAdapter(chatAdapter);
+
+    binding.chatSendButton.setOnClickListener(v -> sendChatMessage());
+
+    binding.chatInput.addTextChangedListener(new android.text.TextWatcher() {
+      @Override
+      public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+      }
+
+      @Override
+      public void onTextChanged(CharSequence s, int a, int b, int c) {
+        if (!typingSignalSent) {
+          typingSignalSent = true;
+          sendTypingSignal(true);
+        }
+        typingHandler.removeCallbacks(typingTimeout);
+        typingHandler.postDelayed(typingTimeout, 2000);
+      }
+
+      @Override
+      public void afterTextChanged(android.text.Editable s) {
+      }
+    });
+  }
+
+  // Messenger button: slide the panel open/closed and enable/disable the WebSocket with it.
+  private void toggleChat() {
+    if (isChatOpen) {
+      binding.chatPanel.animate()
+          .translationY(-binding.chatPanel.getHeight())
+          .alpha(0f)
+          .setDuration(250)
+          .setListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+              binding.chatPanel.setVisibility(View.GONE);
+              binding.chatPanel.setTranslationY(0f);
+              binding.chatPanel.setAlpha(1f);
+            }
+          });
+      if (isServiceBound && httpServerService != null) {
+        httpServerService.getServerManager().stopWebSocketServer();
+      }
+      isChatOpen = false;
+      binding.messengerButton.setText("MESSENGER");
+    } else {
+      if (isServiceBound && httpServerService != null) {
+        httpServerService.getServerManager().startWebSocketServer();
+      }
+      binding.chatPanel.setVisibility(View.VISIBLE);
+      binding.chatPanel.setAlpha(0f);
+      binding.chatPanel.setTranslationY(-40f);
+      binding.chatPanel.animate()
+          .translationY(0f)
+          .alpha(1f)
+          .setDuration(250)
+          .setListener(null);
+      isChatOpen = true;
+      binding.messengerButton.setText("HIDE MESSENGER");
+    }
+  }
+
+  private void sendChatMessage() {
+    String msg = binding.chatInput.getText().toString().trim();
+    if (!msg.isEmpty()) {
+      Intent intent = new Intent(this, HttpServerService.class);
+      intent.setAction("send_chat_message");
+      intent.putExtra("message", msg);
+      startService(intent);
+      binding.chatInput.setText("");
+    }
+  }
+
+  private void sendTypingSignal(boolean start) {
+    if (!start) {
+      typingSignalSent = false;
+    }
+    Intent intent = new Intent(this, HttpServerService.class);
+    intent.setAction("send_chat_event");
+    intent.putExtra("type", "TYPING");
+    intent.putExtra("data", start ? "START" : "STOP");
+    startService(intent);
+  }
+
+  private void showTyping(String sender, boolean isTyping) {
+    runOnUiThread(() -> {
+      if (isTyping && !"SERVER".equals(sender)) {
+        binding.chatTypingIndicator.setText("(" + sender + " is typing...)");
+        binding.chatTypingIndicator.setVisibility(View.VISIBLE);
+      } else {
+        binding.chatTypingIndicator.setVisibility(View.INVISIBLE);
+      }
+    });
+  }
+
+  private void addChatMessage(String text) {
+    runOnUiThread(() -> {
+      chatMessages.add(text);
+      chatAdapter.notifyItemInserted(chatMessages.size() - 1);
+      binding.chatRecyclerView.scrollToPosition(chatMessages.size() - 1);
+    });
   }
 
   // -------------------------------------------------------
@@ -354,24 +528,10 @@ public class MainActivity extends AppCompatActivity {
       }
     });
 
-    binding.startStopWebSocketButton.setOnClickListener(v -> {
-      if (isServiceBound) {
-        HttpServerManager manager = httpServerService.getServerManager();
-        if (manager.isWebSocketServerRunning()) {
-          manager.stopWebSocketServer();
-        } else {
-          manager.startWebSocketServer();
-        }
-        updateUIFromService();
-      }
-    });
+    // Messenger button now toggles the inline chat panel (and the WebSocket with it).
+    binding.messengerButton.setOnClickListener(v -> toggleChat());
 
-    binding.messengerButton.setOnClickListener(v -> {
-      Intent intent = new Intent(this, com.xxx.server.web.ChatActivity.class);
-      startActivity(intent);
-    });
-
-    // Camera button now toggles the inline preview instead of launching a separate activity.
+    // Camera button toggles the inline preview.
     binding.cameraButton.setOnClickListener(v -> toggleCameraPreview());
 
     binding.selectFolderButton.setOnClickListener(v -> {
@@ -522,6 +682,7 @@ public class MainActivity extends AppCompatActivity {
   @Override
   protected void onDestroy() {
     super.onDestroy();
+    typingHandler.removeCallbacks(typingTimeout);
     if (cameraProvider != null) {
       cameraProvider.unbindAll();
     }
@@ -537,7 +698,6 @@ public class MainActivity extends AppCompatActivity {
 
     HttpServerManager manager = httpServerService.getServerManager();
     boolean isHttpRunning = manager.isHttpServerRunning();
-    boolean isWsRunning = manager.isWebSocketServerRunning();
 
     binding.serverStatusText.setText(isHttpRunning ? "" : "OFFLINE");
     binding.serverStatusText.setTextColor(isHttpRunning ? 0xFF00FF41 : 0xFFFF003C);
@@ -560,8 +720,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     binding.startStopButton.setText(isHttpRunning ? "STOP SERVER" : "START SERVER");
-    binding.startStopWebSocketButton.setText(isWsRunning ? "DISABLE CHAT" : "ENABLE CHAT");
-    binding.messengerButton.setVisibility(isWsRunning ? View.VISIBLE : View.GONE);
   }
 
   private void generateQRCode(String text) {
@@ -673,6 +831,47 @@ public class MainActivity extends AppCompatActivity {
       Glide.with(this).asGif().load(R.drawable.serving_directory).into(binding.servingDirectoryGif);
     } else {
       binding.servingDirectoryGif.setVisibility(View.GONE);
+    }
+  }
+
+  // Simple terminal-green adapter for the embedded chat.
+  private static class ChatMessageAdapter extends RecyclerView.Adapter<ChatMessageAdapter.VH> {
+
+    private final List<String> data;
+
+    ChatMessageAdapter(List<String> data) {
+      this.data = data;
+    }
+
+    @NonNull
+    @Override
+    public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+      View v = LayoutInflater.from(parent.getContext())
+          .inflate(android.R.layout.simple_list_item_1, parent, false);
+      return new VH(v);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull VH holder, int position) {
+      holder.text.setText(data.get(position));
+      holder.text.setTextColor(0xFF00FF41);
+      holder.text.setTypeface(android.graphics.Typeface.MONOSPACE);
+      holder.text.setTextSize(13);
+    }
+
+    @Override
+    public int getItemCount() {
+      return data.size();
+    }
+
+    static class VH extends RecyclerView.ViewHolder {
+
+      TextView text;
+
+      VH(View itemView) {
+        super(itemView);
+        text = itemView.findViewById(android.R.id.text1);
+      }
     }
   }
 }
