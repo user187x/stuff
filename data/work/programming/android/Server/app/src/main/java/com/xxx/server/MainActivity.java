@@ -1,5 +1,6 @@
 package com.xxx.server;
 
+import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -10,10 +11,22 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
+import android.media.Image;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.View;
+import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ExperimentalGetImage;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
@@ -25,25 +38,38 @@ import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.common.BitMatrix;
 import com.xxx.server.databinding.MainActivityBinding;
 import com.xxx.server.log.LogAdapter;
+import com.xxx.server.web.CameraStreamManager;
 import com.xxx.server.web.HttpServerManager;
 import com.xxx.server.web.HttpServerService;
 import com.xxx.server.web.ServerStatsManager;
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
   private static final String PREFS_NAME = "HttpServerPrefs";
+  private static final int LOCAL_NET_REQ_CODE = 3001;
+  private static final int CAMERA_REQ_CODE = 2001;
   private final int MAX_CHART_POINTS = 60;
   private SharedPreferences preferences;
   private MainActivityBinding binding;
   private HttpServerService httpServerService;
   private String currentRootUri = "NONE";
+
+  // ---- Inline camera state ----
+  private ExecutorService cameraExecutor;
+  private ProcessCameraProvider cameraProvider;
+  private boolean isCameraOn = false;
 
   private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
     @Override
@@ -110,33 +136,6 @@ public class MainActivity extends AppCompatActivity {
     lbm.unregisterReceiver(stateReceiver);
   }
 
-  private static final int LOCAL_NET_REQ_CODE = 3001;
-
-  private void startServerNow() {
-    if (!isServiceBound || httpServerService == null) return;
-    saveSettings();
-    applySettingsFromUI();
-    httpServerService.startServer();
-  }
-
-
-  @Override
-  public void onRequestPermissionsResult(int requestCode,
-      @androidx.annotation.NonNull String[] permissions,
-      @androidx.annotation.NonNull int[] grantResults) {
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    if (requestCode == LOCAL_NET_REQ_CODE) {
-      boolean granted = grantResults.length > 0
-          && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-      if (!granted) {
-        android.widget.Toast.makeText(this,
-            "Local network permission denied — other devices may not be able to connect.",
-            android.widget.Toast.LENGTH_LONG).show();
-      }
-      startServerNow(); // start either way; the server runs, but LAN reach needs the grant
-    }
-  }
-
   private void ensureLocalNetworkPermission() {
     // Only exists / is enforced on API 37+. Guard so older devices skip it.
     if (android.os.Build.VERSION.SDK_INT >= 37) {
@@ -147,12 +146,43 @@ public class MainActivity extends AppCompatActivity {
         return; // start the server from onRequestPermissionsResult once granted
       }
     }
-    startServerNow(); // your existing "send start_server intent" logic
+    startServerNow();
+  }
+
+  // The actual start sequence — called once the permission has been sorted out.
+  private void startServerNow() {
+    if (!isServiceBound || httpServerService == null) return;
+    saveSettings();
+    applySettingsFromUI();
+    httpServerService.startServer();
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+      @NonNull int[] grantResults) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+    if (requestCode == LOCAL_NET_REQ_CODE) {
+      boolean granted = grantResults.length > 0
+          && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+      if (!granted) {
+        android.widget.Toast.makeText(this,
+            "Local network permission denied — other devices may not be able to connect.",
+            android.widget.Toast.LENGTH_LONG).show();
+      }
+      startServerNow(); // start either way; the server runs, LAN reach needs the grant
+    } else if (requestCode == CAMERA_REQ_CODE) {
+      if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        startInlineCamera();
+      } else {
+        android.widget.Toast.makeText(this, "Camera permission denied",
+            android.widget.Toast.LENGTH_SHORT).show();
+      }
+    }
   }
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
-    
     super.onCreate(savedInstanceState);
     binding = MainActivityBinding.inflate(getLayoutInflater());
     setContentView(binding.getRoot());
@@ -164,17 +194,105 @@ public class MainActivity extends AppCompatActivity {
     loadSettings();
     setupControls();
 
-
-
     Intent intent = new Intent(this, HttpServerService.class);
     startService(intent);
     bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
   }
 
+  // ---------------- Inline camera preview ----------------
+
+  private void toggleCameraPreview() {
+    if (isCameraOn) {
+      stopInlineCamera();
+    } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+        == PackageManager.PERMISSION_GRANTED) {
+      startInlineCamera();
+    } else {
+      ActivityCompat.requestPermissions(this, new String[]{ Manifest.permission.CAMERA },
+          CAMERA_REQ_CODE);
+    }
+  }
+
+  private void startInlineCamera() {
+    if (cameraExecutor == null || cameraExecutor.isShutdown()) {
+      cameraExecutor = Executors.newSingleThreadExecutor();
+    }
+    binding.cameraPreview.setVisibility(View.VISIBLE);
+
+    ListenableFuture<ProcessCameraProvider> future = ProcessCameraProvider.getInstance(this);
+    future.addListener(() -> {
+      try {
+        cameraProvider = future.get();
+
+        Preview preview = new Preview.Builder().build();
+        preview.setSurfaceProvider(binding.cameraPreview.getSurfaceProvider());
+
+        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .build();
+        imageAnalysis.setAnalyzer(cameraExecutor, this::processImageProxy);
+
+        cameraProvider.unbindAll();
+        cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA,
+            preview, imageAnalysis);
+
+        isCameraOn = true;
+        binding.cameraButton.setText("STOP CAMERA");
+      } catch (Exception e) {
+        android.widget.Toast.makeText(this, "Failed to start camera",
+            android.widget.Toast.LENGTH_SHORT).show();
+        binding.cameraPreview.setVisibility(View.GONE);
+      }
+    }, ContextCompat.getMainExecutor(this));
+  }
+
+  private void stopInlineCamera() {
+    if (cameraProvider != null) {
+      cameraProvider.unbindAll();
+    }
+    binding.cameraPreview.setVisibility(View.GONE);
+    isCameraOn = false;
+    binding.cameraButton.setText("STREAM CAMERA");
+  }
+
+  @OptIn(markerClass = ExperimentalGetImage.class)
+  private void processImageProxy(ImageProxy imageProxy) {
+    Image image = imageProxy.getImage();
+    if (image != null) {
+      byte[] jpeg = yuv420ToJpeg(imageProxy);
+      CameraStreamManager.getInstance().pushFrame(jpeg);
+    }
+    imageProxy.close();
+  }
+
+  private byte[] yuv420ToJpeg(ImageProxy image) {
+    ImageProxy.PlaneProxy[] planes = image.getPlanes();
+    ByteBuffer yBuffer = planes[0].getBuffer();
+    ByteBuffer uBuffer = planes[1].getBuffer();
+    ByteBuffer vBuffer = planes[2].getBuffer();
+
+    int ySize = yBuffer.remaining();
+    int uSize = uBuffer.remaining();
+    int vSize = vBuffer.remaining();
+
+    byte[] nv21 = new byte[ySize + uSize + vSize];
+    yBuffer.get(nv21, 0, ySize);
+    vBuffer.get(nv21, ySize, vSize);
+    uBuffer.get(nv21, ySize + vSize, uSize);
+
+    YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, image.getWidth(), image.getHeight(),
+        null);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    yuvImage.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()), 60, out);
+    return out.toByteArray();
+  }
+
+  // -------------------------------------------------------
+
   private void loadSettings() {
     binding.portEditText.setText(String.valueOf(preferences.getInt("port", 8080)));
 
-    // Replace: binding.rootFolderText.setText(preferences.getString("root_folder", "No folder selected"));
     currentRootUri = preferences.getString("root_folder", "No folder selected");
     binding.rootFolderText.setText(getDirectoryName(currentRootUri));
     updateServingGifVisibility();
@@ -208,7 +326,6 @@ public class MainActivity extends AppCompatActivity {
       editor.putInt("port", Integer.parseInt(binding.portEditText.getText().toString()));
     } catch (Exception ignored) {
     }
-    //editor.putString("root_folder", binding.rootFolderText.getText().toString());
     editor.putString("root_folder", currentRootUri);
 
     editor.putBoolean("redirect_index", binding.redirectIndexSwitch.isChecked());
@@ -232,7 +349,7 @@ public class MainActivity extends AppCompatActivity {
         if (manager.isHttpServerRunning()) {
           httpServerService.stopServer();
         } else {
-          ensureLocalNetworkPermission();   // was: saveSettings(); applySettingsFromUI(); httpServerService.startServer();
+          ensureLocalNetworkPermission();
         }
       }
     });
@@ -254,11 +371,8 @@ public class MainActivity extends AppCompatActivity {
       startActivity(intent);
     });
 
-    // ---> ADD YOUR CAMERA BUTTON LISTENER HERE <---
-    binding.cameraButton.setOnClickListener(v -> {
-      Intent intent = new Intent(MainActivity.this, com.xxx.server.web.CameraStreamActivity.class);
-      startActivity(intent);
-    });
+    // Camera button now toggles the inline preview instead of launching a separate activity.
+    binding.cameraButton.setOnClickListener(v -> toggleCameraPreview());
 
     binding.selectFolderButton.setOnClickListener(v -> {
       Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -369,7 +483,6 @@ public class MainActivity extends AppCompatActivity {
     manager.setTlsEnabled(binding.tlsSwitch.isChecked());
 
     String root = currentRootUri;
-    //String root = binding.rootFolderText.getText().toString();
     if (!"NONE".equals(root) && !"No folder selected".equals(root)) {
       manager.setRootFolder(root);
     }
@@ -381,7 +494,6 @@ public class MainActivity extends AppCompatActivity {
     if (requestCode == 1001 && resultCode == RESULT_OK) {
       if (data != null && data.getData() != null) {
         String uri = data.getData().toString();
-        //binding.rootFolderText.setText(uri);
 
         currentRootUri = uri;
         binding.rootFolderText.setText(getDirectoryName(currentRootUri));
@@ -405,6 +517,17 @@ public class MainActivity extends AppCompatActivity {
   protected void onResume() {
     super.onResume();
     updateUIFromService();
+  }
+
+  @Override
+  protected void onDestroy() {
+    super.onDestroy();
+    if (cameraProvider != null) {
+      cameraProvider.unbindAll();
+    }
+    if (cameraExecutor != null) {
+      cameraExecutor.shutdown();
+    }
   }
 
   private void updateUIFromService() {
@@ -497,7 +620,6 @@ public class MainActivity extends AppCompatActivity {
       rxSet.removeFirst();
       txSet.removeFirst();
       wsSet.removeFirst();
-      // Adjust X values for remaining entries
       for (int i = 0; i < rxSet.getEntryCount(); i++) {
         rxSet.getEntryForIndex(i).setX(i);
         txSet.getEntryForIndex(i).setX(i);
@@ -535,7 +657,6 @@ public class MainActivity extends AppCompatActivity {
       android.net.Uri uri = android.net.Uri.parse(uriString);
       String path = uri.getPath();
       if (path != null) {
-        // Document tree URIs typically use colons or slashes to separate the folder name
         int lastColon = path.lastIndexOf(':');
         if (lastColon != -1) return path.substring(lastColon + 1);
 
