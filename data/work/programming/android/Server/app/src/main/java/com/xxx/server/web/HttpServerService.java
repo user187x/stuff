@@ -30,6 +30,7 @@ public class HttpServerService extends Service {
   public static final String ACTION_CONNECTION_EVENT = "com.xxx.server.CONNECTION_EVENT";
   public static final String ACTION_SERVER_STATE_CHANGED = "com.xxx.server.SERVER_STATE_CHANGED";
   public static final String EXTRA_SERVER_STATE = "server_state";
+  public static final String ACTION_CHAT_MESSAGE = "com.xxx.server.CHAT_MESSAGE";
   private static final String TAG = "HttpServerService";
   private static final String CHANNEL_ID = "HttpServerServiceChannel";
   private static final int NOTIFICATION_ID = 1;
@@ -45,6 +46,19 @@ public class HttpServerService extends Service {
         updateNotification(
             String.format(Locale.getDefault(), "RX: %.1f KB/s, TX: %.1f KB/s", rx / 1024,
                 tx / 1024));
+      }
+    }
+  };
+  // Plays a sound on the device whenever any PERSON sends a chat message.
+  private final BroadcastReceiver chatSoundReceiver = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      if (ACTION_CHAT_MESSAGE.equals(intent.getAction())) {
+        String sender = intent.getStringExtra("sender");
+        // Skip SYSTEM notices (joins/leaves/name changes) — only sound for people.
+        if (sender != null && !"SYSTEM".equals(sender)) {
+          playMessageSound();
+        }
       }
     }
   };
@@ -88,6 +102,10 @@ public class HttpServerService extends Service {
 
     LocalBroadcastManager.getInstance(this)
         .registerReceiver(statsReceiver, new IntentFilter(ServerStatsManager.ACTION_STATS_UPDATE));
+
+    // Listen for chat messages so we can play the message sound.
+    LocalBroadcastManager.getInstance(this)
+        .registerReceiver(chatSoundReceiver, new IntentFilter(ACTION_CHAT_MESSAGE));
   }
 
   @Override
@@ -132,6 +150,7 @@ public class HttpServerService extends Service {
 
   @Override
   public void onDestroy() {
+    LocalBroadcastManager.getInstance(this).unregisterReceiver(chatSoundReceiver);
     stopServer();
     super.onDestroy();
   }
@@ -230,6 +249,18 @@ public class HttpServerService extends Service {
     try {
       android.media.MediaPlayer mp = android.media.MediaPlayer.create(this,
           com.xxx.server.R.raw.connect);
+      if (mp != null) {
+        mp.setOnCompletionListener(android.media.MediaPlayer::release);
+        mp.start();
+      }
+    } catch (Exception ignored) {
+    }
+  }
+
+  public void playMessageSound() {
+    try {
+      android.media.MediaPlayer mp = android.media.MediaPlayer.create(this,
+          com.xxx.server.R.raw.message);
       if (mp != null) {
         mp.setOnCompletionListener(android.media.MediaPlayer::release);
         mp.start();

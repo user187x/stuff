@@ -553,7 +553,7 @@ public class HttpServerManager {
         + "#cam-feed { flex: 1 1 auto; width: 100%; min-height: 200px; object-fit: contain; background: #050505; border: 1px solid #222; border-radius: 4px; }"
         + "@media (max-width: 640px) { .panel-row { flex-direction: column; } .camera-col { flex: 1 1 auto; } }"
         +
-        "#chat-log { height: 200px; overflow-y: auto; background: #050505; color: #00FF41; font-family: monospace; padding: 10px; border: 1px solid #222; margin-bottom: 10px; font-size: 13px; }"
+        "#chat-log { flex: 1 1 auto; min-height: 200px; overflow-y: auto; background: #050505; color: #00FF41; font-family: monospace; padding: 10px; border: 1px solid #222; margin-bottom: 10px; font-size: 13px; }"
         +
         ".chat-input-wrap { display: flex; gap: 10px; }" +
         "#chat-input { flex-grow: 1; background: #1A1A1A; border: 1px solid #333; color: white; padding: 10px; font-family: monospace; border-radius: 4px; }"
