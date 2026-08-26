@@ -141,37 +141,6 @@ public class HttpServerManager {
       CameraStreamManager.getInstance().addClient(ctx.response());
     });
 
-    router.get("/camera").handler(ctx -> {
-      String html = "<!DOCTYPE html><html><head><title>Camera Live View</title>" +
-          "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-          "<style>body{margin:0;background:#0a0a0a;display:flex;justify-content:center;" +
-          "align-items:center;height:100vh;color:#00F3FF;font-family:monospace;flex-direction:column;overflow:hidden;}" +
-          "img{max-width:90vw;max-height:70vh;border:2px solid #00FF41;border-radius:8px;transition:transform 0.2s ease-in-out;}" +
-          ".controls{margin-top:25px;display:flex;gap:15px;z-index:10;}" +
-          "button{background:#00F3FF;color:#000;border:none;padding:12px 24px;font-family:monospace;font-weight:bold;border-radius:5px;cursor:pointer;font-size:16px;}" +
-          "button:hover{background:#00D1FF;}</style></head>" +
-          "<body><h2>LIVE_CAMERA_FEED</h2>" +
-          "<img id=\"cam-feed\" src=\"/stream\" />" +
-          "<div class=\"controls\">" +
-          "<button onclick=\"rotate(-90)\">&#8634; ROTATE LEFT</button>" +
-          "<button onclick=\"rotate(90)\">ROTATE RIGHT &#8635;</button>" +
-          "</div>" +
-          "<script>" +
-          "let angle = 0;" +
-          "function rotate(deg) {" +
-          "  angle = (angle + deg) % 360;" +
-          "  let scale = 1;" +
-          "  if (angle === 90 || angle === 270 || angle === -90 || angle === -270) {" +
-          "    const img = document.getElementById('cam-feed');" +
-          "    const ratio = Math.min(window.innerWidth / img.naturalHeight, window.innerHeight / img.naturalWidth);" +
-          "    if (ratio < 1) scale = ratio;" +
-          "  }" +
-          "  document.getElementById('cam-feed').style.transform = `rotate(${angle}deg) scale(${scale})`;" +
-          "}" +
-          "</script></body></html>";
-
-      ctx.response().putHeader("Content-Type", "text/html").end(html);
-    });
 
     restRouteManager.applyRoutesToRouter(router);
     router.route("/*").handler(this::handleRequest);
@@ -577,6 +546,12 @@ public class HttpServerManager {
         +
         "input[type=submit]:hover { background: #00E63A; }" +
         "#chat-panel { position: fixed; bottom: 0; left: 0; right: 0; background: #121212; border-top: 2px solid #00FF41; padding: 15px; z-index: 1000; }"
+        + ".panel-row { display: flex; gap: 15px; align-items: stretch; }"
+        + ".chat-col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }"
+        + ".camera-col { flex: 0 0 320px; display: flex; flex-direction: column; }"
+        + ".cam-label { color: #00F3FF; font-family: monospace; font-size: 12px; font-weight: bold; margin-bottom: 5px; }"
+        + "#cam-feed { flex: 1 1 auto; width: 100%; min-height: 200px; object-fit: contain; background: #050505; border: 1px solid #222; border-radius: 4px; }"
+        + "@media (max-width: 640px) { .panel-row { flex-direction: column; } .camera-col { flex: 1 1 auto; } }"
         +
         "#chat-log { height: 200px; overflow-y: auto; background: #050505; color: #00FF41; font-family: monospace; padding: 10px; border: 1px solid #222; margin-bottom: 10px; font-size: 13px; }"
         +
@@ -592,11 +567,19 @@ public class HttpServerManager {
 
   private String getHtmlFooter() {
     if (!isWebSocketServerRunning.get()) {
-      return "</div></body></html>";
+      return "</div>" +
+          "<div id=\"chat-panel\">" +
+          "<div class=\"panel-row\">" +
+          "<div class=\"camera-col\"><div class=\"cam-label\">LIVE_CAMERA_FEED</div><img id=\"cam-feed\" src=\"/stream\" alt=\"CAMERA OFFLINE\" /></div>" +
+          "</div>" +
+          "</div>" +
+          "</body></html>";
     }
 
     return "</div>" +
         "<div id=\"chat-panel\">" +
+        "<div class=\"panel-row\">" +
+        "<div class=\"chat-col\">" +
         "<div style=\"display:flex; justify-content:space-between; color:#00FF41; font-family:monospace; margin-bottom:5px; font-size:12px; font-weight:bold;\">"
         +
         "<span>SECURE_CHAT_TERMINAL_v1.0</span>" +
@@ -609,6 +592,9 @@ public class HttpServerManager {
         "<input type=\"text\" id=\"chat-input\" placeholder=\"ENTER_MESSAGE...\" onkeypress=\"if(event.keyCode==13) sendChat()\">"
         +
         "<button id=\"chat-send\" onclick=\"sendChat()\">SEND</button>" +
+        "</div>" +
+        "</div>" +
+        "<div class=\"camera-col\"><div class=\"cam-label\">LIVE_CAMERA_FEED</div><img id=\"cam-feed\" src=\"/stream\" alt=\"CAMERA OFFLINE\" /></div>" +
         "</div>" +
         "</div>" +
         "<script>" +
