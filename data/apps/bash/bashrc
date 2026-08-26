@@ -230,3 +230,4 @@ export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin:$HOME/.local/bin
 export PATH=$PATH:/opt/flutter/bin/flutter
 
 #eval "$(starship init bash)"
+export PATH=$PATH:/home/xxx/.local/share/pnpm
