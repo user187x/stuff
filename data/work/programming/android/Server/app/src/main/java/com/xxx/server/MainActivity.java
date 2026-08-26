@@ -7,12 +7,14 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.View;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -108,10 +110,49 @@ public class MainActivity extends AppCompatActivity {
     lbm.unregisterReceiver(stateReceiver);
   }
 
+  private static final int LOCAL_NET_REQ_CODE = 3001;
+
+  private void startServerNow() {
+    if (!isServiceBound || httpServerService == null) return;
+    saveSettings();
+    applySettingsFromUI();
+    httpServerService.startServer();
+  }
+
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode,
+      @androidx.annotation.NonNull String[] permissions,
+      @androidx.annotation.NonNull int[] grantResults) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    if (requestCode == LOCAL_NET_REQ_CODE) {
+      boolean granted = grantResults.length > 0
+          && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+      if (!granted) {
+        android.widget.Toast.makeText(this,
+            "Local network permission denied — other devices may not be able to connect.",
+            android.widget.Toast.LENGTH_LONG).show();
+      }
+      startServerNow(); // start either way; the server runs, but LAN reach needs the grant
+    }
+  }
+
+  private void ensureLocalNetworkPermission() {
+    // Only exists / is enforced on API 37+. Guard so older devices skip it.
+    if (android.os.Build.VERSION.SDK_INT >= 37) {
+      String perm = "android.permission.ACCESS_LOCAL_NETWORK";
+      if (ContextCompat.checkSelfPermission(this, perm)
+          != PackageManager.PERMISSION_GRANTED) {
+        ActivityCompat.requestPermissions(this, new String[]{ perm }, LOCAL_NET_REQ_CODE);
+        return; // start the server from onRequestPermissionsResult once granted
+      }
+    }
+    startServerNow(); // your existing "send start_server intent" logic
+  }
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
-
-    System.setProperty("java.net.preferIPv4Stack", "true");
+    
     super.onCreate(savedInstanceState);
     binding = MainActivityBinding.inflate(getLayoutInflater());
     setContentView(binding.getRoot());
@@ -122,6 +163,8 @@ public class MainActivity extends AppCompatActivity {
     setupTrafficChart();
     loadSettings();
     setupControls();
+
+
 
     Intent intent = new Intent(this, HttpServerService.class);
     startService(intent);
@@ -189,9 +232,7 @@ public class MainActivity extends AppCompatActivity {
         if (manager.isHttpServerRunning()) {
           httpServerService.stopServer();
         } else {
-          saveSettings();
-          applySettingsFromUI();
-          httpServerService.startServer();
+          ensureLocalNetworkPermission();   // was: saveSettings(); applySettingsFromUI(); httpServerService.startServer();
         }
       }
     });
