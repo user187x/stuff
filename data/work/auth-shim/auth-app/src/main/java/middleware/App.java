@@ -31,10 +31,8 @@ public class App {
 
   private static final int PORT =
       Integer.parseInt(System.getenv().getOrDefault("AUTH_SHIM_PORT", "8080"));
-  private static final String VALIDATOR_URL =
-      System.getenv().getOrDefault("VALIDATOR_URL", "https://auth-api.local/verify");
-  private static final String TLS_CRT_PATH = whe
-      System.getenv().getOrDefault("TLS_CRT_PATH", "/etc/certs/tls.crt");
+  private static final String VALIDATOR_URL = System.getenv().getOrDefault("VALIDATOR_URL", "https://auth-api.local/verify");
+  private static final String TLS_CRT_PATH = System.getenv().getOrDefault("TLS_CRT_PATH", "/etc/certs/tls.crt");
 
   // The single, thread-safe HTTP client for the lifecycle of the app
   private static final HttpClient httpClient = buildSecureHttpClient();
@@ -104,8 +102,8 @@ public class App {
   }
 
   /**
-   * Builds a standard Java HttpClient equipped with a custom SSLContext that trusts the provided
-   * K8s secret tls.crt file.
+   * Builds a standard Java HttpClient equipped with a custom SSLContext that trusts the provided K8s
+   * secret tls.crt file.
    */
   private static HttpClient buildSecureHttpClient() {
     try {

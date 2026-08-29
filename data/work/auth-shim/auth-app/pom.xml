@@ -14,7 +14,7 @@
         <maven.compiler.source>26</maven.compiler.source>
         <maven.compiler.target>26</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <javalin.version>7.2.0</javalin.version>
+        <javalin.version>7.2.3</javalin.version>
         <slf4j.version>2.0.13</slf4j.version>
     </properties>
 
