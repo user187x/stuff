@@ -15,35 +15,59 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class App {
 
-  private static final Map<String, SseClient> clients = new ConcurrentHashMap<>();
+  // Record to track a session and its configured tool permissions
+  record SessionContext(SseClient client, Set<String> disabledTools) {
+  }
+
+  private static final Map<String, SessionContext> sessions = new ConcurrentHashMap<>();
   private static final Gson gson = new Gson();
-  private static final ToolHandler toolHandler = new ToolHandler(); // Dedicated Tool Handler
+  private static final ToolHandler toolHandler = new ToolHandler();
 
   public static void main(String[] args) {
-    registerWithLmStudio("webfetch", "http://localhost:8080/sse");
+
+    // Register default endpoint with LM Studio automatically
+    registerWithLmStudio("model-tools", "http://localhost:8080/sse");
 
     Javalin.create(config -> {
 
+      // 1. Establish SSE Connection and parse headers
       config.routes.sse("/sse", client -> {
         String sessionId = UUID.randomUUID().toString();
-        clients.put(sessionId, client);
+
+        // Read configuration from the HTTP Header: X-Disabled-Tools
+        String disabledHeader = client.ctx().header("X-Disabled-Tools");
+        Set<String> disabledTools = new HashSet<>();
+
+        if (disabledHeader != null && !disabledHeader.isBlank()) {
+          disabledTools = Arrays.stream(disabledHeader.split(","))
+              .map(String::trim)
+              .collect(Collectors.toSet());
+        }
+
+        sessions.put(sessionId, new SessionContext(client, disabledTools));
         client.keepAlive();
 
+        // Tell the client where to POST JSON-RPC messages
         client.sendEvent("endpoint", "/mcp/message?sessionId=" + sessionId);
-        client.onClose(() -> clients.remove(sessionId));
+        client.onClose(() -> sessions.remove(sessionId));
       });
 
+      // 2. Handle incoming JSON-RPC requests
       config.routes.post("/mcp/message", ctx -> {
         String sessionId = ctx.queryParam("sessionId");
-        SseClient client = clients.get(sessionId);
+        SessionContext session = sessions.get(sessionId);
 
-        if (client == null) {
+        if (session == null) {
           ctx.status(404).result("Session not found");
           return;
         }
@@ -59,8 +83,9 @@ public class App {
         String method = request.has("method") ? request.get("method").getAsString() : "";
         JsonElement idNode = request.get("id");
 
-        ctx.status(202);
+        ctx.status(202); // MCP requires early 202 Accepted for SSE transport
 
+        // Process asynchronously using Java Virtual Threads
         Thread.startVirtualThread(() -> {
           try {
             JsonObject response = new JsonObject();
@@ -70,11 +95,25 @@ public class App {
 
             switch (method) {
               case "initialize" -> response.add("result", handleInitialize());
-              case "tools/list" -> response.add("result", toolHandler.getToolsList()); // Delegated
-              case "tools/call" -> response.add("result", toolHandler.executeTool(request.getAsJsonObject("params"))); // Delegated
+
+              // Pass the disabled tools list so they are omitted from LM Studio's UI
+              case "tools/list" -> response.add("result", toolHandler.getToolsList(session.disabledTools()));
+
+              // Pass the disabled tools list to enforce security during execution
+              case "tools/call" -> {
+                try {
+                  JsonObject toolResult = toolHandler.executeTool(request.getAsJsonObject("params"), session.disabledTools());
+                  response.add("result", toolResult);
+                } catch (IllegalStateException e) {
+                  JsonObject error = new JsonObject();
+                  error.addProperty("code", -32600); // Invalid request
+                  error.addProperty("message", e.getMessage());
+                  response.add("error", error);
+                }
+              }
               case "ping" -> response.add("result", new JsonObject());
               case "notifications/initialized" -> {
-                return;
+                return; // No response expected
               }
               default -> {
                 JsonObject error = new JsonObject();
@@ -83,9 +122,9 @@ public class App {
                 response.add("error", error);
               }
             }
-            client.sendEvent("message", gson.toJson(response));
+            session.client().sendEvent("message", gson.toJson(response));
           } catch (Exception e) {
-            e.printStackTrace();
+            e.printStackTrace(); // In production, replace with SLF4J logging
           }
         });
       });
@@ -101,13 +140,17 @@ public class App {
     result.add("capabilities", new JsonObject());
 
     JsonObject serverInfo = new JsonObject();
-    serverInfo.addProperty("name", "QwenWebFetchServer");
+    serverInfo.addProperty("name", "JavaToolingServer");
     serverInfo.addProperty("version", "1.0.0");
     result.add("serverInfo", serverInfo);
 
     return result;
   }
 
+  /**
+   * Programmatically registers this MCP server with LM Studio via mcp.json. Appends if missing,
+   * leaves alone if present.
+   */
   private static void registerWithLmStudio(String serverName, String sseUrl) {
     String userHome = System.getProperty("user.home");
     Path mcpConfigPath = Paths.get(userHome, ".lmstudio", "mcp.json");
@@ -115,7 +158,7 @@ public class App {
     JsonObject rootConfig = new JsonObject();
 
     try {
-      // 1. Read existing config if it exists
+      // Read existing config if it exists
       if (Files.exists(mcpConfigPath)) {
         try (Reader reader = Files.newBufferedReader(mcpConfigPath, StandardCharsets.UTF_8)) {
           rootConfig = JsonParser.parseReader(reader).getAsJsonObject();
@@ -124,28 +167,35 @@ public class App {
         Files.createDirectories(mcpConfigPath.getParent());
       }
 
-      // 2. Ensure the "mcpServers" parent object exists
+      // Ensure "mcpServers" object exists
       if (!rootConfig.has("mcpServers")) {
         rootConfig.add("mcpServers", new JsonObject());
       }
       JsonObject mcpServers = rootConfig.getAsJsonObject("mcpServers");
 
-      // 3. LEAVE ALONE IF PRESENT: Check if our server is already registered
+      // Leave alone if already present
       if (mcpServers.has(serverName)) {
         System.out.println("⚡ LM Studio config already contains '" + serverName + "'. No changes made.");
-        return; // Exit immediately without touching the file on disk
+        return;
       }
 
-      // 4. APPEND IF MISSING: Define our server's configuration
+      // Define server configuration
       JsonObject serverConfig = new JsonObject();
       serverConfig.addProperty("url", sseUrl);
+
+      // Add custom headers block with execute_java disabled by default as a safety precaution
+      JsonObject headersConfig = new JsonObject();
+      headersConfig.addProperty("X-Disabled-Tools", "execute_java");
+      serverConfig.add("headers", headersConfig);
+
       mcpServers.add(serverName, serverConfig);
 
-      // 5. CREATE/WRITE: Save the changes back to disk, preserving all other existing entries
+      // Write back to file
       try (Writer writer = Files.newBufferedWriter(mcpConfigPath, StandardCharsets.UTF_8)) {
         prettyGson.toJson(rootConfig, writer);
       }
       System.out.println("✅ Automatically registered '" + serverName + "' to LM Studio at: " + mcpConfigPath);
+      System.out.println("ℹ️ Note: 'execute_java' tool is disabled by default in mcp.json for security.");
 
     } catch (Exception e) {
       System.err.println("❌ Failed to register with LM Studio: " + e.getMessage());

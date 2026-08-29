@@ -14,6 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Set;
 
 public class ToolHandler {
 
@@ -26,72 +27,83 @@ public class ToolHandler {
         .build();
   }
 
-  public JsonObject getToolsList() {
+  // Now accepts the disabledTools set from the headers
+  public JsonObject getToolsList(Set<String> disabledTools) {
     JsonObject result = new JsonObject();
     JsonArray tools = new JsonArray();
 
-    // 1. Web Fetch Tool
-    JsonObject webFetchTool = new JsonObject();
-    webFetchTool.addProperty("name", "web_fetch");
-    webFetchTool.addProperty("description", "Fetch content from a URL and process it.");
+    // 1. Web Fetch Tool - Only add if not disabled
+    if (!disabledTools.contains("web_fetch")) {
+      JsonObject webFetchTool = new JsonObject();
+      webFetchTool.addProperty("name", "web_fetch");
+      webFetchTool.addProperty("description", "Fetch content from a URL and process it.");
 
-    JsonObject webSchema = new JsonObject();
-    webSchema.addProperty("type", "object");
-    JsonObject webProps = new JsonObject();
+      JsonObject webSchema = new JsonObject();
+      webSchema.addProperty("type", "object");
+      JsonObject webProps = new JsonObject();
 
-    JsonObject urlProp = new JsonObject();
-    urlProp.addProperty("type", "string");
-    urlProp.addProperty("description", "The URL to fetch content from");
-    webProps.add("url", urlProp);
+      JsonObject urlProp = new JsonObject();
+      urlProp.addProperty("type", "string");
+      urlProp.addProperty("description", "The URL to fetch content from");
+      webProps.add("url", urlProp);
 
-    JsonObject promptProp = new JsonObject();
-    promptProp.addProperty("type", "string");
-    promptProp.addProperty("description", "Instructions for extracting info");
-    webProps.add("prompt", promptProp);
+      JsonObject promptProp = new JsonObject();
+      promptProp.addProperty("type", "string");
+      promptProp.addProperty("description", "Instructions for extracting info");
+      webProps.add("prompt", promptProp);
 
-    JsonObject formatProp = new JsonObject();
-    formatProp.addProperty("type", "string");
-    formatProp.addProperty("description", "auto, markdown, html, or text");
-    webProps.add("format", formatProp);
+      JsonObject formatProp = new JsonObject();
+      formatProp.addProperty("type", "string");
+      formatProp.addProperty("description", "auto, markdown, html, or text");
+      webProps.add("format", formatProp);
 
-    webSchema.add("properties", webProps);
-    JsonArray webRequired = new JsonArray();
-    webRequired.add("url");
-    webRequired.add("prompt");
-    webSchema.add("required", webRequired);
+      webSchema.add("properties", webProps);
+      JsonArray webRequired = new JsonArray();
+      webRequired.add("url");
+      webRequired.add("prompt");
+      webSchema.add("required", webRequired);
 
-    webFetchTool.add("inputSchema", webSchema);
-    tools.add(webFetchTool);
+      webFetchTool.add("inputSchema", webSchema);
+      tools.add(webFetchTool);
+    }
 
-    // 2. Execute Java Tool
-    JsonObject javaTool = new JsonObject();
-    javaTool.addProperty("name", "execute_java");
-    javaTool.addProperty("description", "Execute raw Java code snippets dynamically and return the console output or evaluation result.");
+    // 2. Execute Java Tool - Only add if not disabled
+    if (!disabledTools.contains("execute_java")) {
+      JsonObject javaTool = new JsonObject();
+      javaTool.addProperty("name", "execute_java");
+      javaTool.addProperty("description", "Execute raw Java code snippets dynamically and return the console output or evaluation result.");
 
-    JsonObject javaSchema = new JsonObject();
-    javaSchema.addProperty("type", "object");
-    JsonObject javaProps = new JsonObject();
+      JsonObject javaSchema = new JsonObject();
+      javaSchema.addProperty("type", "object");
+      JsonObject javaProps = new JsonObject();
 
-    JsonObject codeProp = new JsonObject();
-    codeProp.addProperty("type", "string");
-    codeProp.addProperty("description", "The Java code snippet to execute. E.g., java.time.LocalDateTime.now();");
-    javaProps.add("code", codeProp);
+      JsonObject codeProp = new JsonObject();
+      codeProp.addProperty("type", "string");
+      codeProp.addProperty("description", "The Java code snippet to execute. E.g., java.time.LocalDateTime.now();");
+      javaProps.add("code", codeProp);
 
-    javaSchema.add("properties", javaProps);
-    JsonArray javaRequired = new JsonArray();
-    javaRequired.add("code");
-    javaSchema.add("required", javaRequired);
+      javaSchema.add("properties", javaProps);
+      JsonArray javaRequired = new JsonArray();
+      javaRequired.add("code");
+      javaSchema.add("required", javaRequired);
 
-    javaTool.add("inputSchema", javaSchema);
-    tools.add(javaTool);
+      javaTool.add("inputSchema", javaSchema);
+      tools.add(javaTool);
+    }
 
     result.add("tools", tools);
     return result;
   }
 
-  public JsonObject executeTool(JsonObject params) throws Exception {
+  // Now accepts the disabledTools set to prevent unauthorized execution
+  public JsonObject executeTool(JsonObject params, Set<String> disabledTools) throws Exception {
     String toolName = params.get("name").getAsString();
     JsonObject args = params.get("arguments").getAsJsonObject();
+
+    // Security check: Block execution if the tool is disabled in the headers
+    if (disabledTools.contains(toolName)) {
+      throw new IllegalStateException("Tool '" + toolName + "' is disabled by server configuration.");
+    }
 
     return switch (toolName) {
       case "web_fetch" -> handleWebFetch(args);
