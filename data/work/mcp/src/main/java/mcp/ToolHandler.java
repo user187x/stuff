@@ -19,20 +19,21 @@ import java.util.Set;
 public class ToolHandler {
 
   private final HttpClient httpClient;
+  private final HeadlessBrowserHelper browserHelper;
 
   public ToolHandler() {
     this.httpClient = HttpClient.newBuilder()
         .followRedirects(HttpClient.Redirect.NORMAL)
         .connectTimeout(Duration.ofSeconds(10))
         .build();
+    this.browserHelper = new HeadlessBrowserHelper();
   }
 
-  // Now accepts the disabledTools set from the headers
   public JsonObject getToolsList(Set<String> disabledTools) {
     JsonObject result = new JsonObject();
     JsonArray tools = new JsonArray();
 
-    // 1. Web Fetch Tool - Only add if not disabled
+    // 1. Web Fetch Tool
     if (!disabledTools.contains("web_fetch")) {
       JsonObject webFetchTool = new JsonObject();
       webFetchTool.addProperty("name", "web_fetch");
@@ -67,7 +68,7 @@ public class ToolHandler {
       tools.add(webFetchTool);
     }
 
-    // 2. Execute Java Tool - Only add if not disabled
+    // 2. Execute Java Tool
     if (!disabledTools.contains("execute_java")) {
       JsonObject javaTool = new JsonObject();
       javaTool.addProperty("name", "execute_java");
@@ -91,16 +92,38 @@ public class ToolHandler {
       tools.add(javaTool);
     }
 
+    // 3. Web Search (JS Enabled) Tool
+    if (!disabledTools.contains("web_search")) {
+      JsonObject searchTool = new JsonObject();
+      searchTool.addProperty("name", "web_search");
+      searchTool.addProperty("description", "Search Google/DuckDuckGo or fetch URLs that require JavaScript rendering. Bypasses basic bot protection.");
+
+      JsonObject searchSchema = new JsonObject();
+      searchSchema.addProperty("type", "object");
+      JsonObject searchProps = new JsonObject();
+
+      JsonObject queryProp = new JsonObject();
+      queryProp.addProperty("type", "string");
+      queryProp.addProperty("description", "The URL or Search query to execute");
+      searchProps.add("query", queryProp);
+
+      searchSchema.add("properties", searchProps);
+      JsonArray searchRequired = new JsonArray();
+      searchRequired.add("query");
+      searchSchema.add("required", searchRequired);
+
+      searchTool.add("inputSchema", searchSchema);
+      tools.add(searchTool);
+    }
+
     result.add("tools", tools);
     return result;
   }
 
-  // Now accepts the disabledTools set to prevent unauthorized execution
   public JsonObject executeTool(JsonObject params, Set<String> disabledTools) throws Exception {
     String toolName = params.get("name").getAsString();
     JsonObject args = params.get("arguments").getAsJsonObject();
 
-    // Security check: Block execution if the tool is disabled in the headers
     if (disabledTools.contains(toolName)) {
       throw new IllegalStateException("Tool '" + toolName + "' is disabled by server configuration.");
     }
@@ -108,8 +131,81 @@ public class ToolHandler {
     return switch (toolName) {
       case "web_fetch" -> handleWebFetch(args);
       case "execute_java" -> handleExecuteJava(args);
+      case "web_search" -> handleWebSearch(args, "google");
       default -> throw new IllegalArgumentException("Unknown tool: " + toolName);
     };
+  }
+
+  private JsonObject handleWebSearch(JsonObject args, String provider) {
+
+    JsonObject response = null;
+
+    if (provider.equalsFoldCase("google")) {
+      response = handleGoogleWebSearch(args);
+    } else {
+      response = handleDuckDuckGoWebSearch(args);
+    }
+
+    return response;
+  }
+
+  private JsonObject handleDuckDuckGoWebSearch(JsonObject args) {
+    String query = args.get("query").getAsString();
+    String targetUrl = query;
+
+    // If the LLM passed a search query instead of a URL, use DuckDuckGo HTML
+    // Massively more reliable for bots and doesn't throw CAPTCHAs like Google.
+    if (!query.startsWith("http")) {
+      targetUrl = "https://html.duckduckgo.com/html/?q=" + query.replace(" ", "+");
+    }
+
+    try {
+      // Use the Headless Browser Helper with Stealth injections
+      String body = browserHelper.fetchWithJavascript(targetUrl);
+
+      // Truncate massively long results to save context window
+      if (body.length() > 15000) {
+        body = body.substring(0, 15000) + "... [Content Truncated]";
+      }
+
+      String finalContent = "Search Query: " + query + "\n\n--- Rendered Content ---\n\n" + body;
+      return buildTextContentResponse(finalContent);
+
+    } catch (Exception e) {
+      return buildTextContentResponse("Error executing headless search: " + e.getMessage());
+    }
+  }
+
+  private JsonObject handleGoogleWebSearch(JsonObject args) {
+    String query = args.get("query").getAsString();
+    String targetUrl = query;
+
+    // If the LLM passed a search query instead of a URL, format it directly for Google Search
+    if (!query.startsWith("http")) {
+      targetUrl = "https://www.google.com/search?q=" + query.replace(" ", "+") + "&hl=en&gl=us";
+    }
+
+    try {
+      // Use the Headless Browser Helper with Stealth injections
+      String body = browserHelper.fetchWithJavascript(targetUrl);
+
+      // Check if Google threw a CAPTCHA anyway (usually indicates an IP-level datacenter block)
+      if (body.contains("Our systems have detected unusual traffic") || body.contains("showing this page to check if you're a real person")) {
+        System.out.println("⚠️ Google served a CAPTCHA. Your server's IP address might be flagged.");
+      }
+
+      // Truncate massively long results to save LLM context window
+      // Google's DOM is extremely bloated, so this is highly recommended
+      if (body.length() > 15000) {
+        body = body.substring(0, 15000) + "... [Content Truncated]";
+      }
+
+      String finalContent = "Search Query: " + query + "\n\n--- Rendered Content ---\n\n" + body;
+      return buildTextContentResponse(finalContent);
+
+    } catch (Exception e) {
+      return buildTextContentResponse("Error executing headless Google search: " + e.getMessage());
+    }
   }
 
   private JsonObject handleWebFetch(JsonObject args) throws Exception {
