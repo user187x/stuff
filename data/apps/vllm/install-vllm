@@ -1,11 +1,22 @@
 #!/bin/bash
 
-sudo apt update && sudo apt install -y python3-venv
+# Install Python virtual environment and the NVIDIA CUDA toolkit
+sudo apt update && sudo apt install -y python3-venv nvidia-cuda-toolkit python3.12 python3.12-venv python3.12-dev
 
+# Clone the vLLM repository
 git clone https://github.com/vllm-project/vllm.git
 cd vllm
 
+# Create and activate the isolated virtual environment
 python3 -m venv vllm-env
 source vllm-env/bin/activate
 
+# Export the compiler path required by the vLLM setup script
+export CUDA_HOME=/usr
+
+# Pre-install core build dependencies to prevent PyTorch subprocess errors
+pip install --upgrade pip
+pip install wheel packaging ninja setuptools numpy
+
+# Compile and install vLLM
 pip install -e .
