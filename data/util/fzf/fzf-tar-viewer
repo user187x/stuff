@@ -1,0 +1,28 @@
+#!/bin/bash
+
+fzf-tar-viewer() {
+ local input="$1"
+
+ if [[ -z "$input" ]]; then
+  echo "Usage: fzf-tar-viewer <archive.tar|tgz|tar.gz>"
+  return 1
+ fi
+
+ if [[ ! -f "$input" ]]; then
+  echo "Error: File '$input' not found."
+  return 1
+ fi
+
+ if ! tar -tf "$input" >/dev/null 2>&1; then
+  echo "Error: '$input' is NOT a valid tar file."
+  return 1
+ fi
+
+ # local -x exports for this function's scope; the fzf preview
+ # subprocess inherits it, so $TAR_FILE resolves at preview time
+ local -x TAR_FILE="$input"
+
+ tar -tf "$TAR_FILE" | grep -v '/$' | fzf \
+  --preview 'tar -Oxf "$TAR_FILE" {} | bat --color=always --file-name {} 2>/dev/null || tar -Oxf "$TAR_FILE" {}' \
+  --preview-window=right:70%:wrap
+}
