@@ -1,0 +1,40 @@
+#!/bin/bash
+
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+FILE_NAME="config.json"
+FILE_PATH="${THIS_DIR}/config/${FILE_NAME}"
+
+TOML_NAME="config.toml"
+TOML_PATH="${THIS_DIR}/config/${TOML_NAME}"
+
+MCP_PORT=9999
+MCP_URL="http://127.0.0.1"
+
+function generate_config {
+ {
+  echo '{'
+  echo '  "mcpServers": {'
+  echo '    "kubernetes-networked": {'
+  echo '      "type": "sse",'
+  echo '      "url": "'"$MCP_URL"':'"$MCP_PORT"'/sse"'
+  echo '    }'
+  echo '  }'
+  echo '}'
+ } >"${FILE_PATH}"
+
+ echo "Successfully created ${FILE_PATH}"
+}
+
+function start_mcp_server {
+ "${THIS_DIR}/bin/kubernetes-mcp" \
+  --port "${MCP_PORT}" \
+  --config "${TOML_PATH}" \
+  --kubeconfig "${HOME}/.kube/config"
+}
+
+echo "Generating MCP configuration files..."
+generate_config
+
+echo -e "Starting kubernetes mcp server on port \e[92m${MCP_PORT}\e[0m"
+start_mcp_server

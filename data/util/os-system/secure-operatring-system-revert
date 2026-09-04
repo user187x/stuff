@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+
+# Fail & Bail safely on errors, unbound variables, or pipe failures
+set -euo pipefail
+
+if [ "$EUID" -ne 0 ]; then
+ echo "❌ Error: Please run this script with sudo or as root."
+ exit 1
+fi
+
+# ----------------------------------------------------
+# Helper function for user prompts
+# ----------------------------------------------------
+ask_user() {
+ local prompt_msg="$1"
+ local response
+ read -rp "$prompt_msg [y/N]: " response
+ case "$response" in
+  [yY][eE][sS] | [yY]) return 0 ;;
+  *) return 1 ;;
+ esac
+}
+
+echo "⚠️  WARNING: This will undo the hardening configurations and restore Ubuntu defaults."
+if ! ask_user "Are you sure you want to proceed?"; then
+ echo "Aborted."
+ exit 0
+fi
+
+echo "➡️  Restoring telemetry, reporting, and insights packages..."
+DEBIAN_FRONTEND=noninteractive apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+ ubuntu-report \
+ popularity-contest \
+ whoopsie \
+ ubuntu-insights 2>/dev/null || true
+
+echo "➡️  Unmasking and enabling reporting background services..."
+SERVICES=("whoopsie.service" "ubuntu-report.service" "ubuntu-insights.service")
+for service in "${SERVICES[@]}"; do
+ if systemctl list-unit-files "$service" &>/dev/null; then
+  systemctl unmask "$service" 2>/dev/null || true
+  systemctl enable "$service" 2>/dev/null || true
+  systemctl start "$service" 2>/dev/null || true
+  echo "✅ $service has been restored."
+ fi
+done
+
+echo "➡️  Removing local system privacy defaults..."
+GLIB_PRIVACY_DIR="/usr/share/glib-2.0/schemas"
+if [ -f "${GLIB_PRIVACY_DIR}/99_ubuntu_privacy_hardening.gschema.override" ]; then
+ rm -f "${GLIB_PRIVACY_DIR}/99_ubuntu_privacy_hardening.gschema.override"
+ glib-compile-schemas "${GLIB_PRIVACY_DIR}"
+ echo "✅ Reverted system-wide GNOME privacy overrides."
+fi
+
+echo "[+] Unmasking GNOME Tracker backend services system-wide..."
+rm -f /etc/systemd/user/tracker-miner-fs-3.service
+rm -f /etc/systemd/user/tracker-miner-rss-3.service
+
+echo "[+] Restoring dynamic Message-of-the-Day (MOTD) remote trackers..."
+if [ -d "/etc/update-motd.d" ]; then
+ [ -f "/etc/update-motd.d/50-motd-news" ] && chmod +x /etc/update-motd.d/50-motd-news
+ [ -f "/etc/update-motd.d/88-esm-announce" ] && chmod +x /etc/update-motd.d/88-esm-announce
+ [ -f "/etc/update-motd.d/91-contract-ua-esm-status" ] && chmod +x /etc/update-motd.d/91-contract-ua-esm-status
+fi
+if [ -f "/etc/default/motd-news" ]; then
+ sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/motd-news
+fi
+
+echo "[+] Enabling Apport Error Reporting..."
+if [ -f "/etc/default/apport" ]; then
+ sed -i 's/enabled=0/enabled=1/g' /etc/default/apport
+fi
+systemctl unmask apport.service || true
+systemctl enable apport.service || true
+systemctl start apport.service || true
+
+# ----------------------------------------------------
+# COMPONENT 1: Snap Store Restoration
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "📦 Restore Snap Store? (Removes block and reinstalls snapd)"; then
+ echo "[+] Removing snapd APT pin..."
+ rm -f /etc/apt/preferences.d/nosnap.pref
+
+ echo "[+] Reinstalling Snapd daemon..."
+ apt-get update && apt-get install -y snapd || true
+
+ systemctl enable --now snapd.service snapd.socket || true
+ echo "✅ Snapd has been restored. (Note: You may need to manually reinstall previous snap apps like Firefox via 'snap install firefox')."
+else
+ echo "⏭️  Skipped Snap restoration."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 2: Network, DNS & Cloudflare WARP Reversion
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "🌐 Revert Network configurations, uninstall WARP, and restore mDNS/Avahi?"; then
+
+ if command -v warp-cli &>/dev/null; then
+  echo "[+] Disconnecting and removing Cloudflare WARP..."
+  warp-cli disconnect || true
+  systemctl disable --now warp-svc || true
+  apt-get purge -y cloudflare-warp || true
+  rm -f /etc/apt/sources.list.d/cloudflare-client.list
+  rm -f /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+ fi
+
+ echo "[+] Restoring default systemd-resolved configuration..."
+ if [ -d "/etc/systemd" ]; then
+  cat <<EOF >/etc/systemd/resolved.conf
+[Resolve]
+#DNS=
+#FallbackDNS=
+#Domains=
+#LLMNR=no
+#MulticastDNS=no
+#DNSSEC=no
+#DNSOverTLS=no
+#Cache=no-negative
+#DNSStubListener=yes
+#ReadEtcHosts=yes
+EOF
+  systemctl restart systemd-resolved || true
+ fi
+
+ echo "[+] Removing MAC Address Randomization..."
+ NM_CONF_DIR="/etc/NetworkManager/conf.d"
+ rm -f "${NM_CONF_DIR}/99-privacy-mac-randomization.conf"
+
+ echo "[+] Restoring NetworkManager Connectivity Verification..."
+ rm -f "/etc/NetworkManager/conf.d/20-connectivity-ubuntu.conf"
+ systemctl restart NetworkManager || true
+
+ echo "[+] Enabling Avahi Daemon (mDNS)..."
+ systemctl unmask avahi-daemon.socket avahi-daemon.service || true
+ systemctl enable avahi-daemon.socket avahi-daemon.service || true
+ systemctl start avahi-daemon.socket avahi-daemon.service || true
+
+ echo "✅ Networking and DNS defaults restored."
+else
+ echo "⏭️  Skipped Network restoration."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 3: UFW Firewall Reversion
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "🔥 Reset UFW Firewall to Ubuntu defaults (Disabled/Allow Outgoing)?"; then
+ if command -v ufw &>/dev/null; then
+  ufw --force reset
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw --force disable
+  echo "✅ UFW Firewall reset and disabled."
+ fi
+else
+ echo "⏭️  Skipped UFW Firewall reset."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 4: Kernel & Network Stack Reversion (sysctl)
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "🛡️ Revert Kernel & Sysctl security parameters?"; then
+ echo "[+] Removing kernel hardening parameters..."
+ rm -f /etc/sysctl.d/99-security-hardening.conf
+ sysctl --system >/dev/null || true
+ echo "✅ Kernel parameters reverted (A reboot is heavily recommended to flush all kernel states)."
+else
+ echo "⏭️  Skipped Kernel & Sysctl reversion."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 5: OpenSSH Server Reversion
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if [ -f "/etc/ssh/sshd_config.bak" ]; then
+ if ask_user "🔑 Revert OpenSSH Server configuration to backup?"; then
+  echo "[+] Restoring /etc/ssh/sshd_config from backup..."
+  mv /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+
+  if systemctl is-active --quiet sshd; then
+   systemctl restart sshd || true
+  elif systemctl is-active --quiet ssh; then
+   systemctl restart ssh || true
+  fi
+  echo "✅ OpenSSH restored from backup."
+ else
+  echo "⏭️  Skipped OpenSSH reversion."
+ fi
+else
+ echo "ℹ️  No OpenSSH backup found (/etc/ssh/sshd_config.bak). Skipping."
+fi
+
+# ----------------------------------------------------
+# FINAL CLEANUP & SYSTEM STATE
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+echo -e "\n🎉 System reversion script complete!"
+if ask_user "🔄 Would you like to reboot the system now to finalize kernel and networking restorations?"; then
+ echo "Rebooting in 3 seconds..."
+ sleep 3
+ reboot
+else
+ echo "⚠️ Please remember to manually reboot your system later to ensure all default configurations attach correctly."
+fi
+
+exit 0

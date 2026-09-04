@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+echo "🚀 Configuring Minikube resources (allocating 4GB RAM)..."
+minikube config set memory 4096
+
+echo "🏁 Starting Minikube cluster..."
+# Using the docker driver as default. Change to kvm2 or hyperkit if preferred.
+minikube start --driver=docker --memory=4096
+
+echo "🔌 Enabling the KubeVirt addon..."
+minikube addons enable kubevirt
+
+echo "⏳ Waiting for KubeVirt components to deploy..."
+# Gives KubeVirt a few seconds to initialize its deployment definitions
+sleep 15
+minikube kubectl -- wait --for=condition=Ready pod -l kubevirt.io --namespace=kubevirt --timeout=90s
+
+echo "📝 Creating the Virtual Machine manifest file (vm.yaml)..."
+cat <<EOF >vm.yaml
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: demo-vm
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/size: small
+        kubevirt.io/domain: demo-vm
+    spec:
+      domain:
+        devices:
+          disks:
+            - name: containerdisk
+              disk: {}
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 64M
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: kubevirt/cirros-container-disk-demo:latest
+EOF
+
+echo "📦 Deploying the Virtual Machine to Minikube..."
+minikube kubectl -- apply -f vm.yaml
+
+echo "🔍 Checking VM status..."
+echo "--------------------------------------------------------"
+minikube kubectl -- get vm
+echo "--------------------------------------------------------"
+echo "🎉 Success! Your virtual machine 'demo-vm' is creating."
+echo "💡 Note: It may take a minute to pull the image. Run 'minikube kubectl -- get vmi' to see the running instance."

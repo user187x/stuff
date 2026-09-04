@@ -1,0 +1,12 @@
+log_level = 2
+read_only = true
+toolsets = ["core", "config", "helm", "kubevirt"]
+
+# Deny access to sensitive resources
+[[denied_resources]]
+group = ""
+version = "v1"
+kind = "Secret"
+
+[telemetry]
+endpoint = "http://localhost:4317"

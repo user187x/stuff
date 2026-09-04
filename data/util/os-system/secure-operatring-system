@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+
+# Fail & Bail safely on errors, unbound variables, or pipe failures
+set -euo pipefail
+
+if [ "$EUID" -ne 0 ]; then
+ echo "❌ Error: Please run this script with sudo or as root."
+ exit 1
+fi
+
+# ----------------------------------------------------
+# Helper function for user prompts
+# ----------------------------------------------------
+ask_user() {
+ local prompt_msg="$1"
+ local response
+ read -rp "$prompt_msg [y/N]: " response
+ case "$response" in
+  [yY][eE][sS] | [yY]) return 0 ;;
+  *) return 1 ;;
+ esac
+}
+
+echo "➡️  Sending explicit opt-out signal to Canonical..."
+if command -v ubuntu-report &>/dev/null; then
+ ubuntu-report -f send no 2>/dev/null || true
+fi
+
+echo "➡️  Purging tracking, reporting, and insights packages..."
+DEBIAN_FRONTEND=noninteractive apt-get purge -y \
+ ubuntu-report \
+ popularity-contest \
+ whoopsie \
+ ubuntu-insights 2>/dev/null || true
+
+echo "➡️  Cleaning up unneeded dependencies..."
+apt-get autoremove -y
+
+echo "➡️  Disabling and masking reporting background services..."
+SERVICES=("whoopsie.service" "ubuntu-report.service" "ubuntu-insights.service")
+for service in "${SERVICES[@]}"; do
+ if systemctl list-unit-files "$service" &>/dev/null; then
+  systemctl stop "$service" 2>/dev/null || true
+  systemctl disable "$service" 2>/dev/null || true
+  systemctl mask "$service" 2>/dev/null || true
+  echo "✅ $service has been stopped, disabled, and masked."
+ fi
+done
+
+echo "➡️  Setting consolidated local system privacy defaults..."
+GLIB_PRIVACY_DIR="/usr/share/glib-2.0/schemas"
+if [ -d "$GLIB_PRIVACY_DIR" ]; then
+ cat <<EOF >"${GLIB_PRIVACY_DIR}/99_ubuntu_privacy_hardening.gschema.override"
+[org.gnome.desktop.privacy]
+remember-recent-files=false
+remember-app-usage=false
+send-software-usage-stats=false
+report-technical-problems=false
+show-full-name-in-top-bar=false
+
+[org.freedesktop.Tracker3.Miner.Files]
+crawler-interval-days=-1
+index-on-battery=false
+index-removable-devices=false
+EOF
+ glib-compile-schemas "${GLIB_PRIVACY_DIR}"
+ echo "✅ Applied system-wide GNOME privacy overrides."
+fi
+
+echo "[+] Masking GNOME Tracker backend services system-wide..."
+for unit in tracker-miner-fs-3.service tracker-miner-rss-3.service; do
+ ln -sf /dev/null "/etc/systemd/user/${unit}"
+done
+
+echo "[+] Removing dynamic Message-of-the-Day (MOTD) remote trackers..."
+if [ -d "/etc/update-motd.d" ]; then
+ [ -f "/etc/update-motd.d/50-motd-news" ] && chmod -x /etc/update-motd.d/50-motd-news
+ [ -f "/etc/update-motd.d/88-esm-announce" ] && chmod -x /etc/update-motd.d/88-esm-announce
+ [ -f "/etc/update-motd.d/91-contract-ua-esm-status" ] && chmod -x /etc/update-motd.d/91-contract-ua-esm-status
+fi
+if [ -f "/etc/default/motd-news" ]; then
+ sed -i 's/ENABLED=1/ENABLED=0/g' /etc/default/motd-news
+fi
+
+echo "[+] Disabling Apport Error Reporting..."
+if [ -f "/etc/default/apport" ]; then
+ sed -i 's/enabled=1/enabled=0/g' /etc/default/apport
+fi
+systemctl stop apport.service || true
+systemctl disable apport.service || true
+systemctl mask apport.service || true
+
+# ----------------------------------------------------
+# COMPONENT 1: Snap Store Purge (INTERACTIVE)
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "⚠️ Remove Snap Store completely and replace with Flatpak? (Will delete current Snap apps like default Firefox)"; then
+ echo "[+] Purging Snapd daemon..."
+ systemctl stop snapd.service snapd.socket snapd.seeded.service || true
+ systemctl disable snapd.service snapd.socket snapd.seeded.service || true
+
+ # Unmount snap loop mounts cleanly
+ for mp in $(mount | grep snapd | awk '{print $3}'); do
+  umount -lf "$mp" || true
+ done
+
+ apt-get purge -y snapd squid-deb-proxy-client || true
+ rm -rf /var/cache/snapd/ /var/snap/ /snap/ ~/snap
+
+ # Pin snapd package to prevent accidental apt reinstallation
+ cat <<EOF >/etc/apt/preferences.d/nosnap.pref
+Package: snapd
+Pin: release a=*
+Pin-Priority: -10
+EOF
+
+ echo "[+] Installing Flatpak container system..."
+ apt-get update && apt-get install -y flatpak gnome-software-plugin-flatpak || true
+ flatpak remote-add --if-not-exists flathub https://flathub.org || true
+ echo "✅ Snap removed. Flathub ecosystem deployed."
+else
+ echo "⏭️  Skipped Snap removal."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 2: Network, DNS & Cloudflare WARP Hardening (INTERACTIVE)
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "🔒 Secure Networking, deploy Cloudflare DNS-over-TLS, and install Cloudflare WARP?"; then
+
+ echo "[+] Setting Cloudflare DNS-over-TLS (DoT) system endpoints..."
+ # Configures systemd-resolved to use Cloudflare securely
+ if [ -d "/etc/systemd" ]; then
+  cat <<EOF >/etc/systemd/resolved.conf
+[Resolve]
+DNS=1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
+FallbackDNS=8.8.8.8
+DNSOverTLS=yes
+DNSSEC=yes
+MulticastDNS=no
+LLMNR=no
+EOF
+  systemctl restart systemd-resolved || true
+ fi
+
+ echo "[+] Installing official Cloudflare WARP client..."
+ # Ensure dependencies exist
+ apt-get install -y curl gpg || true
+
+ # 1. Add Cloudflare GPG Key
+ curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+
+ # 2. Setup repository target dynamically based on distribution release name
+ echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
+
+ # 3. Pull package indices and execute installation
+ apt-get update
+ apt-get install -y cloudflare-warp
+
+ # Start the warp service daemon background agent
+ systemctl enable --now warp-svc || true
+
+ # Silently pre-register the consumer account variant to active state
+ # Note: If user uses Zero Trust / Teams, they run 'warp-cli registration organization setting' later
+ su - "${SUDO_USER:-root}" -c "warp-cli --accept-tos registration new" || true
+ su - "${SUDO_USER:-root}" -c "warp-cli --accept-tos mode warp+dns" || true
+
+ echo "[+] Forcing MAC Address Randomization via NetworkManager..."
+ NM_CONF_DIR="/etc/NetworkManager/conf.d"
+ if [ -d "$NM_CONF_DIR" ]; then
+  cat <<EOF >"${NM_CONF_DIR}/99-privacy-mac-randomization.conf"
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+wifi.cloned-mac-address=random
+ethernet.cloned-mac-address=random
+EOF
+ fi
+
+ echo "[+] Disabling NetworkManager Connectivity Verification..."
+ NM_CONN_FILE="/etc/NetworkManager/conf.d/20-connectivity-ubuntu.conf"
+ if [ -d "$NM_CONF_DIR" ]; then
+  cat <<EOF >"$NM_CONN_FILE"
+[connectivity]
+enabled=false
+EOF
+  systemctl restart NetworkManager || true
+ fi
+
+ echo "[+] Disabling Avahi Daemon (mDNS local network tracking/broadcasting)..."
+ systemctl stop avahi-daemon.socket avahi-daemon.service || true
+ systemctl disable avahi-daemon.socket avahi-daemon.service || true
+ systemctl mask avahi-daemon.socket avahi-daemon.service || true
+
+ # ----------------------------------------------------
+ # COMPONENT 3: Aggressive UFW Firewall Configuration
+ # ----------------------------------------------------
+ echo "[+] Configuring strict privacy-focused outbound/inbound UFW firewall rules..."
+ apt-get install -y ufw || true
+ ufw --force reset
+ ufw default deny incoming
+ ufw default deny outbound
+
+ # Basic Web, HTTPS, and DNS (Including Cloudflare DoT port 853)
+ ufw allow out 53/udp comment 'Allow Standard DNS queries'
+ ufw allow out 53/tcp comment 'Allow TCP DNS fallback'
+ ufw allow out 853/tcp comment 'Allow Secured DNS over TLS (DoT)'
+ ufw allow out 80/tcp comment 'Allow standard HTTP web traffic'
+ ufw allow out 443/tcp comment 'Allow secured HTTPS web traffic'
+ ufw allow out 123/udp comment 'Allow NTP time synchronization protocol'
+
+ # Enable firewall operational system
+ ufw --force enable
+ echo "✅ Network, DNS hardening, Cloudflare WARP client deployment, and UFW rules successfully applied."
+else
+ # ----------------------------------------------------
+ # STATUS REPORT / RISK MATRIX (IF NETWORK SKIPPED)
+ # ----------------------------------------------------
+ echo -e "\n=========================================================================="
+ echo -e "📋 NETWORK HARDENING SKIPPED - SECURITY STATUS REPORT & EXPOSURE MATRIX"
+ echo -e "=========================================================================="
+ printf "%-22s | %-16s | %-32s\n" "Vulnerability Target" "Current State" "Privacy Risk / Threat Action"
+ echo -e "-----------------------|------------------|-------------------------------------------------"
+ printf "%-22s | %-16s | %-32s\n" "Port 53 (DNS Request)" "UNSECURED (Clear)" "ISP / Wi-Fi Router logs all site domain histories."
+ printf "%-22s | %-16s | %-32s\n" "Local Network mDNS" "BROADCASTING" "Device name/OS advertised over shared Wi-Fi networks."
+ printf "%-22s | %-16s | %-32s\n" "Hardware MAC Tracking" "EXPOSED (True ID)" "Hardware tracking possible across public networks."
+ printf "%-22s | %-16s | %-32s\n" "Cloudflare WARP Client" "NOT DEPLOYED" "Traffic unencrypted without the VPN wrap utility layer."
+ printf "%-22s | %-16s | %-32s\n" "Outgoing Firewall" "OPEN (Unfiltered)" "Rogue apps can make background outbound data pings."
+ echo -e "==========================================================================\n"
+fi
+
+echo "[+] System privacy configuration loop complete! Please restart your machine to fully apply changes."
+if command -v warp-cli &>/dev/null; then
+ echo -e "\n💡 Cloudflare WARP Installed. To activate or manage your profile:"
+ echo "   • Run: 'warp-cli status' to check state."
+ echo "    • Run: 'warp-cli connect' to secure your connection."
+ echo "    • Run: 'warp-cli disconnect' to disable the tunnel."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 4: Kernel & Network Stack Hardening (sysctl)
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "🛡️ Apply strict Kernel & Sysctl security parameters (IPv6 privacy, Dmesg restrictions, TCP hardening)?"; then
+ echo "[+] Writing kernel hardening parameters to /etc/sysctl.d/99-security-hardening.conf..."
+ cat <<EOF >/etc/sysctl.d/99-security-hardening.conf
+# Hide kernel pointers from unprivileged users
+kernel.kptr_restrict=2
+
+# Restrict dmesg log access to root
+kernel.dmesg_restrict=1
+
+# Disable magic SysRq key
+kernel.sysrq=0
+
+# Disable core dumps (prevents leaking sensitive memory)
+fs.suid_dumpable=0
+
+# Disable unprivileged BPF
+kernel.unprivileged_bpf_disabled=1
+net.core.bpf_jit_harden=2
+
+# Network routing & TCP hardening (Spoofing & SYN Flood protection)
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+net.ipv4.tcp_syncookies=1
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.all.accept_source_route=0
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.all.accept_source_route=0
+
+# Enable IPv6 Privacy Extensions (MAC address hiding in IPv6)
+net.ipv6.conf.all.use_tempaddr=2
+net.ipv6.conf.default.use_tempaddr=2
+EOF
+ sysctl --system >/dev/null || true
+ echo "✅ Kernel hardening parameters applied."
+else
+ echo "⏭️  Skipped Kernel & Sysctl hardening."
+fi
+
+# ----------------------------------------------------
+# COMPONENT 5: OpenSSH Server Hardening
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if [ -f "/etc/ssh/sshd_config" ]; then
+ if ask_user "🔑 Harden OpenSSH Server? (Disables root login & password auth. Ensure SSH keys are set up!)"; then
+  echo "[+] Securing /etc/ssh/sshd_config..."
+
+  # Backup original config safely
+  cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+  # Disable root login
+  sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config
+  # Disable password authentication (requires SSH key)
+  sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/g' /etc/ssh/sshd_config
+  # Disable X11 forwarding
+  sed -i 's/^#*X11Forwarding.*/X11Forwarding no/g' /etc/ssh/sshd_config
+
+  # Restart service depending on Debian/Ubuntu service name
+  if systemctl is-active --quiet sshd; then
+   systemctl restart sshd || true
+  elif systemctl is-active --quiet ssh; then
+   systemctl restart ssh || true
+  fi
+  echo "✅ OpenSSH secured. (Backup saved to /etc/ssh/sshd_config.bak)"
+ else
+  echo "⏭️  Skipped OpenSSH hardening."
+ fi
+fi
+
+# ----------------------------------------------------
+# COMPONENT 6: Unattended Upgrades (Auto-Patching)
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+if ask_user "📦 Enable automatic background security updates?"; then
+ echo "[+] Installing and configuring unattended-upgrades..."
+ apt-get install -y unattended-upgrades || true
+ dpkg-reconfigure -f noninteractive unattended-upgrades || true
+ echo "✅ Automatic security patches enabled."
+else
+ echo "⏭️  Skipped Unattended Upgrades."
+fi
+
+# ----------------------------------------------------
+# FINAL CLEANUP & SYSTEM STATE
+# ----------------------------------------------------
+echo "----------------------------------------------------"
+echo "[+] Emptying trash directories and clearing APT cache..."
+rm -rf /home/*/.local/share/Trash/* 2>/dev/null || true
+rm -rf /root/.local/share/Trash/* 2>/dev/null || true
+apt-get clean -y
+
+echo -e "\n🎉 Hardening script complete!"
+if ask_user "🔄 Would you like to reboot the system now to finalize kernel and networking changes?"; then
+ echo "Rebooting in 3 seconds..."
+ sleep 3
+ reboot
+else
+ echo "⚠️ Please remember to manually reboot your system later to ensure all services and kernel parameters attach correctly."
+fi
+
+exit 0
