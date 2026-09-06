@@ -7,16 +7,16 @@ set -e
 
 # Check if a prompt was provided
 if [ -z "$1" ]; then
-  echo "Error: You must provide a prompt."
-  echo "Usage: ./run_all.sh \"your prompt here\""
-  exit 1
+ echo "Error: You must provide a prompt."
+ echo "Usage: ./run_all.sh \"your prompt here\""
+ exit 1
 fi
 
 PROMPT="$1"
 
 echo "=> 1. Setting up Python virtual environment..."
 if [ ! -d "flux_env" ]; then
-  python3 -m venv flux_env
+ python3 -m venv flux_env
 fi
 source flux_env/bin/activate
 
@@ -25,7 +25,7 @@ pip install --quiet --upgrade pip
 pip install --quiet torch diffusers transformers accelerate peft huggingface-hub
 
 echo "=> 3. Generating Python script..."
-cat << 'EOF' > flux_generator.py
+cat <<'EOF' >flux_generator.py
 import sys
 import torch
 import warnings
