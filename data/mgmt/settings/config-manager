@@ -10,6 +10,9 @@ FILE_NAME="gsettings"
 FILE_EXTN="dconf"
 FILE_PATH="${PROFILE_MNGR_HOME}/${FILE_NAME}"
 
+echo -e "Setting timezone \e[92mAmerica/New_York\e[0m"
+sudo timedatectl set-timezone America/New_York
+
 function select_restore_point {
  local target_dir="${1:-$BACKUP_PATH}"
 

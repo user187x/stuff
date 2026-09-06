@@ -47,6 +47,9 @@ function install_ghidra {
  # 4. Rename the extracted version-specific directory to a static path
  sudo mv /opt/ghidra_* /opt/ghidra
 
+ # Grant user ownership so plugins can be deployed without sudo
+ sudo chown -R $USER:$USER /opt/ghidra
+
  # 5. Create a global symbolic link to make the 'ghidra' command executable from anywhere
  sudo ln -sf /opt/ghidra/ghidraRun /usr/local/bin/ghidra
 

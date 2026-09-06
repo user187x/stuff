@@ -3,6 +3,10 @@
 # Enforce better error handling
 set -euo pipefail
 
+set_timezone() {
+ sudo timedatectl set-timezone America/New_York
+}
+
 tweak_enable_power_option_lid() {
  if [[ "${1:-}" == "--desc" ]]; then
   echo "Shutdown on lid close (Battery)"
