@@ -4,6 +4,10 @@
 # ALIASES                                      #
 ################################################
 
+if command -v inxi >/dev/null 2>&1; then
+ alias deetz='inxi -Fxz'
+fi
+
 DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
 
 alias ls="ls --color=always ${DATE_FORMAT}"

@@ -15,118 +15,118 @@ sudo apt update -y && sudo apt upgrade -y
 # -- Build & Compilation Toolchain --------------------------------------------
 # "everything you need to turn source code into running software"
 build_toolchain=(
- "build-essential"          # "meta-package: gcc, g++, make, libc headers — the works"
- "make"                     # "the classic build automator"
- "libc6-dev"                # "the standard C library fof development header files"
- "gcc"                      # "the gnu c compiler"
- "g++"                      # "a gnu c compiler"
- "clang"                    # "C/C++ compiler, catches things gcc misses"
- "clang-format"             # "C/C++ code formatter"
- "cmake"                    # "the de facto modern C/C++ build generator"
- "ninja-build"              # "ultra-fast build executor, pairs with cmake"
- "meson"                    # "modern, friendlier alternative to autotools"
- "pkg-config"               # "tells compilers which flags a library needs"
- "autoconf"                 # "generates portable ./configure scripts"
- "automake"                 # "writes Makefile.in so you don't have to"
- "libtool-bin"              # "portable shared-library wrapper"
- "checkinstall"             # "wrap make install into a real .deb so you can uninstall cleanly"
- "ccache"                   # "caches compile output, drastically speeds up rebuilds"
- "gdb"                      # "the GNU debugger"
- "lldb"                     # "LLVM's debugger, friendlier for Clang-built binaries"
- "valgrind"                 # "memory leak and error detector"
- "strace"                   # "trace system calls a process makes"
- "ltrace"                   # "trace library calls instead of syscalls"
- "bpftrace"                 # "high-level tracing language built on eBPF"
- "musl"                     # "tiny, fast, standards-compliant libc"
- "install-stuff"            # "(custom/placeholder — leave or remove as needed)"
+ "build-essential" # "meta-package: gcc, g++, make, libc headers — the works"
+ "make"            # "the classic build automator"
+ "libc6-dev"       # "the standard C library fof development header files"
+ "gcc"             # "the gnu c compiler"
+ "g++"             # "a gnu c compiler"
+ "clang"           # "C/C++ compiler, catches things gcc misses"
+ "clang-format"    # "C/C++ code formatter"
+ "cmake"           # "the de facto modern C/C++ build generator"
+ "ninja-build"     # "ultra-fast build executor, pairs with cmake"
+ "meson"           # "modern, friendlier alternative to autotools"
+ "pkg-config"      # "tells compilers which flags a library needs"
+ "autoconf"        # "generates portable ./configure scripts"
+ "automake"        # "writes Makefile.in so you don't have to"
+ "libtool-bin"     # "portable shared-library wrapper"
+ "checkinstall"    # "wrap make install into a real .deb so you can uninstall cleanly"
+ "ccache"          # "caches compile output, drastically speeds up rebuilds"
+ "gdb"             # "the GNU debugger"
+ "lldb"            # "LLVM's debugger, friendlier for Clang-built binaries"
+ "valgrind"        # "memory leak and error detector"
+ "strace"          # "trace system calls a process makes"
+ "ltrace"          # "trace library calls instead of syscalls"
+ "bpftrace"        # "high-level tracing language built on eBPF"
+ "musl"            # "tiny, fast, standards-compliant libc"
+ "install-stuff"   # "(custom/placeholder — leave or remove as needed)"
 )
 
 # -- Development Libraries ----------------------------------------------------
 # "the -dev headers other tools link against when compiling"
 dev_libraries=(
- "libssl-dev"               # "openssl headers for tls and crypto"
- "libzip-dev"               # "read and write zip archives from c"
- "libcurl4-openssl-dev"     # "curl headers built against openssl"
- "libnss3-tools"            # "mozilla nss certificate utilities (certutil, pk12util)"
- "zlib1g-dev"               # "the zlib compression headers, depended on by half the world"
- "libreadline-dev"          # "line editing for interactive CLIs"
- "libsqlite3-dev"           # "embed sqlite into your app"
- "libpq-dev"                # "postgres client headers"
- "libffi-dev"               # "call C functions from other languages"
- "libbz2-dev"               # "bzip2 compression headers"
- "liblzma-dev"              # "xz/lzma compression headers"
- "libncurses-dev"           # "build terminal UIs"
- "libxml2-dev"              # "XML parsing headers"
- "libyaml-dev"              # "YAML parsing headers"
- "libplist-dev"             # "parse apple property-list files"
+ "libssl-dev"                # "openssl headers for tls and crypto"
+ "libzip-dev"                # "read and write zip archives from c"
+ "libcurl4-openssl-dev"      # "curl headers built against openssl"
+ "libnss3-tools"             # "mozilla nss certificate utilities (certutil, pk12util)"
+ "zlib1g-dev"                # "the zlib compression headers, depended on by half the world"
+ "libreadline-dev"           # "line editing for interactive CLIs"
+ "libsqlite3-dev"            # "embed sqlite into your app"
+ "libpq-dev"                 # "postgres client headers"
+ "libffi-dev"                # "call C functions from other languages"
+ "libbz2-dev"                # "bzip2 compression headers"
+ "liblzma-dev"               # "xz/lzma compression headers"
+ "libncurses-dev"            # "build terminal UIs"
+ "libxml2-dev"               # "XML parsing headers"
+ "libyaml-dev"               # "YAML parsing headers"
+ "libplist-dev"              # "parse apple property-list files"
  "libimobiledevice-glue-dev" # "shared helpers for the libimobiledevice stack"
- "libusbmuxd-dev"           # "talk to iOS devices over USB"
- "libirecovery-1.0-dev"     # "talk to iOS devices stuck in recovery/DFU"
- "usbmuxd"                  # "the daemon that actually muxes USB traffic to iOS"
- "libglib2.0-dev-bin"       # "development tools utilities for glib Gnome apps"
+ "libusbmuxd-dev"            # "talk to iOS devices over USB"
+ "libirecovery-1.0-dev"      # "talk to iOS devices stuck in recovery/DFU"
+ "usbmuxd"                   # "the daemon that actually muxes USB traffic to iOS"
+ "libglib2.0-dev-bin"        # "development tools utilities for glib Gnome apps"
 )
 
 # -- Version Control ----------------------------------------------------------
 # "track every change, blame every line"
 version_control=(
- "git"                      # "the distributed version control system"
- "lazygit"                  # "a fast, keyboard-driven TUI for git"
- "delta:git-delta"          # "syntax-highlighted, side-by-side git diffs"
- "tig"                      # "ncurses TUI for browsing git history"
- "git-lfs"                  # "large file storage extension for git"
- "git-extras"               # "dozens of useful git subcommands"
- "hg:mercurial"             # "the other distributed VCS"
+ "git"             # "the distributed version control system"
+ "lazygit"         # "a fast, keyboard-driven TUI for git"
+ "delta:git-delta" # "syntax-highlighted, side-by-side git diffs"
+ "tig"             # "ncurses TUI for browsing git history"
+ "git-lfs"         # "large file storage extension for git"
+ "git-extras"      # "dozens of useful git subcommands"
+ "hg:mercurial"    # "the other distributed VCS"
 )
 
 # -- Editors ------------------------------------------------------------------
 # "where text actually gets written"
 editors=(
- "vim"                      # "the immortal modal editor"
- "nvim:neovim"              # "modernized, lua-scriptable vim fork"
- "nano"                     # "the editor your past self thanks you for installing"
- "micro"                    # "modern terminal editor with sane keybindings"
- "emacs"                    # "the operating system disguised as an editor"
- "pluma"                    # "MATE's lightweight gedit fork"
- "gedit"                    # "gnome's no-frills text editor"
+ "vim"         # "the immortal modal editor"
+ "nvim:neovim" # "modernized, lua-scriptable vim fork"
+ "nano"        # "the editor your past self thanks you for installing"
+ "micro"       # "modern terminal editor with sane keybindings"
+ "emacs"       # "the operating system disguised as an editor"
+ "pluma"       # "MATE's lightweight gedit fork"
+ "gedit"       # "gnome's no-frills text editor"
 )
 
 # -- Terminals & Multiplexers -------------------------------------------------
 # "the windows you stare at all day"
 terminals=(
- "tmux"                     # "split, detach, reattach — sessions that never die"
- "kitty"                    # "gpu-accelerated, ligature-loving terminal"
- "alacritty"                # "minimal, GPU-accelerated terminal"
- "zellij"                   # "modern multiplexer with discoverable keybindings"
- "screen"                   # "the original terminal multiplexer, predates tmux"
- "gnome-terminal"           # "gnome's default terminal emulator"
- "terminator"               # "tile multiple terminals in one window"
- "tilix"                    # "tiling GTK terminal"
+ "tmux"           # "split, detach, reattach — sessions that never die"
+ "kitty"          # "gpu-accelerated, ligature-loving terminal"
+ "alacritty"      # "minimal, GPU-accelerated terminal"
+ "zellij"         # "modern multiplexer with discoverable keybindings"
+ "screen"         # "the original terminal multiplexer, predates tmux"
+ "gnome-terminal" # "gnome's default terminal emulator"
+ "terminator"     # "tile multiple terminals in one window"
+ "tilix"          # "tiling GTK terminal"
 )
 
 # -- Shell Utilities ----------------------------------------------------------
 # "modern replacements and helpers for everyday CLI work"
 shell_utilities=(
- "bat"                      # "cat with syntax highlighting and git integration"
- "broot"                    # "better file traversal"
- "lsd"                      # "colors for ls commands"
- "stow"                     # "helps symlink your dotfiles"
- "eza"                      # "a modern, colorized ls successor"
- "rg:ripgrep"               # "blazing-fast recursive grep, respects .gitignore"
- "fd:fd-find"               # "a user-friendly alternative to find"
- "fzf"                      # "fuzzy finder for anything streamable"
- "zoxide"                   # "cd that learns where you actually go"
- "thefuck"                  # "auto-corrects the previous mistyped command"
- "jq"                       # "command-line JSON surgeon"
- "yq"                       # "jq's sibling for YAML, XML, and TOML"
- "jc"                       # "converts command output into JSON"
- "grc"                      # "add ansi colors to commands"
- "xmllint:libxml2-utils"    # "xml parsing and xpath from the shell"
- "glow"                     # "render markdown beautifully in the terminal"
- "pv"                       # "watch data flow through a pipe with a progress bar"
- "tree"                     # "directory listing as an indented tree"
- "rename"                   # "perl-powered batch file renaming"
- "expect"                   # "script answers to interactive prompts"
- "direnv"                   # "auto-loads env vars when you cd into a directory"
+ "bat"                   # "cat with syntax highlighting and git integration"
+ "broot"                 # "better file traversal"
+ "lsd"                   # "colors for ls commands"
+ "stow"                  # "helps symlink your dotfiles"
+ "eza"                   # "a modern, colorized ls successor"
+ "rg:ripgrep"            # "blazing-fast recursive grep, respects .gitignore"
+ "fd:fd-find"            # "a user-friendly alternative to find"
+ "fzf"                   # "fuzzy finder for anything streamable"
+ "zoxide"                # "cd that learns where you actually go"
+ "thefuck"               # "auto-corrects the previous mistyped command"
+ "jq"                    # "command-line JSON surgeon"
+ "yq"                    # "jq's sibling for YAML, XML, and TOML"
+ "jc"                    # "converts command output into JSON"
+ "grc"                   # "add ansi colors to commands"
+ "xmllint:libxml2-utils" # "xml parsing and xpath from the shell"
+ "glow"                  # "render markdown beautifully in the terminal"
+ "pv"                    # "watch data flow through a pipe with a progress bar"
+ "tree"                  # "directory listing as an indented tree"
+ "rename"                # "perl-powered batch file renaming"
+ "expect"                # "script answers to interactive prompts"
+ "direnv"                # "auto-loads env vars when you cd into a directory"
  "apt-file"
  "entr"                     # "run a command when files change"
  "parallel"                 # "GNU parallel, executes jobs across cores"
@@ -144,357 +144,358 @@ shell_utilities=(
 # -- File Managers ------------------------------------------------------------
 # "navigate the filesystem without leaving the terminal"
 file_managers=(
- "yazi"                     # "blazing-fast, async terminal file manager"
- "ya"                       # "yazi's package/plugin CLI companion"
- "ranger"                   # "vim-keybinding TUI file manager with previews"
- "mc"                       # "midnight commander — the classic two-pane TUI"
- "nnn"                      # "tiny, lightning-fast file manager"
- "vifm"                     # "vim-keybinding file manager with dual panes"
+ "yazi"   # "blazing-fast, async terminal file manager"
+ "ya"     # "yazi's package/plugin CLI companion"
+ "ranger" # "vim-keybinding TUI file manager with previews"
+ "mc"     # "midnight commander — the classic two-pane TUI"
+ "nnn"    # "tiny, lightning-fast file manager"
+ "vifm"   # "vim-keybinding file manager with dual panes"
 )
 
 # -- System Monitors & Disk Usage --------------------------------------------
 # "find out what's eating your CPU, RAM, and disk"
 system_monitors=(
- "htop"                     # "interactive process viewer"
- "btop"                     # "htop with graphs and a prettier face"
- "bmon"                     # "live bandwidth monitor per interface"
- "duf"                      # "df, but readable and colored"
- "ncdu"                     # "ncurses disk usage analyzer"
- "gdu"                      # "go-built disk usage analyzer, fast on SSDs"
- "diskonaut"                # "navigate disk space visually like a map"
- "fastfetch"                # "neofetch-style system info, way faster"
- "indicator-multiload"      # "panel applet graphing system load"
- "stacer"                   # "all-in-one GUI system optimizer and monitor"
- "iotop"                    # "top, but for disk I/O per process"
- "nethogs"                  # "bandwidth usage broken down per process"
- "iftop"                    # "live bandwidth per connection"
- "glances"                  # "cross-platform all-in-one system monitor"
- "sar:sysstat"              # "ships sar, iostat, mpstat, pidstat"
- "lsof"                     # "list every open file (and socket) on the system"
- "powertop"                 # "find what's draining your battery"
- "s-tui"                    # "stress test and monitor CPU thermals"
+ "htop"                # "interactive process viewer"
+ "btop"                # "htop with graphs and a prettier face"
+ "bmon"                # "live bandwidth monitor per interface"
+ "duf"                 # "df, but readable and colored"
+ "ncdu"                # "ncurses disk usage analyzer"
+ "gdu"                 # "go-built disk usage analyzer, fast on SSDs"
+ "diskonaut"           # "navigate disk space visually like a map"
+ "fastfetch"           # "neofetch-style system info, way faster"
+ "indicator-multiload" # "panel applet graphing system load"
+ "stacer"              # "all-in-one GUI system optimizer and monitor"
+ "iotop"               # "top, but for disk I/O per process"
+ "nethogs"             # "bandwidth usage broken down per process"
+ "iftop"               # "live bandwidth per connection"
+ "glances"             # "cross-platform all-in-one system monitor"
+ "sar:sysstat"         # "ships sar, iostat, mpstat, pidstat"
+ "lsof"                # "list every open file (and socket) on the system"
+ "powertop"            # "find what's draining your battery"
+ "s-tui"               # "stress test and monitor CPU thermals"
+ "inxi"                # "shows system information"
 )
 
 # -- Networking ---------------------------------------------------------------
 # "move bytes between machines and inspect what's flowing"
 networking=(
- "curl"                     # "transfer data with URLs, the universal http client"
- "wget"                     # "the non-interactive batch downloader"
- "nmap"                     # "scan networks and audit security"
- "netstat:net-tools"        # "classic netstat/ifconfig/route utilities"
+ "curl"                      # "transfer data with URLs, the universal http client"
+ "wget"                      # "the non-interactive batch downloader"
+ "nmap"                      # "scan networks and audit security"
+ "netstat:net-tools"         # "classic netstat/ifconfig/route utilities"
  "inotifywait:inotify-tools" # "watch filesystem events from the shell"
- "ab:apache2-utils"         # "ships ab, htpasswd, and other http helpers"
- "mtr"                      # "traceroute and ping combined, live updating"
+ "ab:apache2-utils"          # "ships ab, htpasswd, and other http helpers"
+ "mtr"                       # "traceroute and ping combined, live updating"
  "zenmap"
- "traceroute"               # "classic network path tracer"
+ "traceroute" # "classic network path tracer"
  "aircrack-ng"
- "tcpdump"                  # "command-line packet capture"
+ "tcpdump" # "command-line packet capture"
  "openssh-server"
- "tshark"                   # "wireshark's CLI sibling"
- "iperf3"                   # "measure network bandwidth between two hosts"
- "dig:dnsutils"             # "dig, nslookup, host — DNS troubleshooting"
+ "tshark"       # "wireshark's CLI sibling"
+ "iperf3"       # "measure network bandwidth between two hosts"
+ "dig:dnsutils" # "dig, nslookup, host — DNS troubleshooting"
  "libnet1-dev"
  "libpcap-dev"
- "whois"                    # "look up domain registration info"
- "wg:wireguard-tools"       # "modern, fast VPN tooling"
- "mosh"                     # "shell that survives roaming and bad networks"
- "ngrep"                    # "grep but for network traffic"
+ "whois"                       # "look up domain registration info"
+ "wg:wireguard-tools"          # "modern, fast VPN tooling"
+ "mosh"                        # "shell that survives roaming and bad networks"
+ "ngrep"                       # "grep but for network traffic"
  "ettercap:ettercap-graphical" # "MITM framework with TUI/GUI"
 )
 
 # -- Remote Desktop / VNC -----------------------------------------------------
 # "see and control another machine's screen"
 remote_desktop=(
- "wayvnc"                   # "vnc server for wlroots-based wayland compositors"
- "tigervnc-common"          # "shared files for the TigerVNC suite"
- "tigervnc-viewer"          # "TigerVNC client"
- "tigervnc-tools"           # "TigerVNC helper utilities"
+ "wayvnc"                     # "vnc server for wlroots-based wayland compositors"
+ "tigervnc-common"            # "shared files for the TigerVNC suite"
+ "tigervnc-viewer"            # "TigerVNC client"
+ "tigervnc-tools"             # "TigerVNC helper utilities"
  "tigervnc-standalone-server" # "TigerVNC server that runs without an Xorg session"
- "remmina"                  # "swiss-army remote desktop client (RDP/VNC/SSH/SPICE)"
- "x11vnc"                   # "share your existing X session over VNC"
- "xfreerdp:freerdp2-x11"    # "free RDP client for connecting to Windows"
- "xrdp"                     # "RDP server, lets Windows clients connect to Linux"
- "barrier"                  # "software KVM, share keyboard/mouse across machines"
+ "remmina"                    # "swiss-army remote desktop client (RDP/VNC/SSH/SPICE)"
+ "x11vnc"                     # "share your existing X session over VNC"
+ "xfreerdp:freerdp2-x11"      # "free RDP client for connecting to Windows"
+ "xrdp"                       # "RDP server, lets Windows clients connect to Linux"
+ "barrier"                    # "software KVM, share keyboard/mouse across machines"
 )
 
 # -- Virtualization -----------------------------------------------------------
 # "run other operating systems alongside yours"
 virtualization=(
- "qemu-kvm"                 # "hardware-accelerated machine emulator"
- "qemu-utils"               # "qemu-img and other disk-image helpers"
+ "qemu-kvm"                           # "hardware-accelerated machine emulator"
+ "qemu-utils"                         # "qemu-img and other disk-image helpers"
  "qemu-system-x86_64:qemu-system-x86" # "the x86_64 qemu emulator binaries"
- "libvirt-daemon-system"    # "libvirt's system-level VM management daemon"
- "libvirt-clients"          # "virsh and other libvirt CLI tools"
- "bridge-utils"             # "configure ethernet bridges for VM networking"
- "virt-manager"             # "GTK GUI for managing libvirt VMs"
- "ovmf"                     # "UEFI firmware images for VMs"
- "podman"                   # "daemonless, rootless container engine"
- "docker:docker.io"         # "docker engine from the Ubuntu archive"
- "lxc"                      # "system-container runtime"
- "dnsmasq"                  # "lightweight DHCP/DNS, libvirt uses it for NAT networks"
+ "libvirt-daemon-system"              # "libvirt's system-level VM management daemon"
+ "libvirt-clients"                    # "virsh and other libvirt CLI tools"
+ "bridge-utils"                       # "configure ethernet bridges for VM networking"
+ "virt-manager"                       # "GTK GUI for managing libvirt VMs"
+ "ovmf"                               # "UEFI firmware images for VMs"
+ "podman"                             # "daemonless, rootless container engine"
+ "docker:docker.io"                   # "docker engine from the Ubuntu archive"
+ "lxc"                                # "system-container runtime"
+ "dnsmasq"                            # "lightweight DHCP/DNS, libvirt uses it for NAT networks"
 )
 
 # -- Media: Audio, Video, Images ---------------------------------------------
 # "play, convert, and manipulate every kind of media"
 media=(
- "mpv"                      # "minimalist, scriptable media player"
- "ffmpeg"                   # "the audio/video swiss army knife"
- "ffmpegthumbnailer"        # "lightweight video thumbnail generator"
- "imagemagick"              # "command-line image manipulation toolkit"
- "v4l-utils"                # "camera util"
- "cava"                     # "console audio visualizer that dances to your music"
- "pulseaudio-utils"         # "pactl and friends for pulseaudio control"
- "jp2a"                     # "render JPEGs as ASCII art"
- "poppler-utils"            # "pdftotext, pdfimages, and other PDF tools"
- "tesseract-ocr"            # "extract text from images with OCR"
- "vlc"                      # "the media player that plays literally anything"
- "audacity"                 # "multitrack audio editor"
- "gimp"                     # "raster image editor"
- "inkscape"                 # "vector graphics editor"
- "obs:obs-studio"           # "streaming and screen recording"
- "kdenlive"                 # "non-linear video editor"
- "HandBrakeCLI:handbrake-cli" # "video transcoder with sensible presets"
- "sox"                      # "swiss army knife of audio processing"
- "mediainfo"                # "inspect codec, bitrate, and metadata of any media file"
+ "mpv"                             # "minimalist, scriptable media player"
+ "ffmpeg"                          # "the audio/video swiss army knife"
+ "ffmpegthumbnailer"               # "lightweight video thumbnail generator"
+ "imagemagick"                     # "command-line image manipulation toolkit"
+ "v4l-utils"                       # "camera util"
+ "cava"                            # "console audio visualizer that dances to your music"
+ "pulseaudio-utils"                # "pactl and friends for pulseaudio control"
+ "jp2a"                            # "render JPEGs as ASCII art"
+ "poppler-utils"                   # "pdftotext, pdfimages, and other PDF tools"
+ "tesseract-ocr"                   # "extract text from images with OCR"
+ "vlc"                             # "the media player that plays literally anything"
+ "audacity"                        # "multitrack audio editor"
+ "gimp"                            # "raster image editor"
+ "inkscape"                        # "vector graphics editor"
+ "obs:obs-studio"                  # "streaming and screen recording"
+ "kdenlive"                        # "non-linear video editor"
+ "HandBrakeCLI:handbrake-cli"      # "video transcoder with sensible presets"
+ "sox"                             # "swiss army knife of audio processing"
+ "mediainfo"                       # "inspect codec, bitrate, and metadata of any media file"
  "exiftool:libimage-exiftool-perl" # "read/write metadata in any media file"
 )
 
 # -- Archives & Compression ---------------------------------------------------
 # "squeeze files smaller, pull them back out"
 archives=(
- "7zip"                     # "high-ratio archiver with broad format support"
- "bzip:bzip2"               # "block-sorting compressor"
- "unrar"                    # "extract .rar archives"
- "rpm2cpio"                 # "convert .rpm packages to cpio archives"
- "cpio"                     # "copy files to and from archives"
- "alien"                    # "convert between .deb, .rpm, .tgz, and friends"
- "file-roller"              # "gnome's gui archive manager"
- "zip"                      # "basic zip create"
- "unzip"                    # "basic zip extract"
- "xz:xz-utils"              # "xz and lzma compression"
- "zstd"                     # "facebook's fast modern compressor"
- "pigz"                     # "parallel gzip, uses all your cores"
- "pbzip2"                   # "parallel bzip2"
- "lz4"                      # "extremely fast compression for hot paths"
+ "7zip"        # "high-ratio archiver with broad format support"
+ "bzip:bzip2"  # "block-sorting compressor"
+ "unrar"       # "extract .rar archives"
+ "rpm2cpio"    # "convert .rpm packages to cpio archives"
+ "cpio"        # "copy files to and from archives"
+ "alien"       # "convert between .deb, .rpm, .tgz, and friends"
+ "file-roller" # "gnome's gui archive manager"
+ "zip"         # "basic zip create"
+ "unzip"       # "basic zip extract"
+ "xz:xz-utils" # "xz and lzma compression"
+ "zstd"        # "facebook's fast modern compressor"
+ "pigz"        # "parallel gzip, uses all your cores"
+ "pbzip2"      # "parallel bzip2"
+ "lz4"         # "extremely fast compression for hot paths"
 )
 
 # -- Disk & Partitioning ------------------------------------------------------
 # "carve, format, and resize drives safely"
 disk_tools=(
- "gparted"                  # "gui partition editor"
- "rsync"                    # "the universal file syncer, arguably essential"
- "parted"                   # "scriptable CLI partition editor"
- "gdisk"                    # "fdisk for GPT partition tables"
- "lvm:lvm2"                 # "logical volume manager for flexible storage"
- "cryptsetup"               # "LUKS full-disk encryption tooling"
- "smartctl:smartmontools"   # "SMART self-test and health monitoring"
- "hdparm"                   # "query and tune SATA/IDE drive parameters"
- "nvme:nvme-cli"            # "manage and inspect NVMe SSDs"
- "mkfs.ext4:e2fsprogs"      # "create and check ext2/3/4 filesystems"
- "xfsprogs"                 # "XFS filesystem utilities"
- "btrfs:btrfs-progs"        # "Btrfs tooling: subvolumes, snapshots, scrub"
- "mkfs.fat:dosfstools"      # "create and check FAT/exFAT filesystems"
- "ntfs-3g"                  # "read/write NTFS partitions"
- "exfatprogs"               # "modern exFAT tools"
- "testdisk"                 # "recover lost partitions; ships photorec for file recovery"
- "ddrescue:gddrescue"       # "fault-tolerant copy for failing drives"
- "udisksctl:udisks2"        # "high-level disk management daemon"
- "rclone"                   # "rsync for cloud storage (S3, Drive, Dropbox, etc.)"
- "lsscsi"                   # "list SCSI/SATA/NVMe devices in a readable form"
- "secure-delete"            # "wipe files, swap, and free space securely"
+ "gparted"                # "gui partition editor"
+ "rsync"                  # "the universal file syncer, arguably essential"
+ "parted"                 # "scriptable CLI partition editor"
+ "gdisk"                  # "fdisk for GPT partition tables"
+ "lvm:lvm2"               # "logical volume manager for flexible storage"
+ "cryptsetup"             # "LUKS full-disk encryption tooling"
+ "smartctl:smartmontools" # "SMART self-test and health monitoring"
+ "hdparm"                 # "query and tune SATA/IDE drive parameters"
+ "nvme:nvme-cli"          # "manage and inspect NVMe SSDs"
+ "mkfs.ext4:e2fsprogs"    # "create and check ext2/3/4 filesystems"
+ "xfsprogs"               # "XFS filesystem utilities"
+ "btrfs:btrfs-progs"      # "Btrfs tooling: subvolumes, snapshots, scrub"
+ "mkfs.fat:dosfstools"    # "create and check FAT/exFAT filesystems"
+ "ntfs-3g"                # "read/write NTFS partitions"
+ "exfatprogs"             # "modern exFAT tools"
+ "testdisk"               # "recover lost partitions; ships photorec for file recovery"
+ "ddrescue:gddrescue"     # "fault-tolerant copy for failing drives"
+ "udisksctl:udisks2"      # "high-level disk management daemon"
+ "rclone"                 # "rsync for cloud storage (S3, Drive, Dropbox, etc.)"
+ "lsscsi"                 # "list SCSI/SATA/NVMe devices in a readable form"
+ "secure-delete"          # "wipe files, swap, and free space securely"
 )
 
 # -- Package Management -------------------------------------------------------
 # "install software from every ecosystem under the sun"
 package_management=(
- "snapd"                    # "daemon for canonical's snap packages"
- "flatpak"                  # "sandboxed cross-distro application packaging"
+ "snapd"                         # "daemon for canonical's snap packages"
+ "flatpak"                       # "sandboxed cross-distro application packaging"
  "gnome-software-plugin-flatpak" # "flatpak support inside gnome software"
- "synaptic"                 # "graphical front-end for apt"
- "apt-clone"                # "snapshot and restore the apt install set"
- "pipx"                     # "install python apps in isolated venvs"
- "npm"                      # "node package manager"
- "node:nodejs"              # "javascript runtime"
- "aptitude"                 # "interactive ncurses front-end for apt"
- "gdebi"                    # "install local .deb files with dependency resolution"
- "dpkg-dev"                 # "build your own .deb packages"
+ "synaptic"                      # "graphical front-end for apt"
+ "apt-clone"                     # "snapshot and restore the apt install set"
+ "pipx"                          # "install python apps in isolated venvs"
+ "npm"                           # "node package manager"
+ "node:nodejs"                   # "javascript runtime"
+ "aptitude"                      # "interactive ncurses front-end for apt"
+ "gdebi"                         # "install local .deb files with dependency resolution"
+ "dpkg-dev"                      # "build your own .deb packages"
 )
 
 # -- Code Quality & Linting ---------------------------------------------------
 # "keep code and configs clean before they bite you"
 linters=(
- "shfmt"                    # "format shell scripts consistently"
- "shellcheck"               # "static analyzer that catches shell footguns"
- "yamllint"                 # "lint YAML for syntax and style"
- "colordiff"                # "diff with color so changes pop"
- "cppcheck"                 # "static analyzer for C/C++"
- "clang-tidy"               # "LLVM linter with auto-fixes"
- "clang-format"             # "style-enforced formatter for C/C++/Obj-C"
- "pylint:python3-pylint"    # "Python linter"
- "flake8:python3-flake8"    # "lightweight Python linter"
- "black:python3-black"      # "the uncompromising Python formatter"
- "mypy:python3-mypy"        # "static type checker for Python"
- "flawfinder"               # "scan C/C++ source for risky function usage"
- "rats"                     # "rough auditing tool for security, multi-language"
+ "shfmt"                 # "format shell scripts consistently"
+ "shellcheck"            # "static analyzer that catches shell footguns"
+ "yamllint"              # "lint YAML for syntax and style"
+ "colordiff"             # "diff with color so changes pop"
+ "cppcheck"              # "static analyzer for C/C++"
+ "clang-tidy"            # "LLVM linter with auto-fixes"
+ "clang-format"          # "style-enforced formatter for C/C++/Obj-C"
+ "pylint:python3-pylint" # "Python linter"
+ "flake8:python3-flake8" # "lightweight Python linter"
+ "black:python3-black"   # "the uncompromising Python formatter"
+ "mypy:python3-mypy"     # "static type checker for Python"
+ "flawfinder"            # "scan C/C++ source for risky function usage"
+ "rats"                  # "rough auditing tool for security, multi-language"
 )
 
 # -- Java ---------------------------------------------------------------------
 # "jvm and tooling for everything java-shaped"
 java=(
- "java:default-jdk"         # "the default JDK for this distro"
- "visualvm"                 # "graphical JVM profiler and heap inspector"
- "mvn:maven"                # "the XML-driven Java build tool"
- "gradle"                   # "the groovy/kotlin-DSL Java build tool"
- "ant"                      # "the original Java build tool"
- "procyon-decompiler"       # "Java decompiler with strong Java 8+ support"
+ "java:default-jdk"   # "the default JDK for this distro"
+ "visualvm"           # "graphical JVM profiler and heap inspector"
+ "mvn:maven"          # "the XML-driven Java build tool"
+ "gradle"             # "the groovy/kotlin-DSL Java build tool"
+ "ant"                # "the original Java build tool"
+ "procyon-decompiler" # "Java decompiler with strong Java 8+ support"
 )
 
 # -- GNOME / Desktop Tweaks ---------------------------------------------------
 # "bend the desktop environment to your will"
 desktop_tweaks=(
- "gnome-tweaks"             # "expose hidden gnome settings"
- "gdm-settings"             # "adjust login logo, sounds, and themes"
+ "gnome-tweaks" # "expose hidden gnome settings"
+ "gdm-settings" # "adjust login logo, sounds, and themes"
  "gtk-common-themes"
  "gnome-shell-extension-manager" # "browse, install, and toggle gnome extensions"
- "dconf-editor"             # "registry-style editor for gnome's settings tree"
- "gnome-sushi"              # "spacebar preview images"
- "gufw"                     # "graphical front-end for the ufw firewall"
- "zenity"                   # "spawn GTK dialogs from shell scripts"
- "notify-send:libnotify-bin" # "fire off desktop notifications from the CLI"
- "wmctrl"                   # "scriptable window manager control"
- "xdotool"                  # "automate X11 keyboard and mouse"
- "ydotool"                  # "xdotool's Wayland equivalent"
- "xdg-open:xdg-utils"       # "xdg-open and other freedesktop helpers"
- "redshift"                 # "shift screen color temperature at night"
- "caffeine"                 # "prevent the screen from sleeping during media"
+ "dconf-editor"                  # "registry-style editor for gnome's settings tree"
+ "gnome-sushi"                   # "spacebar preview images"
+ "gufw"                          # "graphical front-end for the ufw firewall"
+ "zenity"                        # "spawn GTK dialogs from shell scripts"
+ "notify-send:libnotify-bin"     # "fire off desktop notifications from the CLI"
+ "wmctrl"                        # "scriptable window manager control"
+ "xdotool"                       # "automate X11 keyboard and mouse"
+ "ydotool"                       # "xdotool's Wayland equivalent"
+ "xdg-open:xdg-utils"            # "xdg-open and other freedesktop helpers"
+ "redshift"                      # "shift screen color temperature at night"
+ "caffeine"                      # "prevent the screen from sleeping during media"
 )
 
 # -- Browsers -----------------------------------------------------------------
 # "the window to the rest of the internet"
 browsers=(
  "chromium:chromium-browser" # "the open-source base behind chrome"
- "firefox"                  # "mozilla's browser"
- "lynx"                     # "text-mode browser for shells and scripts"
- "w3m"                      # "another text-mode browser, with image support"
+ "firefox"                   # "mozilla's browser"
+ "lynx"                      # "text-mode browser for shells and scripts"
+ "w3m"                       # "another text-mode browser, with image support"
 )
 
 # -- Clipboard ----------------------------------------------------------------
 # "bridge the CLI and the system clipboard"
 clipboard=(
- "xclip"                    # "read and write the X11 clipboard from the shell"
- "wl-copy:wl-clipboard"     # "wl-copy and wl-paste for wayland"
- "xsel"                     # "alternative to xclip with different syntax"
- "copyq"                    # "feature-rich clipboard manager with history"
- "gpaste-client:gpaste-2"   # "gnome-integrated clipboard manager"
+ "xclip"                  # "read and write the X11 clipboard from the shell"
+ "wl-copy:wl-clipboard"   # "wl-copy and wl-paste for wayland"
+ "xsel"                   # "alternative to xclip with different syntax"
+ "copyq"                  # "feature-rich clipboard manager with history"
+ "gpaste-client:gpaste-2" # "gnome-integrated clipboard manager"
 )
 
 # -- TUI Toys & Banners -------------------------------------------------------
 # "for when the terminal needs a little personality"
 tui_toys=(
- "tty-clock"                # "fullscreen terminal clock"
- "lolcat"                   # "rainbow-color any text passed in"
- "figlet"                   # "ASCII-art banner generator"
- "toilet"                   # "figlet's flashier cousin, with color and unicode"
- "sysvbanner"               # "the original 1970s banner program"
- "cmatrix"                  # "the matrix rain in your terminal"
- "whiptail"                 # "newt-based dialog boxes for shell scripts"
- "qrencode"                 # "generate QR codes from the command line"
- "python3-segno"            # "QR and data-matrix generator (python library)"
- "cowsay"                   # "ASCII cow says what you tell it"
- "fortune:fortune-mod"      # "random fortune cookies for your MOTD"
- "boxes"                    # "wrap text in ASCII boxes of every shape"
- "sl"                       # "steam locomotive that punishes typos of ls"
- "asciiquarium"             # "ASCII fish tank for your terminal"
- "bsdgames"                 # "ancient text games: adventure, hangman, robots"
- "nyancat"                  # "the meme, in your terminal, forever"
+ "tty-clock"           # "fullscreen terminal clock"
+ "lolcat"              # "rainbow-color any text passed in"
+ "figlet"              # "ASCII-art banner generator"
+ "toilet"              # "figlet's flashier cousin, with color and unicode"
+ "sysvbanner"          # "the original 1970s banner program"
+ "cmatrix"             # "the matrix rain in your terminal"
+ "whiptail"            # "newt-based dialog boxes for shell scripts"
+ "qrencode"            # "generate QR codes from the command line"
+ "python3-segno"       # "QR and data-matrix generator (python library)"
+ "cowsay"              # "ASCII cow says what you tell it"
+ "fortune:fortune-mod" # "random fortune cookies for your MOTD"
+ "boxes"               # "wrap text in ASCII boxes of every shape"
+ "sl"                  # "steam locomotive that punishes typos of ls"
+ "asciiquarium"        # "ASCII fish tank for your terminal"
+ "bsdgames"            # "ancient text games: adventure, hangman, robots"
+ "nyancat"             # "the meme, in your terminal, forever"
 )
 
 # -- Binary Analysis: Disassemblers, Decompilers, Hex Editors ----------------
 # "look at compiled code and figure out what it actually does"
 binary_analysis=(
- "radare2"                  # "open-source RE framework: disassembler, debugger, hex editor in one"
- "rizin"                    # "modern fork of radare2 with cleaner internals"
- "cutter"                   # "Qt GUI on top of rizin, IDA-like experience"
- "hexedit"                  # "in-terminal hex editor with searchable buffer"
- "ghex"                     # "GTK hex editor for desktop use"
- "bless"                    # "feature-rich GTK hex editor with multi-level undo"
- "wxhexeditor:wxhexeditor"  # "huge-file-capable hex editor (TB-scale)"
- "hexdump:bsdmainutils"     # "classic BSD hexdump and other utilities"
+ "radare2"                 # "open-source RE framework: disassembler, debugger, hex editor in one"
+ "rizin"                   # "modern fork of radare2 with cleaner internals"
+ "cutter"                  # "Qt GUI on top of rizin, IDA-like experience"
+ "hexedit"                 # "in-terminal hex editor with searchable buffer"
+ "ghex"                    # "GTK hex editor for desktop use"
+ "bless"                   # "feature-rich GTK hex editor with multi-level undo"
+ "wxhexeditor:wxhexeditor" # "huge-file-capable hex editor (TB-scale)"
+ "hexdump:bsdmainutils"    # "classic BSD hexdump and other utilities"
 )
 
 # -- Binary Patching & ELF Manipulation --------------------------------------
 # "modify compiled binaries in place"
 binary_patching=(
- "upx:upx-ucl"              # "ultimate packer; also unpacks UPX-packed binaries"
- "patchelf"                 # "modify rpath and interpreter of an existing ELF"
- "chrpath"                  # "older but simpler ELF rpath editor"
- "eu-readelf:elfutils"      # "eu-readelf, eu-strip, and other modern ELF utilities"
+ "upx:upx-ucl"         # "ultimate packer; also unpacks UPX-packed binaries"
+ "patchelf"            # "modify rpath and interpreter of an existing ELF"
+ "chrpath"             # "older but simpler ELF rpath editor"
+ "eu-readelf:elfutils" # "eu-readelf, eu-strip, and other modern ELF utilities"
 )
 
 # -- Android / APK Reverse Engineering ---------------------------------------
 # "decompile, repackage, and inspect Android applications"
 android_re=(
- "apktool"                  # "decompile and rebuild APK resources and smali"
- "dex2jar"                  # "convert Android DEX bytecode to Java JAR"
- "androguard"               # "Python framework for static APK analysis"
- "adb:android-tools-adb:adb" # "Android Debug Bridge for talking to devices"
+ "apktool"                                  # "decompile and rebuild APK resources and smali"
+ "dex2jar"                                  # "convert Android DEX bytecode to Java JAR"
+ "androguard"                               # "Python framework for static APK analysis"
+ "adb:android-tools-adb:adb"                # "Android Debug Bridge for talking to devices"
  "fastboot:android-tools-fastboot:fastboot" # "flash and unlock Android bootloaders"
- "aapt:aapt"                # "Android Asset Packaging Tool (manifest and resource inspection)"
+ "aapt:aapt"                                # "Android Asset Packaging Tool (manifest and resource inspection)"
 )
 
 # -- Forensics: Disk, Memory, File Carving -----------------------------------
 # "extract evidence from images, dumps, and suspect filesystems"
 forensics=(
- "binwalk"                  # "find and extract embedded firmware images and filesystems"
- "foremost"                 # "carve files out of raw images by header signatures"
- "bulk-extractor"           # "pull emails, URLs, credit cards, etc. out of disk images"
- "scalpel"                  # "fast header/footer-based file carver"
- "fls:sleuthkit"            # "filesystem-level forensic analysis library and CLI"
- "autopsy"                  # "GUI digital-forensics platform built on sleuthkit"
- "dc3dd"                    # "patched dd from DC3 with forensic logging and hashing"
- "ewfinfo:ewf-tools"        # "read and write EnCase Expert Witness Format (E01) images"
- "affinfo:afflib-tools"     # "Advanced Forensic Format tools and library"
+ "binwalk"              # "find and extract embedded firmware images and filesystems"
+ "foremost"             # "carve files out of raw images by header signatures"
+ "bulk-extractor"       # "pull emails, URLs, credit cards, etc. out of disk images"
+ "scalpel"              # "fast header/footer-based file carver"
+ "fls:sleuthkit"        # "filesystem-level forensic analysis library and CLI"
+ "autopsy"              # "GUI digital-forensics platform built on sleuthkit"
+ "dc3dd"                # "patched dd from DC3 with forensic logging and hashing"
+ "ewfinfo:ewf-tools"    # "read and write EnCase Expert Witness Format (E01) images"
+ "affinfo:afflib-tools" # "Advanced Forensic Format tools and library"
 )
 
 # -- Malware Identification & System Integrity -------------------------------
 # "fingerprint suspicious files and detect compromise"
 malware_id=(
- "yara"                     # "the standard for pattern-matching rules over files and memory"
- "clamscan:clamav"          # "open-source antivirus engine, useful for IOC scanning"
- "pev"                      # "PE header dumper for Windows binaries on Linux"
- "ssdeep"                   # "context-triggered piecewise hashing for fuzzy file matching"
- "chkrootkit"               # "scan for known rootkit signatures"
- "rkhunter"                 # "rootkit, backdoor, and local exploit scanner"
- "aide"                     # "advanced intrusion detection environment, file integrity DB"
+ "yara"            # "the standard for pattern-matching rules over files and memory"
+ "clamscan:clamav" # "open-source antivirus engine, useful for IOC scanning"
+ "pev"             # "PE header dumper for Windows binaries on Linux"
+ "ssdeep"          # "context-triggered piecewise hashing for fuzzy file matching"
+ "chkrootkit"      # "scan for known rootkit signatures"
+ "rkhunter"        # "rootkit, backdoor, and local exploit scanner"
+ "aide"            # "advanced intrusion detection environment, file integrity DB"
 )
 
 # -- Web Application Pentesting ----------------------------------------------
 # "probe and exploit web apps for security findings"
 web_pentest=(
- "zap:zaproxy"              # "OWASP ZAP, the open-source web app scanner"
- "nikto"                    # "web server vulnerability scanner"
- "sqlmap"                   # "automated SQL injection detection and exploitation"
- "wfuzz"                    # "web fuzzer for hidden paths, params, and auth"
- "gobuster"                 # "fast directory/DNS/vhost brute-forcer"
- "dirb"                     # "classic web directory brute-forcer"
- "mitmproxy"                # "interactive TLS-capable proxy, scriptable in Python"
+ "zap:zaproxy" # "OWASP ZAP, the open-source web app scanner"
+ "nikto"       # "web server vulnerability scanner"
+ "sqlmap"      # "automated SQL injection detection and exploitation"
+ "wfuzz"       # "web fuzzer for hidden paths, params, and auth"
+ "gobuster"    # "fast directory/DNS/vhost brute-forcer"
+ "dirb"        # "classic web directory brute-forcer"
+ "mitmproxy"   # "interactive TLS-capable proxy, scriptable in Python"
 )
 
 # -- Password & Hash Recovery ------------------------------------------------
 # "crack hashes and brute-force logins"
 password_recovery=(
- "hashcat"                  # "GPU-accelerated hash cracker"
- "john"                     # "John the Ripper, classic CPU hash cracker"
- "hydra"                    # "parallelized network login brute-forcer"
- "hashid"                   # "identify what kind of hash you're staring at"
+ "hashcat" # "GPU-accelerated hash cracker"
+ "john"    # "John the Ripper, classic CPU hash cracker"
+ "hydra"   # "parallelized network login brute-forcer"
+ "hashid"  # "identify what kind of hash you're staring at"
 )
 
 # -- Fuzzing -----------------------------------------------------------------
 # "feed garbage to programs and watch them crash"
 fuzzing=(
- "afl-fuzz:afl++"           # "American Fuzzy Lop+, coverage-guided fuzzer for native code"
- "honggfuzz"                # "security-oriented fuzzer with sanitizer integration"
- "radamsa"                  # "general-purpose mutational input fuzzer"
+ "afl-fuzz:afl++" # "American Fuzzy Lop+, coverage-guided fuzzer for native code"
+ "honggfuzz"      # "security-oriented fuzzer with sanitizer integration"
+ "radamsa"        # "general-purpose mutational input fuzzer"
 )
 
 # ==========================================
@@ -544,10 +545,10 @@ packages=(
 # Format: "binary_name" or "binary_name:pypi_package_name"
 # ==========================================
 pipx_tools=(
- "frida:frida-tools"        # "dynamic instrumentation toolkit — hook running apps live"
- "vol:volatility3"          # "the standard memory-image analysis framework"
- "unblob"                   # "modern firmware extractor, handles 30+ formats"
- "semgrep"                  # "pattern-based static analysis across most languages"
+ "frida:frida-tools" # "dynamic instrumentation toolkit — hook running apps live"
+ "vol:volatility3"   # "the standard memory-image analysis framework"
+ "unblob"            # "modern firmware extractor, handles 30+ formats"
+ "semgrep"           # "pattern-based static analysis across most languages"
 )
 
 # ==========================================
@@ -572,13 +573,13 @@ declare -A github_tools=(
  ["helm"]="helm/helm"                      # "the package manager for kubernetes"
  ["kubecolor"]="kubecolor/kubecolor"       # "colorize kubectl output for readability"
  # GitHub / dev tooling
- ["gh"]="cli/cli"                          # "official GitHub CLI"
+ ["gh"]="cli/cli" # "official GitHub CLI"
  # File managers
- ["lf"]="gokcehan/lf"                      # "ranger-inspired file manager in Go"
- ["xplr"]="sayanarijit/xplr"               # "hackable, minimal TUI file explorer"
+ ["lf"]="gokcehan/lf"        # "ranger-inspired file manager in Go"
+ ["xplr"]="sayanarijit/xplr" # "hackable, minimal TUI file explorer"
  # Network & web pentest
- ["bettercap"]="bettercap/bettercap"       # "modern MITM and network attack framework"
- ["httpx"]="projectdiscovery/httpx"        # "fast HTTP probe for live host/tech detection"
+ ["bettercap"]="bettercap/bettercap" # "modern MITM and network attack framework"
+ ["httpx"]="projectdiscovery/httpx"  # "fast HTTP probe for live host/tech detection"
 )
 
 # ==========================================
@@ -594,11 +595,11 @@ declare -A github_tools=(
 # ==========================================
 github_apps=(
  # Disassembly / decompilation suites
- "ghidra|NationalSecurityAgency/ghidra|^ghidra_.*_PUBLIC_.*\\.zip\$|ghidraRun"          # "NSA's flagship decompiler, gold standard for free RE"
- "jadx|skylot/jadx|^jadx-[0-9].*\\.zip\$|bin/jadx"                                       # "decompile DEX and JAR back to readable Java"
- "cfr|leibnitz27/cfr|^cfr-.*\\.jar\$|@jar"                                               # "single-jar Java decompiler that handles modern bytecode"
- "bytecode-viewer|Konloch/bytecode-viewer|[Bb]ytecode-?[Vv]iewer.*\\.jar\$|@jar"         # "GUI bundling CFR, Procyon, Krakatau, JADX"
- "recaf|Col-E/Recaf|^recaf.*\\.jar\$|@jar"                                               # "modern Java RE workbench, live bytecode editing"
+ "ghidra|NationalSecurityAgency/ghidra|^ghidra_.*_PUBLIC_.*\\.zip\$|ghidraRun"   # "NSA's flagship decompiler, gold standard for free RE"
+ "jadx|skylot/jadx|^jadx-[0-9].*\\.zip\$|bin/jadx"                               # "decompile DEX and JAR back to readable Java"
+ "cfr|leibnitz27/cfr|^cfr-.*\\.jar\$|@jar"                                       # "single-jar Java decompiler that handles modern bytecode"
+ "bytecode-viewer|Konloch/bytecode-viewer|[Bb]ytecode-?[Vv]iewer.*\\.jar\$|@jar" # "GUI bundling CFR, Procyon, Krakatau, JADX"
+ "recaf|Col-E/Recaf|^recaf.*\\.jar\$|@jar"                                       # "modern Java RE workbench, live bytecode editing"
 )
 
 # ==========================================
@@ -830,7 +831,7 @@ function github_install {
   amd64) arch_pattern="amd64|x86_64|x64" ;;
   arm64) arch_pattern="arm64|aarch64" ;;
   armhf) arch_pattern="armv7|armhf" ;;
-  *)     arch_pattern="$arch" ;;
+  *) arch_pattern="$arch" ;;
  esac
 
  echo
@@ -867,7 +868,7 @@ function github_install {
   tmp_deb=$(mktemp --suffix=.deb)
   if curl -fsSL "$deb_url" -o "$tmp_deb"; then
    if sudo dpkg -i "$tmp_deb" >/dev/null 2>&1; then
-    sudo apt install -fy >/dev/null 2>&1   # fix any missing deps
+    sudo apt install -fy >/dev/null 2>&1 # fix any missing deps
     rm -f "$tmp_deb"
     echo -e "Tool [\e[1;92m$binary_name\e[0m] Installed from $repo ($tag)"
     installed+=("$binary_name")
@@ -898,8 +899,8 @@ function github_install {
 
   if curl -fsSL "$archive_url" -o "$archive_path"; then
    case "$archive_name" in
-    *.zip)   unzip -q "$archive_path" -d "$tmp_dir" 2>/dev/null && extracted=true ;;
-    *.tar|*.tar.gz|*.tgz|*.tar.xz|*.tar.bz2) tar -xf "$archive_path" -C "$tmp_dir" 2>/dev/null && extracted=true ;;
+    *.zip) unzip -q "$archive_path" -d "$tmp_dir" 2>/dev/null && extracted=true ;;
+    *.tar | *.tar.gz | *.tgz | *.tar.xz | *.tar.bz2) tar -xf "$archive_path" -C "$tmp_dir" 2>/dev/null && extracted=true ;;
    esac
   fi
 
@@ -961,7 +962,7 @@ function install-github-tools {
  for dep in curl jq tar unzip; do
   command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
  done
- if (( ${#missing_deps[@]} > 0 )); then
+ if ((${#missing_deps[@]} > 0)); then
   echo -e "❌ \e[1;91mMissing dependencies for GitHub installs:\e[0m ${missing_deps[*]}"
   echo "   Run install-packages first."
   return 1
@@ -1065,7 +1066,7 @@ function github_install_app {
   sudo mkdir -p "$install_dir"
   sudo install -m 644 "$downloaded" "$install_dir/$binary.jar"
   # Write a launcher; needs to expand $install_dir at write time but defer $@
-  sudo tee "/usr/local/bin/$binary" >/dev/null << WRAPPER
+  sudo tee "/usr/local/bin/$binary" >/dev/null <<WRAPPER
 #!/bin/sh
 exec java -jar "${install_dir}/${binary}.jar" "\$@"
 WRAPPER
@@ -1081,14 +1082,17 @@ WRAPPER
  mkdir -p "$stage"
  case "$asset_name" in
   *.zip)
-   unzip -q "$downloaded" -d "$stage" 2>/dev/null ;;
-  *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar)
-   tar -xf "$downloaded" -C "$stage" 2>/dev/null ;;
+   unzip -q "$downloaded" -d "$stage" 2>/dev/null
+   ;;
+  *.tar.gz | *.tgz | *.tar.xz | *.tar.bz2 | *.tar)
+   tar -xf "$downloaded" -C "$stage" 2>/dev/null
+   ;;
   *)
    echo -e "Tool [\e[1;91m$binary\e[0m] failed — unknown archive format: $asset_name"
    rm -rf "$tmp_dir"
    failed+=("$binary")
-   return 1 ;;
+   return 1
+   ;;
  esac
 
  # Find the launcher anywhere inside the extracted tree
@@ -1133,7 +1137,7 @@ function install-github-apps {
  for dep in curl jq tar unzip; do
   command -v "$dep" >/dev/null 2>&1 || missing_deps+=("$dep")
  done
- if (( ${#missing_deps[@]} > 0 )); then
+ if ((${#missing_deps[@]} > 0)); then
   echo -e "❌ \e[1;91mMissing dependencies for GitHub apps:\e[0m ${missing_deps[*]}"
   echo "   Run install-packages first."
   return 1
@@ -1158,7 +1162,7 @@ function print-summary {
  echo "=========================================="
  echo -e "✅ \e[1;92mInstalled / already present:\e[0m ${#installed[@]}"
  echo -e "❌ \e[1;91mFailed:\e[0m ${#failed[@]}"
- if (( ${#failed[@]} > 0 )); then
+ if ((${#failed[@]} > 0)); then
   echo
   echo "Failed tools:"
   printf '   - %s\n' "${failed[@]}"

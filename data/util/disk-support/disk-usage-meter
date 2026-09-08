@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+# Colors for TUI elements
+GREEN="\e[32m"
+YELLOW="\e[33m"
+RED="\e[31m"
+BLUE="\e[34m"
+CYAN="\e[36m"
+RESET="\e[0m"
+
+# Function to draw a visual progress bar with strict column alignment
+draw_bar() {
+ local percent=$1
+ local width=25
+ percent=${percent//[^0-9]/}
+ if [ -z "$percent" ]; then percent=0; fi
+ if [ "$percent" -gt 100 ]; then percent=100; fi
+
+ local filled=$((percent * width / 100))
+ local empty=$((width - filled))
+
+ local color="$GREEN"
+ if [ "$percent" -gt 75 ]; then color="$YELLOW"; fi
+ if [ "$percent" -gt 90 ]; then color="$RED"; fi
+
+ printf "["
+ printf "${color}"
+ for ((i = 0; i < filled; i++)); do
+  printf "█"
+ done
+ printf "${RESET}"
+ for ((i = 0; i < empty; i++)); do
+  printf "-"
+ done
+ printf "] %3d%%" "$percent"
+}
+
+clear
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${CYAN}║                    SYSTEM STORAGE VISUALIZER                     ║${RESET}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+echo -e "${BLUE}▶ Mounted Filesystems (df -h)${RESET}"
+printf "%-35s %-8s %-8s %-8s %-32s %-12s\n" "Filesystem" "Size" "Used" "Avail" "Capacity" "Mount"
+echo "------------------------------------------------------------------------------------------------------------------"
+
+# Parse df output skipping header
+df -h --output=source,size,used,avail,pcent,target 2>/dev/null | tail -n +2 | while read -r fs size used avail pcent target; do
+ clean_pcent=$(echo "$pcent" | tr -d ' %')
+ printf "%-35s %-8s %-8s %-8s " "$fs" "$size" "$used" "$avail"
+ draw_bar "$clean_pcent"
+ printf " %s\n" "$target"
+done
+
+echo ""
+echo -e "${BLUE}▶ Logical Level Breakdown (Top-Level Directories under /)${RESET}"
+echo -e "${YELLOW}Scanning root directories using du (this may take a few seconds)...${RESET}"
+printf "%-18s %-10s %-10s %-10s %-32s\n" "Directory" "Size" "Used" "Available" "Relative Scale"
+echo "--------------------------------------------------------------------------------"
+
+# Get total bytes and available bytes of root filesystem for context
+root_df_stats=$(df / 2>/dev/null | tail -n 1)
+total_root_kb=$(echo "$root_df_stats" | awk '{print $3}') # Using used space as reference scale
+root_avail_kb=$(echo "$root_df_stats" | awk '{print $4}')
+root_total_kb=$(echo "$root_df_stats" | awk '{print $2}')
+
+if [ -z "$total_root_kb" ] || [ "$total_root_kb" -eq 0 ]; then
+ total_root_kb=1
+fi
+
+# Convert available root space to human readable format
+root_avail_human=$(df -h / 2>/dev/null | tail -n 1 | awk '{print $4}')
+
+# Array of common root level directories
+dirs=("/boot" "/etc" "/home" "/opt" "/root" "/usr" "/var" "/srv" "/tmp")
+
+for dir in "${dirs[@]}"; do
+ if [ -d "$dir" ]; then
+  dir_kb=$(du -s "$dir" 2>/dev/null | awk '{print $1}')
+  dir_human=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
+
+  if [ -n "$dir_kb" ]; then
+   rel_percent=$((dir_kb * 100 / total_root_kb))
+
+   # Estimate available pseudo-space for subdirectories relative to partition available space
+   # (Since individual subdirs don't have a fixed total partition limit, we display their size as 'Used'
+   # and show the global remaining root space as their contextual 'Available' pool)
+   printf "%-18s %-10s %-10s %-10s " "$dir" "$dir_human" "$dir_human" "$root_avail_human"
+   draw_bar "$rel_percent"
+   echo ""
+  fi
+ fi
+done
+
+echo ""
+echo -e "${BLUE}▶ Overall Root Filesystem Summary${RESET}"
+
+# Fetch root disk metrics
+root_stats=$(df -h / 2>/dev/null | tail -n 1)
+root_total=$(echo "$root_stats" | awk '{print $2}')
+root_used=$(echo "$root_stats" | awk '{print $3}')
+root_avail=$(echo "$root_stats" | awk '{print $4}')
+root_pcent_raw=$(echo "$root_stats" | awk '{print $5}')
+root_pcent=$(echo "$root_pcent_raw" | tr -d ' %')
+
+if [ -z "$root_pcent" ]; then root_pcent=0; fi
+
+# Giant progress bar configuration (width = 50 characters)
+giant_width=50
+g_filled=$((root_pcent * giant_width / 100))
+g_empty=$((giant_width - g_filled))
+
+g_color="$GREEN"
+if [ "$root_pcent" -gt 75 ]; then g_color="$YELLOW"; fi
+if [ "$root_pcent" -gt 90 ]; then g_color="$RED"; fi
+
+echo "Total Capacity: $root_total | Used: $root_used | Available: $root_avail"
+printf "["
+printf "${g_color}"
+for ((i = 0; i < g_filled; i++)); do
+ printf "█"
+done
+printf "${RESET}"
+for ((i = 0; i < g_empty; i++)); do
+ printf "-"
+done
+printf "] %3d%%\n" "$root_pcent"
+
+echo ""
+echo -e "${CYAN}══════════════════════════════════════════════════════════════════${RESET}"
