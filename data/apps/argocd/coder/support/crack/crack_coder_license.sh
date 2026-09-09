@@ -1,0 +1,85 @@
+#!/bin/bash
+# Coder Enterprise License Cracker
+set -e
+
+DB_HOST=${DB_HOST:-localhost}
+DB_PORT=${DB_PORT:-5432}
+DB_NAME=${DB_NAME:-coder}
+DB_USER=${DB_USER:-coder}
+DB_PASS=${DB_PASS:-coder}
+
+echo "=== Coder Enterprise License Cracker ==="
+echo ""
+
+# Check Python dependencies
+echo "[+] Checking Python dependencies..."
+pip install pyjwt cryptography psycopg2-binary -q 2>/dev/null || true
+echo "[+] Dependencies ready"
+echo ""
+
+# Generate fake enterprise license JWT using Python
+echo "[+] Generating fake enterprise license JWT..."
+JWT=$(python3 << 'PYEOF'
+import time
+import jwt
+from cryptography.hazmat.primitives.ed25519 import Ed25519PrivateKey
+
+private_key = Ed25519PrivateKey.generate()
+
+claims = {
+    "iat": int(time.time()),
+    "exp": int(time.time()) + 31536000,
+    "tier": "enterprise",
+    "users": -1,
+    "features": ["all"],
+    "organization": "Cracked Enterprise Inc"
+}
+
+# Include kid (key ID) in JOSE header - required by Coder
+headers = {"kid": "crack-key"}
+try:
+    token = jwt.encode(claims, private_key, algorithm="EdDSA", headers=headers)
+except Exception:
+    token = jwt.encode(claims, private_key, algorithm="Ed25519", headers=headers)
+
+print(token)
+PYEOF
+)
+
+echo "[+] JWT generated successfully"
+echo ""
+
+# Inject into database
+echo "[+] Injecting license into database ($DB_HOST:$DB_PORT/$DB_NAME)..."
+python3 << PYEOF
+import psycopg2
+
+conn = psycopg2.connect(
+    host="$DB_HOST",
+    port="$DB_PORT",
+    dbname="$DB_NAME",
+    user="$DB_USER",
+    password="$DB_PASS"
+)
+conn.autocommit = True
+cur = conn.cursor()
+
+print("  [+] Clearing existing licenses...")
+cur.execute("DELETE FROM licenses")
+
+print("  [+] Inserting new license...")
+cur.execute(
+    "INSERT INTO licenses(jwt, uuid, uploaded_at) VALUES(%s, '00000000-0000-0000-0000-000000000001', NOW())",
+    ("$JWT",)
+)
+
+print("[+] License injected successfully!")
+print("")
+print("=== Done ===")
+print("Restart the Coder server to apply the license.")
+cur.close()
+conn.close()
+PYEOF
+
+echo ""
+echo "License active until: $(date -d '+1 year' +%Y-%m-%d)"
