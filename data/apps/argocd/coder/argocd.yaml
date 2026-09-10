@@ -2,6 +2,8 @@ coder:
   env:
     - name: CODER_ACCESS_URL
       value: "https://coder.xxx.com"
+    - name: CODER_WILDCARD_ACCESS_URL
+      value: "https://*.coder.xxx.com"
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
         secretKeyRef:
@@ -35,6 +37,7 @@ coder:
   httproute:
     enable: true
     host: "coder.xxx.com"
+    wildcardHost: "*.coder.xxx.com"
     parentRefs:
       - name: traefik-gateway
         namespace: traefik
