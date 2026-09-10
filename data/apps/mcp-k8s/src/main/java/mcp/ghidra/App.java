@@ -1,4 +1,3 @@
 package mcp.ghidra;
 
-public class App {
-}
+public class App {}

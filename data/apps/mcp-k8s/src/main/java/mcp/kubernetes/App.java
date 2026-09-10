@@ -1,4 +1,4 @@
-package mcp;
+package mcp.kubernetes;
 
 import com.google.gson.*;
 import io.javalin.Javalin;
