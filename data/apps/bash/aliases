@@ -4,21 +4,21 @@
 # ALIASES                                      #
 ################################################
 
+EZA_FLAGS="--color=always --icons=always --group-directories-first"
+DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
+
 if command -v inxi >/dev/null 2>&1; then
  alias deetz='inxi -Fxz'
 fi
 
-DATE_FORMAT='--time-style=+"%b-%d-%Y %I:%M:%S %p"'
-
 alias ls="ls --color=always ${DATE_FORMAT}"
 alias ll='ls -alF --color=always'
 alias la='ls -A --color=always'
-alias l='ls -CF --color=always'
+alias lh='ls -ld .* --color=always'
+alias l='\ls --color=always -CA'
+
 alias dir='dir --color=always'
 alias vdir='vdir --color=always'
-alias lh='ls -ld .* --color=always'
-
-EZA_FLAGS="--color=always --icons=always --group-directories-first"
 
 if command -v eza >/dev/null 2>&1; then
  alias ls="eza -Al --header ${EZA_FLAGS} ${DATE_FORMAT}"
