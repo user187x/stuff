@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-push-template
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      containers:
+        - name: coder-cli
+          image: ghcr.io/coder/coder:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+
+              CODER_URL={{ .Values.coder.url | quote }}
+              CODER_SESSION_TOKEN={{ .Values.coder.token | quote }}
+
+              # Implicitly invoke the fetch script if the token is empty
+              if [ -z "$CODER_SESSION_TOKEN" ]; then
+                echo "Token not provided in values. Fetching implicitly..."
+
+                JSON_PAYLOAD=$(jq -n \
+                  --arg email "$CODER_EMAIL" \
+                  --arg password "$CODER_PASSWORD" \
+                  '{email: $email, password: $password}')
+
+                CODER_SESSION_TOKEN=$(curl --cacert /etc/ssl/certs/coder/ca.crt -sSL -X POST "${CODER_URL}/api/v2/users/login" \
+                  -H "Content-Type: application/json" \
+                  -d "$JSON_PAYLOAD" | jq -r '.session_token // empty')
+
+                if [ -z "$CODER_SESSION_TOKEN" ]; then
+                  echo "Authentication failed."
+                  exit 1
+                fi
+              fi
+
+              export CODER_SESSION_TOKEN
+              export CODER_URL
+
+              coder templates push {{ .Values.template.name }} \
+                --directory /workspace \
+                --message "Deployed via Helm release {{ .Release.Name }}" \
+                --yes
+          env:
+            - name: CODER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: coder-init-auth
+                  key: email
+                  optional: true
+            - name: CODER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: coder-init-auth
+                  key: password
+                  optional: true
+          volumeMounts:
+            - name: tf-code
+              mountPath: /workspace
+            - name: tls-ca
+              mountPath: /etc/ssl/certs/coder
+              readOnly: true
+      restartPolicy: Never
+      volumes:
+        - name: tf-code
+          configMap:
+            name: {{ .Release.Name }}-terraform
+        - name: tls-ca
+          secret:
+            secretName: tls-ca
+            optional: true

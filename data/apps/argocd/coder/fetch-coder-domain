@@ -1,0 +1,6 @@
+#!/bin/bash
+
+CODER_URL=$(kubectl get deployment coder -n coder \
+ -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='CODER_ACCESS_URL')].value}")
+
+echo $CODER_URL

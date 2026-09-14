@@ -1,0 +1,11 @@
+#!/bin/bash
+
+CODER_TOKEN=$(./fetch-coder-token)
+CODER_URL=$(./fetch-coder-domain)
+
+CODER_WORKSPACE_CHART_NAME="coder-workspace"
+CODER_WORKSPACE_CHART_PATH="./coder-workspace-chart"
+
+helm upgrade --install "${CODER_WORKSPACE_CHART_NAME}" "${CODER_WORKSPACE_CHART_PATH}" \
+ --set coder.url="${CODER_URL}" \
+ --set coder.token="${CODER_TOKEN}"

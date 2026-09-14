@@ -1,0 +1,6 @@
+coder:
+  url: "https://coder.xxx.com"
+  token: ""
+
+template:
+  name: "ubuntu-vnc-desktop"

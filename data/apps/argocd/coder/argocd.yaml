@@ -1,9 +1,14 @@
 coder:
   env:
+    - name: CODER_BOOTSTRAP_INITIAL_USER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: coder-init-auth
+          key: password
     - name: CODER_ACCESS_URL
       value: "https://coder.xxx.com"
     - name: CODER_WILDCARD_ACCESS_URL
-      value: "https://*.coder.xxx.com"
+      value: "*.xxx.com"
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
         secretKeyRef:
