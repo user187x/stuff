@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .Release.Name }}-push-template
+  namespace: {{ .Values.namespace | default "coder" }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
@@ -15,11 +16,9 @@ spec:
           args:
             - |
               set -e
+              CODER_URL={{ required "CODER_URL must be provided!" .Values.coder.url | quote }}
+              CODER_SESSION_TOKEN={{ .Values.coder.token | default "" | quote }}
 
-              CODER_URL={{ .Values.coder.url | quote }}
-              CODER_SESSION_TOKEN={{ .Values.coder.token | quote }}
-
-              # Implicitly invoke the fetch script if the token is empty
               if [ -z "$CODER_SESSION_TOKEN" ]; then
                 echo "Token not provided in values. Fetching implicitly..."
 
@@ -40,11 +39,22 @@ spec:
 
               export CODER_SESSION_TOKEN
               export CODER_URL
+              export SSL_CERT_FILE="/etc/ssl/certs/coder/ca.crt"
+              export WORKSPACE="/tmp/workspace"
 
+              # Create the target workspace directory
+              mkdir -p "${WORKSPACE}"
+
+              # Copy the ConfigMap symlink to a physical file
+              cp /tmp/tf-code/main.tf "${WORKSPACE}"/main.tf
+
+              # Push the physical directory
               coder templates push {{ .Values.template.name }} \
-                --directory /workspace \
+                --directory "${WORKSPACE}" \
                 --message "Deployed via Helm release {{ .Release.Name }}" \
+                --variable namespace="{{ .Values.namespace | default "coder" }}" \
                 --yes
+
           env:
             - name: CODER_EMAIL
               valueFrom:
@@ -60,7 +70,7 @@ spec:
                   optional: true
           volumeMounts:
             - name: tf-code
-              mountPath: /workspace
+              mountPath: /tmp/tf-code
             - name: tls-ca
               mountPath: /etc/ssl/certs/coder
               readOnly: true
@@ -72,4 +82,3 @@ spec:
         - name: tls-ca
           secret:
             secretName: tls-ca
-            optional: true

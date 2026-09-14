@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-terraform
+  namespace: {{ .Values.namespace | default "coder" }}
 data:
   main.tf: |
     terraform {
@@ -255,11 +256,11 @@ data:
 
     resource "kubernetes_persistent_volume_claim_v1" "home" {
       metadata {
-        name      = "coder-$${data.coder_workspace.me.id}-home"
+        name      = "coder-${data.coder_workspace.me.id}-home"
         namespace = var.namespace
         labels = {
           "app.kubernetes.io/name"     = "coder-pvc"
-          "app.kubernetes.io/instance" = "coder-pvc-$${data.coder_workspace.me.id}"
+          "app.kubernetes.io/instance" = "coder-pvc-${data.coder_workspace.me.id}"
           "app.kubernetes.io/part-of"  = "coder"
           "com.coder.resource"         = "true"
           "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -277,7 +278,7 @@ data:
         access_modes = ["ReadWriteOnce"]
         resources {
           requests = {
-            storage = "$${data.coder_parameter.home_disk_size.value}Gi"
+            storage = "${data.coder_parameter.home_disk_size.value}Gi"
           }
         }
       }
@@ -290,11 +291,11 @@ data:
       ]
       wait_for_rollout = false
       metadata {
-        name      = "coder-$${data.coder_workspace.me.id}"
+        name      = "coder-${data.coder_workspace.me.id}"
         namespace = var.namespace
         labels = {
           "app.kubernetes.io/name"     = "coder-workspace"
-          "app.kubernetes.io/instance" = "coder-workspace-$${data.coder_workspace.me.id}"
+          "app.kubernetes.io/instance" = "coder-workspace-${data.coder_workspace.me.id}"
           "app.kubernetes.io/part-of"  = "coder"
           "com.coder.resource"         = "true"
           "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -312,7 +313,7 @@ data:
         selector {
           match_labels = {
             "app.kubernetes.io/name"     = "coder-workspace"
-            "app.kubernetes.io/instance" = "coder-workspace-$${data.coder_workspace.me.id}"
+            "app.kubernetes.io/instance" = "coder-workspace-${data.coder_workspace.me.id}"
             "app.kubernetes.io/part-of"  = "coder"
             "com.coder.resource"         = "true"
             "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -329,7 +330,7 @@ data:
           metadata {
             labels = {
               "app.kubernetes.io/name"     = "coder-workspace"
-              "app.kubernetes.io/instance" = "coder-workspace-$${data.coder_workspace.me.id}"
+              "app.kubernetes.io/instance" = "coder-workspace-${data.coder_workspace.me.id}"
               "app.kubernetes.io/part-of"  = "coder"
               "com.coder.resource"         = "true"
               "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -363,8 +364,8 @@ data:
                   "memory" = "512Mi"
                 }
                 limits = {
-                  "cpu"    = "$${data.coder_parameter.cpu.value}"
-                  "memory" = "$${data.coder_parameter.memory.value}Gi"
+                  "cpu"    = "${data.coder_parameter.cpu.value}"
+                  "memory" = "${data.coder_parameter.memory.value}Gi"
                 }
               }
               volume_mount {
