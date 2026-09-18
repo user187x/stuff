@@ -1,0 +1,34 @@
+package com.fadcam.services;
+
+import com.fadcam.SharedPreferencesManager;
+
+/**
+ * Pure decision logic for whether a recording session needs a live GPS feed.
+ *
+ * Extracted from {@link RecordingService} so it can be unit-tested without an
+ * Android Service instance. Drives whether the LocationHelper exists at all —
+ * if any feature needs location data but the helper is missing, speed/altitude
+ * watermarks silently read 0 (the bug users reported when the "location
+ * watermark" toggle was off).
+ */
+public final class LocationFeedGate {
+
+    private LocationFeedGate() {}
+
+    /**
+     * True if any user-enabled feature needs a live GPS feed. Critically
+     * includes the extended sensor watermarks (speed/altitude/accuracy/compass)
+     * and weather, NOT just the "location watermark" toggle.
+     */
+    public static boolean needsLocationData(SharedPreferencesManager prefs) {
+        if (prefs == null) return false;
+        return prefs.isLocalisationEnabled()
+                || prefs.isLocationEmbeddingEnabled()
+                || prefs.isUtmEnabled()
+                || prefs.isSpeedEnabled()
+                || prefs.isAltitudeEnabled()
+                || prefs.isAccuracyEnabled()
+                || prefs.isCompassEnabled()
+                || prefs.isWeatherEnabled();
+    }
+}
