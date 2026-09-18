@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "compaction": true,
+  "provider": {
+    "local-llama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local Llama",
+      "options": {
+        "baseURL": "http://127.0.0.1:8080/v1",
+        "apiKey": "no-key"
+      },
+      "models": {
+        "qwen38-27b": {
+          "name": "Qwen 3.8 27B",
+          "limit": {
+            "context": 32768,
+            "output": 4096
+          }
+        }
+      }
+    }
+  },
+  "model": "local-llama/qwen38-27b"
+}
