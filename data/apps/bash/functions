@@ -1195,101 +1195,210 @@ function docker-extractor {
 
 }
 
-function spliter-combiner {
+function data-splitter {
 
- local OPTIND=1
  local action=""
  local num_parts=""
- local opt
+ local remove_original=0
+ local output_dir=""
+ local source_path=""
+ local tar_created=0
 
- # Process arguments using getopts
- while getopts "s:c" opt; do
-  case "$opt" in
-   s)
-    action="split"
-    num_parts="$OPTARG"
-    ;;
-   c)
-    action="combine"
-    ;;
-   \?)
-    echo "Usage: $0 [-s <N> | -c] <target>"
-    exit 1
-    ;;
-  esac
- done
+ # Variables for final summary
+ local sum_out_path=""
+ local sum_total_size=""
+ local sum_part_size="N/A"
+ local sum_integrity="N/A"
 
- # Shift past the parsed options to get the positional target argument
- shift $((OPTIND - 1))
- local target="$1"
+ # 1. Check for interactive mode (no arguments provided)
+ if [[ $# -eq 0 ]]; then
+  echo "🛠️  Welcome to spliter-combiner wizard!"
+  read -erp "Do you want to (s)plit or (c)ombine? [s/c]: " ans_action
 
- # Validate inputs
- if [[ -z "$action" || -z "$target" ]]; then
-  echo "Usage:"
-  echo "  $0 -s <N> <file>      (Split file into N parts)"
-  echo "  $0 -c <directory>     (Combine parts in directory)"
-  exit 1
+  if [[ "$ans_action" =~ ^[sS] ]]; then
+   action="split"
+   read -erp "Enter the path to the source file or directory: " source_path
+   read -erp "How many parts to split into? (e.g. 10): " num_parts
+  elif [[ "$ans_action" =~ ^[cC] ]]; then
+   action="combine"
+   read -erp "Enter the directory containing the parts: " source_path
+  else
+   echo "Error: Invalid choice."
+   return 1
+  fi
+
+  # Calculate default output path for the prompt
+  local target_clean="${source_path%/}"
+  local base_target="$(basename "$target_clean")"
+  local dir_target="$(dirname "$target_clean")"
+  local default_out=""
+
+  if [[ "$action" == "split" ]]; then
+   if [[ -d "$target_clean" ]]; then
+    default_out="${dir_target}/${base_target}.tar.gz-parts"
+   else
+    default_out="${dir_target}/${base_target}-parts"
+   fi
+  else
+   default_out="$dir_target"
+  fi
+
+  read -erp "Enter destination/output directory (leave blank for default: $default_out): " output_dir
+  read -erp "Remove original source after completion? (y/N): " ans_rm
+  if [[ "$ans_rm" =~ ^[yY] ]]; then
+   remove_original=1
+  fi
+
+ else
+  # 2. Parse command-line arguments
+  while [[ $# -gt 0 ]]; do
+   case "$1" in
+    -s | --split)
+     action="split"
+     num_parts="$2"
+     shift 2
+     ;;
+    -c | --combine)
+     action="combine"
+     shift 1
+     ;;
+    --remove-original)
+     remove_original=1
+     shift 1
+     ;;
+    -o | --output-directory)
+     output_dir="$2"
+     shift 2
+     ;;
+    --source)
+     source_path="$2"
+     shift 2
+     ;;
+    *)
+     echo "Usage: ${FUNCNAME[0]} [--split <N> | --combine] --source <path> [--output-directory <dir>] [--remove-original]"
+     echo "Run without arguments for an interactive prompt."
+     return 1
+     ;;
+   esac
+  done
  fi
 
+ # Validate core inputs
+ if [[ -z "$action" || -z "$source_path" ]]; then
+  echo "Error: Missing action (--split/--combine) or --source."
+  return 1
+ fi
+
+ # Expand tilde (~) if entered by the user
+ source_path="${source_path/#\~/$HOME}"
+ [[ -n "$output_dir" ]] && output_dir="${output_dir/#\~/$HOME}"
+
+ # ==========================================
+ # SPLIT LOGIC
+ # ==========================================
  if [[ "$action" == "split" ]]; then
-  if [[ ! -f "$target" ]]; then
-   echo "Error: File '$target' does not exist or is not a regular file."
-   exit 1
+  local target="${source_path%/}"
+  local orig_type="file"
+
+  if [[ ! -e "$target" ]]; then
+   echo "Error: Source '$target' does not exist."
+   return 1
   fi
 
   if ! [[ "$num_parts" =~ ^[0-9]+$ ]] || ((num_parts < 1)); then
-   echo "Error: -s requires a positive integer (e.g., -s 10)."
-   exit 1
+   echo "Error: Splitting requires a positive integer for parts."
+   return 1
   fi
 
-  local dir_name="${target}-parts"
+  # Handle Directory: Tar it first
+  if [[ -d "$target" ]]; then
+   echo "📦 Source is a directory. Compressing to tar archive first..."
+   orig_type="directory"
+   local tar_file="${target}.tar.gz"
+   if ! tar -czf "$tar_file" -C "$(dirname "$target")" "$(basename "$target")"; then
+    echo "Error: Failed to create tar archive."
+    return 1
+   fi
+   target="$tar_file"
+   tar_created=1
+  fi
+
+  # Set Output Directory & File Naming
   local base_name="$(basename "$target")"
+  local dest_dir="${output_dir:-$(dirname "$target")/${base_name}-parts}"
+  mkdir -p "$dest_dir"
 
-  mkdir -p "$dir_name"
+  # Write metadata to guarantee extension/type preservation
+  echo "$base_name" >"$dest_dir/.original_name"
+  echo "$orig_type" >"$dest_dir/.original_type"
 
-  echo "Calculating original file checksum..."
+  echo "Calculating original checksum..."
   if command -v pv &>/dev/null; then
-   pv "$target" | sha256sum | awk '{print $1}' >"$dir_name/.checksum"
+   pv "$target" | sha256sum | awk '{print $1}' >"$dest_dir/.checksum"
   else
-   sha256sum "$target" | awk '{print $1}' >"$dir_name/.checksum"
+   sha256sum "$target" | awk '{print $1}' >"$dest_dir/.checksum"
   fi
 
-  echo "Splitting '$target' into $num_parts parts..."
-  split -n "$num_parts" -a 4 -d "$target" "$dir_name/${base_name}.part"
+  echo "✂️  Splitting '$target' into $num_parts parts..."
+  if split -n "$num_parts" -a 4 -d "$target" "$dest_dir/${base_name}.part"; then
 
-  echo "Success! Your split files and integrity data are in: $dir_name"
+   sum_out_path="$dest_dir"
+   sum_total_size="$(du -sh "$dest_dir" | awk '{print $1}')"
+   sum_part_size="$(du -sh "$dest_dir/${base_name}.part0000" 2>/dev/null | awk '{print $1}')"
+   sum_integrity="Checksum Generated"
 
+   # Handle Cleanup
+   if [[ $remove_original -eq 1 ]]; then
+    rm -rf "$source_path"
+    [[ $tar_created -eq 1 ]] && rm -f "$target"
+   fi
+  else
+   echo "❌ Error: Failed to split file."
+   return 1
+  fi
+
+ # ==========================================
+ # COMBINE LOGIC
+ # ==========================================
  elif [[ "$action" == "combine" ]]; then
-  local clean_target="${target%/}"
+  local clean_target="${source_path%/}"
 
   if [[ ! -d "$clean_target" ]]; then
-   echo "Error: Directory '$clean_target' does not exist."
-   exit 1
+   echo "Error: Parts directory '$clean_target' does not exist."
+   return 1
   fi
 
-  local out_file="${clean_target%-parts}"
+  # 1. Determine Output Name using Metadata (Preserves Extension perfectly)
+  local base_out="${clean_target%-parts}"
+  base_out="$(basename "$base_out")"
 
-  if [[ "$clean_target" == "$out_file" ]]; then
-   out_file="${clean_target}_combined"
+  if [[ -f "$clean_target/.original_name" ]]; then
+   base_out="$(cat "$clean_target/.original_name")"
+  elif [[ "$(basename "$clean_target")" == "$base_out" ]]; then
+   base_out="${base_out}_combined"
   fi
+
+  local out_dir="${output_dir:-$(dirname "$clean_target")}"
+  mkdir -p "$out_dir"
+  local out_file="${out_dir}/${base_out}"
 
   if [[ -f "$out_file" ]]; then
-   echo -n "Warning: Output file '$out_file' already exists. Overwrite? (y/n): "
-   read -r confirm
+   echo -ne "⚠️  Warning: Output file '$out_file' already exists. Overwrite? (y/n): "
+   read -erp "" confirm
    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
     echo "Aborting."
-    exit 1
+    return 1
    fi
   fi
 
-  echo "Combining parts from '$clean_target'..."
+  echo "🔗 Combining parts from '$clean_target'..."
   if command -v pv &>/dev/null; then
-
    pv "$clean_target"/*.part* >"$out_file"
   else
    cat "$clean_target"/*.part* >"$out_file"
   fi
 
+  # 2. Verify Checksum
   if [[ -f "$clean_target/.checksum" ]]; then
    echo "Verifying file integrity..."
    local original_hash=$(cat "$clean_target/.checksum")
@@ -1302,26 +1411,67 @@ function spliter-combiner {
    fi
 
    if [[ "$original_hash" == "$new_hash" ]]; then
-
-    echo "✅ Integrity check PASSED. File is perfectly restored!"
-    echo "Success! Your combined file is located at: $out_file"
-
-    echo -n "Would you like to delete the parts directory '$clean_target'? (y/n): "
-    read -r cleanup_confirm
-    if [[ "$cleanup_confirm" == "y" || "$cleanup_confirm" == "Y" ]]; then
-
-     rm -rf "$clean_target"
-     echo "🗑️  Parts directory deleted."
-    else
-     echo "📁 Parts directory kept."
-    fi
+    sum_integrity="✅ PASSED"
    else
     echo "❌ Error: Integrity check FAILED! The combined file does not match the original."
-    exit 1
+    return 1
    fi
   else
-   echo "⚠️ Warning: No .checksum file found. Combined successfully, but integrity could not be verified."
-   echo "Your combined file is located at: $out_file"
+   sum_integrity="⚠️ Not Verified (No .checksum found)"
+  fi
+
+  # 3. Handle Directory Restoration
+  local orig_type="file"
+  [[ -f "$clean_target/.original_type" ]] && orig_type="$(cat "$clean_target/.original_type")"
+
+  if [[ "$orig_type" == "directory" && "$sum_integrity" != *"FAILED"* ]]; then
+   echo "📦 Restoring original directory structure..."
+   if tar -xzf "$out_file" -C "$out_dir"; then
+    rm -f "$out_file" # Delete the intermediate tarball
+
+    # Calculate resulting directory path based on tarball name without .tar.gz
+    local extracted_dir_name="${base_out%.tar.gz}"
+    out_file="${out_dir}/${extracted_dir_name}"
+    echo "✅ Directory perfectly restored."
+   else
+    echo "❌ Error: Failed to extract combined tarball into directory."
+    return 1
+   fi
+  fi
+
+  sum_out_path="$out_file"
+  sum_total_size="$(du -sh "$out_file" 2>/dev/null | awk '{print $1}')"
+
+  # 4. Handle Cleanup
+  if [[ $remove_original -eq 1 ]]; then
+   rm -rf "$clean_target"
   fi
  fi
+
+ # ==========================================
+ # FINAL SUMMARY OUTPUT
+ # ==========================================
+ echo ""
+ echo "=========================================================="
+ echo " 📋 OPERATION SUMMARY"
+ echo "=========================================================="
+ echo " Action         : ${action^}"
+ echo " Source Path    : $source_path"
+ echo " Output Path    : $sum_out_path"
+ echo " Total Size     : $sum_total_size"
+
+ if [[ "$action" == "split" ]]; then
+  echo " Parts Created  : $num_parts"
+  echo " Size per Part  : ~$sum_part_size"
+ fi
+
+ echo " Integrity      : $sum_integrity"
+
+ if [[ $remove_original -eq 1 ]]; then
+  echo " Orig. Removed  : Yes 🗑️"
+ else
+  echo " Orig. Removed  : No 📁"
+ fi
+ echo "=========================================================="
+ echo " 🎉 Operation completed successfully!"
 }

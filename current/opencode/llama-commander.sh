@@ -71,7 +71,7 @@ start() {
 
  write_config
  printf 'starting llama server...\n'
- llama server -m "$MODEL_FILE" -c 25000 &
+ llama server -m "$MODEL_FILE" -c 1000000 &
  echo $! >"$PID_FILE"
 
  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do

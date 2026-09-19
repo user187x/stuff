@@ -97,9 +97,8 @@ preflight_check() {
  read -r -p "Attempt to locate and update references? (y/n) : " answer
  if [[ "$answer" == "y" ]]; then
 
- #TODO
- echo -e "$WARN TODO...."
- 
+  #TODO
+  echo -e "$WARN TODO...."
 
  else
   echo -e "$ERROR Referential integrity failed. Aborting action..."
