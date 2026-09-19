@@ -8,7 +8,7 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 declare -A RESOURCE_PATH
 
-RESOURCE_PATH["TMUX_SRC"]="$PWD/tmux"
+RESOURCE_PATH["TMUX_SRC"]="${SCRIPT_DIR}"
 RESOURCE_PATH["TMUX_DST"]="${CONFIG_HOME}/tmux"
 RESOURCE_PATH["TPM_SCRIPT"]="${RESOURCE_PATH[TMUX_DST]}/plugins/tpm/bin/install_plugins"
 
@@ -16,8 +16,10 @@ function setup_tmux {
 
  echo -e "Configuring Tmux..."
 
- # Link the main configuration directory
- ln -s "${RESOURCE_PATH[TMUX_SRC]}" "${RESOURCE_PATH[TMUX_DST]}"
+ # Link the main configuration directory (skip if already linked)
+ if [[ ! -e "${RESOURCE_PATH[TMUX_DST]}" ]]; then
+  ln -s "${RESOURCE_PATH[TMUX_SRC]}" "${RESOURCE_PATH[TMUX_DST]}"
+ fi
 
  if [[ -x "${RESOURCE_PATH[TPM_SCRIPT]}" ]]; then
 
@@ -33,9 +35,10 @@ function setup_tmux {
 }
 
 if ! command -v tmux >/dev/null 2>&1; then
- echo "Installing Snap..."
+ echo "Installing Tmux..."
  sudo apt install tmux -y
- setup-tmux
 else
  echo "Tmux is already installed!"
 fi
+
+setup_tmux

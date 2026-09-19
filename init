@@ -33,12 +33,11 @@ QESTN="(${BLUE}?${END})"
 declare -A RESOURCE_PATH
 
 # resource source definitions
-RESOURCE_PATH["OS_RESOURCES"]="${DEV_HOME}/resources/os"
-RESOURCE_PATH["DEV_SOFTWARE"]="${DEV_HOME}/resources/software"
-RESOURCE_PATH["SETTINGS_MANAGER"]="${RESOURCE_PATH[OS_RESOURCES]}/recovery/gsettings"
-RESOURCE_PATH["SOFTWARE_MANAGER"]="${RESOURCE_PATH[OS_RESOURCES]}/recovery/software"
-RESOURCE_PATH["CUSTOM_RESOURCES"]="${RESOURCE_PATH[OS_RESOURCES]}/updates"
-RESOURCE_PATH["CUSTOM_SOFTWARE"]="${RESOURCE_PATH[CUSTOM_RESOURCES]}/software"
+RESOURCE_PATH["OS_RESOURCES"]="${DEV_HOME}/data/mgmt"
+RESOURCE_PATH["DEV_SOFTWARE"]="${DEV_HOME}/data/apps"
+RESOURCE_PATH["SETTINGS_MANAGER"]="${RESOURCE_PATH[OS_RESOURCES]}/settings/config-manager"
+RESOURCE_PATH["SOFTWARE_MANAGER"]="${RESOURCE_PATH[OS_RESOURCES]}/software/app-manager"
+RESOURCE_PATH["CUSTOM_RESOURCES"]="${RESOURCE_PATH[OS_RESOURCES]}/core"
 
 # Resources exporting to $HOME/.local/share
 RESOURCE_PATH["PROFILE_DIR"]="${RESOURCE_PATH[CUSTOM_RESOURCES]}/images/profiles"
@@ -54,21 +53,21 @@ RESOURCE_PATH["AUDIO_SRC"]="${RESOURCE_PATH[AUDIO_DIR]}/payload.tar"
 RESOURCE_PATH["AUDIO_DST"]="${DATA_HOME}/audio"
 
 # Resources exporting to $HOME/.config
-RESOURCE_PATH["VIM_DIR"]="${RESOURCE_PATH[CUSTOM_SOFTWARE]}/vim"
-RESOURCE_PATH["VIM_SRC"]="${RESOURCE_PATH[VIM_DIR]}/vim"
+RESOURCE_PATH["VIM_DIR"]="${RESOURCE_PATH[DEV_SOFTWARE]}/vim"
+RESOURCE_PATH["VIM_SRC"]="${RESOURCE_PATH[VIM_DIR]}"
 RESOURCE_PATH["VIM_DST"]="${CONFIG_HOME}/vim"
 
-RESOURCE_PATH["TMUX_DIR"]="${RESOURCE_PATH[CUSTOM_SOFTWARE]}/tmux"
-RESOURCE_PATH["TMUX_SRC"]="${RESOURCE_PATH[TMUX_DIR]}/tmux"
+RESOURCE_PATH["TMUX_DIR"]="${RESOURCE_PATH[DEV_SOFTWARE]}/tmux"
+RESOURCE_PATH["TMUX_SRC"]="${RESOURCE_PATH[TMUX_DIR]}"
 RESOURCE_PATH["TMUX_DST"]="${CONFIG_HOME}/tmux"
 
-RESOURCE_PATH["KITTY_DIR"]="${RESOURCE_PATH[CUSTOM_SOFTWARE]}/kitty"
-RESOURCE_PATH["KITTY_SRC"]="${RESOURCE_PATH[KITTY_DIR]}/kitty"
+RESOURCE_PATH["KITTY_DIR"]="${RESOURCE_PATH[DEV_SOFTWARE]}/kitty"
+RESOURCE_PATH["KITTY_SRC"]="${RESOURCE_PATH[KITTY_DIR]}"
 RESOURCE_PATH["KITTY_DST"]="${CONFIG_HOME}/kitty"
 
 # Resources exportinng to $HOME directory
-RESOURCE_PATH["BASH_DIR"]="${RESOURCE_PATH[CUSTOM_SOFTWARE]}/bash"
-RESOURCE_PATH["BASH_SRC"]="${RESOURCE_PATH[BASH_DIR]}/bash"
+RESOURCE_PATH["BASH_DIR"]="${RESOURCE_PATH[DEV_SOFTWARE]}/bash"
+RESOURCE_PATH["BASH_SRC"]="${RESOURCE_PATH[BASH_DIR]}"
 RESOURCE_PATH["BASH_DST"]="${HOME}"
 
 # ==========================================
@@ -94,15 +93,17 @@ preflight_check() {
   fi
  done
 
- read -r -p "Attempt to locate and update references? (y/n) : " answer
- if [[ "$answer" == "y" ]]; then
+ if ((${#missing[@]} != 0)); then
+  read -r -p "Attempt to locate and update references? (y/n) : " answer
+  if [[ "$answer" == "y" ]]; then
 
-  #TODO
-  echo -e "$WARN TODO...."
+   #TODO
+   echo -e "$WARN TODO...."
 
- else
-  echo -e "$ERROR Referential integrity failed. Aborting action..."
-  exit 1
+  else
+   echo -e "$ERROR Referential integrity failed. Aborting action..."
+   exit 1
+  fi
  fi
 
  # Find any broken links
@@ -121,7 +122,7 @@ preflight_check() {
   echo -e "${END}"
 
   # Invoke function to attemp to locate and fix
-  source /home/xxx/dev.environment/resources/utils/bash-support/fix-broken-symlinks
+  source "${DEV_HOME}/data/util/bash/bash-symlink-fix"
   fix-links --base-directory "$DEV_HOME"
 
  fi
@@ -168,29 +169,33 @@ main() {
  fi
 
  echo -e "${INFO} Installing Vim resources..."
- "${RESOURCE_PATH[VIM_DIR]}/load-resources" \
-  --source "${RESOURCE_PATH[VIM_SRC]}" \
-  --destination "${RESOURCE_PATH[VIM_DST]}"
+ if [[ -x "${RESOURCE_PATH[VIM_DIR]}/load-resources" ]]; then
+  "${RESOURCE_PATH[VIM_DIR]}/load-resources" \
+   --source "${RESOURCE_PATH[VIM_SRC]}" \
+   --destination "${RESOURCE_PATH[VIM_DST]}"
+ else
+  echo -e "${WARN} No installer found at ${RESOURCE_PATH[VIM_DIR]} -- skipping Vim (not yet migrated to the new layout)"
+ fi
 
  echo -e "${INFO} Installing Tmux resources..."
- "${RESOURCE_PATH[TMUX_DIR]}/load-resources" \
-  --source "${RESOURCE_PATH[TMUX_SRC]}" \
-  --destination "${RESOURCE_PATH[TMUX_DST]}"
+ "${RESOURCE_PATH[TMUX_DIR]}/install"
 
  echo -e "${INFO} Installing Kitty resources..."
- "${RESOURCE_PATH[KITTY_DIR]}/load-resources" \
-  --source "${RESOURCE_PATH[KITTY_SRC]}" \
-  --destination "${RESOURCE_PATH[KITTY_DST]}"
+ "${RESOURCE_PATH[KITTY_DIR]}/initialize"
 
  echo -e "${INFO} Installing Bash resources..."
- "${RESOURCE_PATH[BASH_DIR]}/load-resources" \
-  --source "${RESOURCE_PATH[BASH_SRC]}" \
-  --destination "${RESOURCE_PATH[BASH_DST]}"
+ if [[ -x "${RESOURCE_PATH[BASH_DIR]}/load-resources" ]]; then
+  "${RESOURCE_PATH[BASH_DIR]}/load-resources" \
+   --source "${RESOURCE_PATH[BASH_SRC]}" \
+   --destination "${RESOURCE_PATH[BASH_DST]}"
+ else
+  echo -e "${WARN} No installer found at ${RESOURCE_PATH[BASH_DIR]} -- skipping Bash (not yet migrated to the new layout)"
+ fi
 
  read -r -p "Restore previous environment settings? [y/N]: " input
  if [[ "${input,,}" =~ ^(y|yes)$ ]]; then
   echo "Restoring previously set environment settings..."
-  "${RESOURCE_PATH[SETTINGS_MANAGER]}/gsettings-manager" --restore
+  "${RESOURCE_PATH[SETTINGS_MANAGER]}" --restore
  else
   echo "Skipped restoring environment settings"
  fi
@@ -198,7 +203,7 @@ main() {
  read -r -p "Restore previous installed software? [y/N]: " input
  if [[ "${input,,}" =~ ^(y|yes)$ ]]; then
   echo "Restoring previously installed software..."
-  "${RESOURCE_PATH[SOFTWARE_MANAGER]}/software-manager" --restore
+  "${RESOURCE_PATH[SOFTWARE_MANAGER]}"
  else
   echo "Skipped installing software..."
  fi
