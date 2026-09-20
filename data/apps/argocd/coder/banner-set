@@ -1,8 +1,10 @@
 #!/bin/bash
-# Change the Coder banner without touching anything else.
+# Change the banner's chart DEFAULTS from the command line. Admins normally use the admin page
+# (https://coder.xxx.com/__banner/admin) instead; anything published there takes precedence over these
+# defaults until "use the chart defaults" is pressed on that page.
 #   ./banner-set --message "Upgrade tonight 22:00 UTC" --level warning
 #   ./banner-set --message "Coder is back" --level success --link-text "Notes" --link-url https://example.com
-#   ./banner-set --off        # hide the banner        ./banner-set --on   # show it again
+#   ./banner-set --off        # hide the default banner        ./banner-set --on   # show it again
 set -euo pipefail
 cd "$(dirname "$0")"
 

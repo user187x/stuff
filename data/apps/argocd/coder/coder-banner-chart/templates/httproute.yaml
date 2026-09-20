@@ -37,6 +37,23 @@ spec:
         - name: {{ .Values.coder.service.name }}
           port: {{ .Values.coder.service.port }}
     {{- end }}
+    {{- if .Values.menu.enabled }}
+    # Coder's entry JavaScript chunk only (no other chunk is named index-*.js): swap the "Codernauts"
+    # user-menu item. Kept this narrow because rewrite-body buffers and regex-scans whatever reaches it.
+    - matches:
+        - path:
+            type: RegularExpression
+            value: '^/assets/index-[A-Za-z0-9_-]+\.js$'
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: coder-banner-menu
+      backendRefs:
+        - name: {{ .Values.coder.service.name }}
+          port: {{ .Values.coder.service.port }}
+    {{- end }}
     # Dashboard page loads: rewrite the HTML.
     - matches:
         - path:

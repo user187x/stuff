@@ -31,6 +31,14 @@ admin:
   roles:
     - owner
 
+# Replace the "Codernauts" item in Coder's user menu with a link to the admin page. The dashboard is
+# client-rendered, so this rewrites Coder's JavaScript bundle with a second rewrite-body middleware.
+menu:
+  enabled: true
+  label: Banner
+  # Only users holding one of admin.roles see the item (the admin page enforces this regardless).
+  adminOnly: true
+
 # ---- Chart defaults for the banner. These show until an admin publishes something from the admin page
 # (https://<coder.host>/__banner/admin); after that the admin page wins until it is reset. ----
 banner:
