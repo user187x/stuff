@@ -117,7 +117,9 @@ data:
         if [ ! -d "/tmp/code-server" ]; then
           curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/tmp/code-server
         fi
-        if ! pgrep -f "code-server" > /dev/null; then
+        # Probe the port rather than pgrep -f: the agent runs this script as `sh -c '<script>'`,
+        # so `pgrep -f` matches the script's own command line and never starts anything.
+        if ! curl -fs http://localhost:13337/healthz > /dev/null; then
           /tmp/code-server/bin/code-server --auth none --port 13337 >/tmp/code-server.log 2>&1 &
         fi
 
@@ -125,7 +127,7 @@ data:
         if ! command -v filebrowser >/dev/null; then
           curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | sudo bash
         fi
-        if ! pgrep -f "filebrowser" > /dev/null; then
+        if ! pgrep -x filebrowser > /dev/null; then
           filebrowser --noauth --root /home/coder --port 13339 >/tmp/filebrowser.log 2>&1 &
         fi
 
@@ -136,17 +138,20 @@ data:
         fi
 
         # Configure XFCE to start on VNC launch
-        mkdir -p ~/.vnc
-        cat << 'VNC_SCRIPT' > ~/.vnc/xstartup
+        # TigerVNC >= 1.14 reads ~/.config/tigervnc (the legacy ~/.vnc fails to migrate),
+        # and the session ends when xstartup returns, so xfce must be exec'd in the foreground.
+        mkdir -p ~/.config/tigervnc
+        cat << 'VNC_SCRIPT' > ~/.config/tigervnc/xstartup
     #!/bin/sh
-    xrdb $HOME/.Xresources
-    startxfce4 &
+    xrdb $HOME/.Xresources 2>/dev/null
+    exec startxfce4
     VNC_SCRIPT
-        chmod +x ~/.vnc/xstartup
+        chmod +x ~/.config/tigervnc/xstartup
 
-        # Start TigerVNC server on display :1
+        # Start TigerVNC server on display :1. Bound to localhost only: websockify below
+        # runs in the same pod, and TigerVNC refuses unauthenticated non-local listeners.
         if ! pgrep -x Xtigervnc > /dev/null; then
-          vncserver :1 -geometry 1280x800 -depth 24 -localhost no -SecurityTypes None
+          vncserver :1 -geometry 1280x800 -depth 24 -localhost yes -SecurityTypes None
         fi
 
         # Start websockify proxy for noVNC
@@ -346,6 +351,28 @@ data:
               run_as_non_root = true
             }
 
+            # Trust the local PKI: append the cluster root CA (secret "tls-ca") to the
+            # image's stock bundle so curl, the agent, git and apt can reach
+            # https://coder.xxx.com while public sites still verify.
+            init_container {
+              name              = "trust-local-ca"
+              image             = "codercom/enterprise-base:ubuntu"
+              image_pull_policy = "IfNotPresent"
+              command = [
+                "sh", "-c",
+                "cat /etc/ssl/certs/ca-certificates.crt /local-ca/ca.crt > /ca-bundle/ca-certificates.crt",
+              ]
+              volume_mount {
+                name       = "local-ca"
+                mount_path = "/local-ca"
+                read_only  = true
+              }
+              volume_mount {
+                name       = "ca-bundle"
+                mount_path = "/ca-bundle"
+              }
+            }
+
             container {
               name              = "dev"
               image             = "codercom/enterprise-base:ubuntu"
@@ -353,6 +380,12 @@ data:
               command           = ["sh", "-c", coder_agent.main.init_script]
               security_context {
                 run_as_user = "1000"
+              }
+              volume_mount {
+                name       = "ca-bundle"
+                mount_path = "/etc/ssl/certs/ca-certificates.crt"
+                sub_path   = "ca-certificates.crt"
+                read_only  = true
               }
               env {
                 name  = "CODER_AGENT_TOKEN"
@@ -381,6 +414,22 @@ data:
                 claim_name = kubernetes_persistent_volume_claim_v1.home.metadata.0.name
                 read_only  = false
               }
+            }
+
+            volume {
+              name = "local-ca"
+              secret {
+                secret_name = "tls-ca"
+                items {
+                  key  = "ca.crt"
+                  path = "ca.crt"
+                }
+              }
+            }
+
+            volume {
+              name = "ca-bundle"
+              empty_dir {}
             }
 
             affinity {
