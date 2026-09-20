@@ -193,8 +193,6 @@ source /home/xxx/.bash_aliases
 source /home/xxx/.bash_functions
 # path to dev defined reource /home/xxx/.bash_completions
 source /home/xxx/.bash_completions
-# path to local only bash aliases
-source /home/xxx/.bash_local
 
 export ANDROID_HOME=/usr/lib/android-sdk
 export ANDROID_TOOLS="${ANDROID_HOME}/tools"
@@ -209,10 +207,6 @@ export PATH="${PATH}:${BIN_HOME}:/usr/local/bin/"
 export PATH="${PATH}:${KITTY_HOME}/kitty"
 export PATH="${PATH}:${ANDROID_TOOLS}:${ANDROID_PLATFORM_TOOLS}"
 export PATH="${PATH}:${DEV_CNTR_HOME}/bin"
-
-source /home/xxx/.config/broot/launcher/bash/br
-
-source "$HOME/.cargo/env"
 
 # Handle nvm initialization
 export NVM_DIR="$HOME/.config/nvm"
