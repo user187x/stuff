@@ -1,2 +1,5 @@
 # Output of ./make-airgap-bundle (the sneaker-net bundle: 17 MB, contains an image archive).
 dist/
+# Written by ./banner-guide (a log of what it ran, and the Argo CD Application it fills in).
+banner-guide.log
+coder-banner-application.yaml

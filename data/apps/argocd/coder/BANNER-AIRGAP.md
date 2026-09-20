@@ -4,6 +4,17 @@ An editable announcement banner for the Coder dashboard, plus an admin page and 
 user menu. It is built only from the objects your cluster already uses for Coder: the `traefik-gateway`
 Gateway, Gateway API `HTTPRoute`s and Traefik `Middleware`s. With `--airgap` nothing is downloaded at run time.
 
+## Easiest way: let the guide do it
+
+```bash
+./banner-guide
+```
+
+It asks what you want to do (bundle, deploy, check, remove), looks at your cluster to suggest answers (press Enter to
+accept them), explains every step, shows each command before it runs, and only changes something after you say yes.
+`./banner-guide --dry-run` walks through everything without changing anything. It is included in the bundle, so the same
+command works on the air-gapped side. Everything below is what it does for you, for anyone who prefers to do it by hand.
+
 **You need:** `kubectl`, `helm` (3.14+ or 4), `jq` on the machine you work from, cluster-admin rights, an
 internal container registry, and (for the Argo CD route) an internal Helm chart repository.
 
@@ -31,8 +42,12 @@ traffic moves over. Do it in a quiet window. Installing or removing the chart it
 ## Part 1 - on a connected machine: build the bundle
 
 ```bash
-./make-airgap-bundle --with-traefik-chart
+./make-airgap-bundle --with-traefik-chart=<Traefik chart version on the target cluster>   # e.g. 41.4.0
 ```
+
+The version is what `helm list -n traefik` shows on the **air-gapped** cluster (`traefik-41.4.0` -> `41.4.0`). Without
+`=VERSION` the script uses the cluster you build on, which is only right if the two match; the Traefik step renders
+from this archive, so a different version would produce a Deployment that differs from the one running there.
 
 Produces `dist/coder-banner-airgap-<version>.tar.gz` (+ `.sha256`): the chart archive, the container image
 (`images/images.tar`), the vendored plugin source (Apache-2.0, upstream `traefik/plugin-rewritebody` v0.3.1), all

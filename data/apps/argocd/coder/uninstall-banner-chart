@@ -13,6 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 CODER_NAMESPACE="${CODER_NAMESPACE:-coder}"
+CODER_DEPLOYMENT="${CODER_DEPLOYMENT:-${CODER_SERVICE:-coder}}"   # Coder's Deployment
+CODER_SERVICE="${CODER_SERVICE:-coder}"
 remove_plugin=0; verify_only=0
 for arg in "$@"; do
  case "${arg}" in
@@ -60,16 +62,16 @@ if [[ -z "${left}" ]]; then ok "no coder-banner objects remain in namespace ${CO
 
 if [[ -n "$(kubectl -n "${CODER_NAMESPACE}" get pods -l app.kubernetes.io/name=coder-banner -o name 2>/dev/null)" ]]; then bad "banner pods still present"; else ok "no banner pods"; fi
 
-kubectl -n "${CODER_NAMESPACE}" get deployment coder >/dev/null 2>&1 && ok "Coder Deployment untouched and present" || bad "Coder Deployment missing"
-kubectl -n "${CODER_NAMESPACE}" get service coder >/dev/null 2>&1 && ok "Coder Service present" || bad "Coder Service missing"
+kubectl -n "${CODER_NAMESPACE}" get deployment "${CODER_DEPLOYMENT}" >/dev/null 2>&1 && ok "Coder Deployment untouched and present" || bad "Coder Deployment missing"
+kubectl -n "${CODER_NAMESPACE}" get service "${CODER_SERVICE}" >/dev/null 2>&1 && ok "Coder Service present" || bad "Coder Service missing"
 kubectl -n "${CODER_NAMESPACE}" get httproute coder >/dev/null 2>&1 && ok "Coder's own HTTPRoute present" || info "no HTTPRoute named 'coder' (fine if Coder is exposed another way)"
-[[ "$(kubectl -n "${CODER_NAMESPACE}" get deployment coder -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ]] && ok "Coder is available" || bad "Coder has no available replicas"
+[[ "$(kubectl -n "${CODER_NAMESPACE}" get deployment "${CODER_DEPLOYMENT}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ]] && ok "Coder is available" || bad "Coder has no available replicas"
 
 # What a browser gets, if we can reach Coder from here.
 if CODER_URL=$(./fetch-coder-domain 2>/dev/null) && [[ -n "${CODER_URL}" ]]; then
- ca="$(mktemp)"; trap 'rm -f "${ca}"' EXIT
- kubectl get secret tls-ca -n "${CODER_NAMESPACE}" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > "${ca}" || true
- curl_opts=(-sS -m 20); [[ -s "${ca}" ]] && curl_opts+=(--cacert "${ca}")
+ scratch="$(mktemp -d)"; trap 'rm -rf "${scratch}"' EXIT
+ . ./support/coder-ca.sh "${scratch}"
+ curl_opts=(-sS -m 20 "${CA_OPTS[@]}")
  fetch_page() { curl "${curl_opts[@]}" -H "Accept: text/html" "${CODER_URL}/login" 2>/dev/null; }
  page_is_stock() { page=$(fetch_page) && [[ -n "${page}" ]] && ! grep -q '__banner' <<<"${page}"; }
  if [[ -z "$(fetch_page || true)" ]]; then

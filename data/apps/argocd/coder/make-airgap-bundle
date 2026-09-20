@@ -64,11 +64,11 @@ if [[ -n "${traefik_chart}" ]]; then
 fi
 
 echo "4/6 scripts, Argo CD Application, documentation"
-cp install-banner-chart uninstall-banner-chart preflight-banner verify-menu banner-set fetch-coder-domain "${stage}/"
-cp support/chart-path.sh "${stage}/support/"
+cp banner-guide install-banner-chart uninstall-banner-chart preflight-banner verify-menu banner-set fetch-coder-domain "${stage}/"
+cp support/chart-path.sh support/coder-ca.sh "${stage}/support/"
 cp coder-banner-argocd.yaml "${stage}/argocd/coder-banner-application.yaml"
 cp BANNER-AIRGAP.md "${stage}/INSTALL.md"
-chmod +x "${stage}"/{install-banner-chart,uninstall-banner-chart,preflight-banner,verify-menu,banner-set,fetch-coder-domain} "${stage}"/support/traefik/{enable-plugin,disable-plugin,gen-airgap-plugin-values}
+chmod +x "${stage}"/{banner-guide,install-banner-chart,uninstall-banner-chart,preflight-banner,verify-menu,banner-set,fetch-coder-domain} "${stage}"/support/traefik/{enable-plugin,disable-plugin,gen-airgap-plugin-values}
 
 echo "5/6 checksums"
 (cd "${stage}" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)

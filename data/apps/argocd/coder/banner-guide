@@ -1,0 +1,660 @@
+#!/bin/bash
+# banner-guide - a step-by-step, question-and-answer helper for the Coder banner.
+#
+# You do not need to know how any of this works. It asks what you want to do, looks at your cluster to
+# suggest answers (shown in [brackets] - press Enter to accept), explains each step in plain words, shows
+# every command before it runs, and only changes something after you say yes.
+#
+#   ./banner-guide                  ask what to do
+#   ./banner-guide --dry-run        walk through everything, but change nothing (safe way to look around)
+#   ./banner-guide --mode bundle    skip the menu: bundle | deploy | check | remove | explain
+#   BANNER_GUIDE_ASSUME_DEFAULTS=1  accept every suggested answer without asking (for scripts / rehearsals)
+#
+# Every command it runs is also written to banner-guide.log.
+set -uo pipefail
+cd "$(dirname "$0")" || exit 1
+
+DRY_RUN=0
+MODE=""
+LOG="${PWD}/banner-guide.log"   # absolute, so it stays one file even after we move into an unpacked bundle
+ASSUME="${BANNER_GUIDE_ASSUME_DEFAULTS:-0}"
+
+# ------------------------------------------------------------------------------------------------ appearance
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+ BOLD=$'\e[1m'; DIM=$'\e[2m'; RED=$'\e[31m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; BLUE=$'\e[34m'; RST=$'\e[0m'
+else
+ BOLD=""; DIM=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; RST=""
+fi
+
+log()    { printf '%s %s\n' "$(date +%T)" "$*" >> "${LOG}" 2>/dev/null || true; }
+say()    { printf '%s\n' "$*"; }
+blank()  { printf '\n'; }
+title()  { blank; printf '%s== %s ==%s\n' "${BOLD}${BLUE}" "$*" "${RST}"; log "TITLE $*"; }
+step()   { blank; printf '%sStep %s of %s: %s%s\n' "${BOLD}" "$1" "$2" "$3" "${RST}"; log "STEP $1/$2 $3"; }
+why()    { printf '%s%s%s\n' "${DIM}" "$*" "${RST}"; }
+ok()     { printf '  %s✔%s %s\n' "${GREEN}" "${RST}" "$*"; }
+warn()   { printf '  %s!%s %s\n' "${YELLOW}" "${RST}" "$*"; }
+bad()    { printf '  %s✘%s %s\n' "${RED}" "${RST}" "$*"; }
+die()    { blank; printf '%s%s%s\n' "${RED}" "$*" "${RST}" >&2; log "DIE $*"; exit 1; }
+
+# ------------------------------------------------------------------------------------------------ asking
+read_line() { # read_line VAR   (reads one line; ends the program cleanly if the input is exhausted)
+ local __v=$1 __l
+ IFS= read -r __l || { blank; die "The input ended before all questions were answered."; }
+ printf -v "${__v}" '%s' "${__l}"
+}
+
+ask() { # ask VAR "Question" "default" ["regex" "what is wrong if it does not match"]
+ local __var=$1 q=$2 def=${3:-} re=${4:-} hint=${5:-} ans
+ while true; do
+  if [[ -n "${def}" ]]; then printf '%s %s[%s]%s: ' "${q}" "${DIM}" "${def}" "${RST}"; else printf '%s: ' "${q}"; fi
+  if [[ "${ASSUME}" == 1 && -z "${def}" ]]; then blank; die "There is no suggested answer for \"${q}\", so I cannot go on unattended. Run without BANNER_GUIDE_ASSUME_DEFAULTS and answer it."; fi
+  if [[ "${ASSUME}" == 1 ]]; then ans=""; printf '%s(using default)%s\n' "${DIM}" "${RST}"; else read_line ans; fi
+  ans=${ans:-${def}}
+  [[ -n "${ans}" ]] || { warn "An answer is needed here."; continue; }
+  if [[ -n "${re}" && ! "${ans}" =~ ${re} ]]; then warn "${hint:-That does not look right, please try again.}"; [[ "${ASSUME}" == 1 ]] && die "Default rejected: ${ans}"; continue; fi
+  printf -v "${__var}" '%s' "${ans}"; log "ANSWER ${q} = ${ans}"; return 0
+ done
+}
+
+ask_optional() { # like ask, but an empty answer is fine
+ local __var=$1 q=$2 def=${3:-} ans
+ if [[ -n "${def}" ]]; then printf '%s %s[%s]%s: ' "${q}" "${DIM}" "${def}" "${RST}"; else printf '%s %s(optional - press Enter to skip)%s: ' "${q}" "${DIM}" "${RST}"; fi
+ if [[ "${ASSUME}" == 1 ]]; then ans=""; printf '%s(using default)%s\n' "${DIM}" "${RST}"; else read_line ans; fi
+ printf -v "${__var}" '%s' "${ans:-${def}}"; log "ANSWER ${q} = ${ans:-${def}}"
+}
+
+confirm() { # confirm "Question" [y|n]   -> returns 0 for yes
+ local q=$1 def=${2:-y} ans hint
+ [[ "${def}" == y ]] && hint="Y/n" || hint="y/N"
+ while true; do
+  printf '%s %s[%s]%s: ' "${q}" "${DIM}" "${hint}" "${RST}"
+  if [[ "${ASSUME}" == 1 ]]; then ans=""; printf '%s(using default)%s\n' "${DIM}" "${RST}"; else read_line ans; fi
+  ans=${ans:-${def}}
+  case "$(printf '%s' "${ans}" | tr 'A-Z' 'a-z')" in
+   y|yes) log "CONFIRM ${q} = yes"; return 0 ;;
+   n|no)  log "CONFIRM ${q} = no"; return 1 ;;
+   *) warn "Please answer y or n." ;;
+  esac
+ done
+}
+
+choose() { # choose VAR "Question" DEFAULT_INDEX option1 option2 ...   (VAR gets the chosen number)
+ local __var=$1 q=$2 def=$3; shift 3
+ local opts=("$@") i ans
+ say "${q}"
+ for i in "${!opts[@]}"; do printf '  %d) %s\n' $((i+1)) "${opts[$i]}"; done
+ while true; do
+  printf 'Choose 1-%d %s[%s]%s: ' "${#opts[@]}" "${DIM}" "${def}" "${RST}"
+  if [[ "${ASSUME}" == 1 ]]; then ans=""; printf '%s(using default)%s\n' "${DIM}" "${RST}"; else read_line ans; fi
+  ans=${ans:-${def}}
+  if [[ "${ans}" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= ${#opts[@]} )); then printf -v "${__var}" '%s' "${ans}"; log "CHOICE ${q} = ${ans}"; return 0; fi
+  warn "Please type a number from 1 to ${#opts[@]}."
+ done
+}
+
+pause() { printf '%sPress Enter to continue...%s' "${DIM}" "${RST}"; if [[ "${ASSUME}" == 1 ]]; then echo; else local _x; read_line _x; fi; }
+
+# ------------------------------------------------------------------------------------------------ running commands
+run() { # a command that only LOOKS at things (always runs)
+ local shown="$*"; shown=${shown/#kc /kubectl }   # kc is only our short-hand: show what a person could copy
+ printf '%s  $ %s%s\n' "${DIM}" "${shown}" "${RST}"; log "RUN ${shown}"; "$@"
+}
+mutate() { # a command that CHANGES something (skipped with --dry-run)
+ printf '%s  $ %s%s\n' "${BOLD}" "$*" "${RST}"; log "CHANGE $*"
+ if (( DRY_RUN )); then printf '    %s(dry run: not executed)%s\n' "${DIM}" "${RST}"; return 0; fi
+ "$@"
+}
+kc() { kubectl --request-timeout=20s "$@"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+need_tools() { # need_tools "why" tool:hint ...
+ local why=$1; shift; local missing=0 t name hint
+ for t in "$@"; do
+  name=${t%%:*}; hint=${t#*:}
+  if have "${name}"; then ok "${name} found"; else bad "${name} is missing - ${hint}"; missing=1; fi
+ done
+ if (( missing )); then die "Please install the missing tool(s) above (${why}) and run this again."; fi
+}
+
+# ------------------------------------------------------------------------------------------------ discovery helpers
+chart_of() { # chart_of <namespace|-A> -> "namespace<TAB>release<TAB>version<TAB>appversion" for the first Traefik Helm release
+ local ns=$1 args=(list -o yaml)
+ [[ "${ns}" == "-A" ]] && args+=(-A) || args+=(-n "${ns}")
+ timeout 25 helm "${args[@]}" 2>/dev/null | awk '
+  function flush() { if (chart ~ /^traefik-[0-9]/ && !done) { print ns "\t" name "\t" substr(chart, 9) "\t" app; done = 1 } }
+  /^- / { flush(); ns = name = chart = app = ""; sub(/^- /, "  ") }
+  { if ($1 == "app_version:") app = $2; else if ($1 == "chart:") chart = $2; else if ($1 == "name:") name = $2; else if ($1 == "namespace:") ns = $2 }
+  END { flush() }'
+}
+
+deployments_like() { # deployments_like '<regex on image>' -> "namespace<TAB>name<TAB>image" lines
+ kc get deploy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}' 2>/dev/null |
+  awk -F'\t' -v re="$1" '$3 ~ re {print $1 "\t" $2 "\t" $3}'
+}
+
+plugin_state() { # plugin_state <ns> <deployment> -> local | download | none
+ local args; args=$(kc -n "$1" get deploy "$2" -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)
+ if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then echo local
+ elif grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then echo download
+ else echo none; fi
+}
+
+semver_re='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+
+# ================================================================================================ EXPLAIN
+mode_explain() {
+ title "What is this?"
+ cat <<'EOF'
+The Coder banner lets an administrator put a message at the top of the Coder dashboard for every developer
+(for example "Coder restarts at 22:00 - please save your work"). Messages appear instantly, even for people
+who are just sitting on the dashboard, and an "emergency" button can show it again to people who dismissed it.
+Admins edit it on a simple web page (https://<your coder>/__banner/admin) or from the user menu ("Banner").
+
+How it works, in plain words:
+  * Your cluster already sends web traffic to Coder through Traefik. The banner adds a few extra Traefik
+    settings next to Coder's own (small "middlewares" and one extra route). Coder itself is never modified.
+  * A tiny web service (one small container) stores the message and serves the admin page.
+  * A Traefik plugin adds one line to Coder's web page so browsers load the banner. That plugin has to be
+    switched on in Traefik's own configuration - this is the one change outside the banner's own objects.
+    It restarts Traefik once (a few seconds of interruption) and can be switched off again.
+
+"Air-gapped" means the target cluster cannot reach the internet. So there are two machines and two jobs:
+  1) BUNDLE  on a machine WITH internet: download and pack everything the banner needs into one file.
+  2) DEPLOY  next to the AIR-GAPPED cluster: unpack that file and install from it.
+
+Everything is reversible: REMOVE deletes the banner and returns Coder to exactly how it was.
+EOF
+}
+
+# ================================================================================================ BUNDLE
+mode_bundle() {
+ title "BUNDLE: pack everything into one file for the air-gapped cluster"
+ cat <<'EOF'
+Run this on a computer WITH internet access, from the folder that holds the banner's source files.
+It produces one archive (.tar.gz) plus a checksum file. You copy those to the air-gapped side (USB stick,
+transfer host, ...). Nothing on any cluster is changed by this step.
+EOF
+ local total=6
+
+ step 1 ${total} "Check that we are in the right place"
+ if [[ ! -x ./make-airgap-bundle || ! -d ./coder-banner-chart ]]; then
+  bad "This folder does not contain make-airgap-bundle and coder-banner-chart."
+  if ls ./coder-banner-*.tgz >/dev/null 2>&1; then
+   say "It looks like you are inside an already-made bundle. Bundling is done on the connected machine from the"
+   say "source folder. To INSTALL from this bundle, run ./banner-guide again and choose DEPLOY."
+  else
+   say "Change into the folder that contains 'make-airgap-bundle' (data/apps/argocd/coder in the repository)."
+  fi
+  die "Cannot bundle from here."
+ fi
+ ok "found make-airgap-bundle and the chart source"
+
+ step 2 ${total} "Check the tools this machine needs"
+ why "helm packs the chart; docker (or podman) downloads and saves the container image; tar and sha256sum make the archive."
+ need_tools "for bundling" "helm:https://helm.sh/docs/intro/install/" "tar:install your OS 'tar' package" "sha256sum:install 'coreutils'"
+ if have docker; then ok "docker found"; elif have podman; then ok "podman found"; else bad "neither docker nor podman found"; die "Install docker or podman (needed to download and save the container image)."; fi
+ if curl -sS -m 6 -o /dev/null https://registry-1.docker.io/v2/ 2>/dev/null; then ok "internet reachable (Docker Hub)"; else warn "could not reach Docker Hub - pulling the image will fail unless it is already on this machine"; fi
+
+ step 3 ${total} "Which Traefik version runs on the AIR-GAPPED cluster?"
+ cat <<'EOF'
+The banner needs Traefik's "rewrite-body" plugin. The bundle carries Traefik's Helm chart so the plugin can be
+switched on safely, and that chart must be the SAME VERSION as the one already running on the air-gapped cluster.
+(On that cluster you can check with:  helm list -n traefik   -> the CHART column, e.g. traefik-41.4.0 means 41.4.0)
+EOF
+ local found ns rel ver app ctx default_ver=""
+ ctx=$(kubectl config current-context 2>/dev/null || true)
+ if [[ -n "${ctx}" ]] && found=$(chart_of -A) && [[ -n "${found}" ]]; then
+  IFS=$'\t' read -r ns _ ver app <<<"${found}"
+  ok "I looked at the cluster you are connected to right now ('${ctx}') and found Traefik chart ${BOLD}${ver}${RST} (Traefik ${app}) in namespace '${ns}'."
+  why "If the air-gapped cluster runs the same Traefik, just press Enter. If it differs, type its version instead."
+  default_ver=${ver}
+ else
+  warn "I could not detect a Traefik version from a cluster (no cluster connection, or Traefik was not installed with Helm)."
+  if ! helm repo list 2>/dev/null | grep -q 'traefik.github.io/charts'; then
+   say "The Traefik chart repository is not set up on this machine yet."
+   if confirm "Add it now (helm repo add traefik https://traefik.github.io/charts)?" y; then
+    mutate helm repo add traefik https://traefik.github.io/charts && mutate helm repo update
+   fi
+  fi
+  if helm search repo traefik/traefik --versions 2>/dev/null | sed -n '2,7p' | grep -q .; then
+   say "Recent Traefik chart versions (CHART VERSION column):"
+   helm search repo traefik/traefik --versions 2>/dev/null | sed -n '1,7p' | sed 's/^/    /'
+  fi
+ fi
+ ask TRAEFIK_VER "Traefik chart version on the air-gapped cluster" "${default_ver}" "${semver_re}" "Use the form 41.4.0 (three numbers separated by dots)."
+ if helm show chart traefik/traefik --version "${TRAEFIK_VER}" >/dev/null 2>&1; then ok "Traefik chart ${TRAEFIK_VER} exists in the repository"
+ else
+  warn "I could not confirm that Traefik chart ${TRAEFIK_VER} exists (repository not added, or offline)."
+  confirm "Continue anyway? (the bundling step will stop with an error if it is not available)" n || die "Stopped. Add the repository (helm repo add traefik https://traefik.github.io/charts) and try again."
+ fi
+
+ step 4 ${total} "Where should the bundle be written?"
+ ask OUT_DIR "Output folder" "./dist"
+ mkdir -p "${OUT_DIR}" 2>/dev/null || true
+ [[ -w "${OUT_DIR}" ]] || die "Cannot write to ${OUT_DIR}."
+
+ step 5 ${total} "What will go into the bundle"
+ local cver; cver=$(helm show chart ./coder-banner-chart 2>/dev/null | awk '/^version:/ {print $2}')
+ local image; image=$(helm template x ./coder-banner-chart -n coder 2>/dev/null | awk '/^ +image: /{print $2}' | sort -u | head -1)
+ cat <<EOF
+  - the banner chart (version ${cver:-?}), with its Traefik middlewares, routes and admin page
+  - the container image the banner runs in: ${image:-python:3.13-alpine}   (downloaded now, ~50 MB)
+  - the Traefik plugin's source code, so nothing is downloaded on the air-gapped side
+  - Traefik's Helm chart ${TRAEFIK_VER}
+  - this guide and the other scripts, plus checksums so damage in transit is detected
+EOF
+
+ step 6 ${total} "Build it"
+ confirm "Build the bundle now?" y || die "Nothing was built."
+ if (( DRY_RUN )); then
+  mutate ./make-airgap-bundle --out "${OUT_DIR}" --with-traefik-chart="${TRAEFIK_VER}"
+  blank; say "(dry run) Nothing was built."; return 0
+ fi
+ mutate ./make-airgap-bundle --out "${OUT_DIR}" --with-traefik-chart="${TRAEFIK_VER}" || die "The bundle could not be built - see the messages above."
+
+ local tarball="${OUT_DIR}/coder-banner-airgap-${cver}.tar.gz"
+ [[ -f "${tarball}" ]] || die "Expected ${tarball} but it does not exist."
+ (cd "${OUT_DIR}" && sha256sum -c "coder-banner-airgap-${cver}.tar.gz.sha256" >/dev/null 2>&1) && ok "checksum verified" || warn "could not verify the checksum"
+
+ title "Done - the bundle is ready"
+ cat <<EOF
+Copy BOTH of these files to the air-gapped side:
+    ${tarball}
+    ${tarball}.sha256
+
+On the air-gapped side, open a terminal in the folder where you put them and run:
+    sha256sum -c coder-banner-airgap-${cver}.tar.gz.sha256
+    tar xzf coder-banner-airgap-${cver}.tar.gz
+    cd coder-banner-airgap-${cver}
+    ./banner-guide            # then choose DEPLOY
+
+They will need on that side: kubectl, helm, jq and curl, a login to the air-gapped cluster (kubectl), and a way
+to load a container image (docker, podman or skopeo) if you use an internal registry.
+EOF
+}
+
+# ================================================================================================ DEPLOY
+find_bundle() { # makes sure we are inside an unpacked, verified bundle
+ if ls ./coder-banner-*.tgz >/dev/null 2>&1 && [[ -f SHA256SUMS ]]; then ok "we are inside an unpacked bundle ($(pwd))"; return 0; fi
+ say "This folder is not an unpacked bundle. Looking for a bundle archive (coder-banner-airgap-*.tar.gz)..."
+ local found=() f
+ while IFS= read -r f; do found+=("${f}"); done < <(ls -1t ./coder-banner-airgap-*.tar.gz ./dist/coder-banner-airgap-*.tar.gz "${HOME}"/coder-banner-airgap-*.tar.gz /tmp/coder-banner-airgap-*.tar.gz ../coder-banner-airgap-*.tar.gz 2>/dev/null | awk '!s[$0]++')
+ local tarball=""
+ if (( ${#found[@]} == 1 )); then tarball=${found[0]}; ok "found ${tarball}"
+ elif (( ${#found[@]} > 1 )); then
+  local pick; choose pick "Several bundles found - which one?" 1 "${found[@]}"; tarball=${found[$((pick-1))]}
+ else
+  ask tarball "Full path of the bundle archive (coder-banner-airgap-....tar.gz)" "" '\.tar\.gz$' "That should be a .tar.gz file."
+  [[ -f "${tarball}" ]] || die "No such file: ${tarball}"
+ fi
+ if [[ -f "${tarball}.sha256" ]]; then
+  why "Checking the archive against its checksum file to make sure it was not damaged while being carried across."
+  (cd "$(dirname "${tarball}")" && sha256sum -c "$(basename "${tarball}").sha256") || die "The archive does not match its checksum - copy it again."
+ else
+  warn "No ${tarball}.sha256 found next to it - cannot check the archive for damage."
+  confirm "Continue without checking?" n || die "Stopped."
+ fi
+ local dest; dest=$(basename "${tarball}" .tar.gz)
+ confirm "Unpack it here as ./${dest} ?" y || die "Stopped."
+ tar xzf "${tarball}" || die "Could not unpack the archive."
+ cd "${dest}" || die "Unpacked folder ${dest} not found."
+ ok "unpacked; continuing inside $(pwd)"
+}
+
+mode_deploy() {
+ title "DEPLOY: install the banner on the air-gapped cluster"
+ cat <<'EOF'
+Run this next to the air-gapped cluster (a computer where 'kubectl' is logged in to it).
+I will look around the cluster to suggest answers, run read-only checks first, and ask before every change.
+EOF
+ (( DRY_RUN )) && warn "DRY RUN: I will show every step and command but change nothing."
+ local total=9
+
+ step 1 ${total} "Find and check the bundle"
+ find_bundle
+ why "Verifying every file in the bundle against its checksum list."
+ sha256sum -c SHA256SUMS --quiet 2>/dev/null && ok "all $(wc -l < SHA256SUMS) files are intact" || die "Some bundle files are damaged or missing - copy the bundle again."
+ local BUNDLE_VER; BUNDLE_VER=$(ls -1 coder-banner-*.tgz | sed -n '1s/^coder-banner-\(.*\)\.tgz$/\1/p')
+ local BUNDLED_TRAEFIK; BUNDLED_TRAEFIK=$(ls -1 traefik-*.tgz 2>/dev/null | sed -n '1s/^traefik-\(.*\)\.tgz$/\1/p')
+ ok "banner chart ${BUNDLE_VER}${BUNDLED_TRAEFIK:+, Traefik chart ${BUNDLED_TRAEFIK} included}"
+
+ step 2 ${total} "Check the tools on this machine"
+ need_tools "to talk to the cluster" "kubectl:https://kubernetes.io/docs/tasks/tools/" "helm:https://helm.sh/docs/intro/install/" "jq:install the 'jq' package" "curl:install the 'curl' package"
+
+ step 3 ${total} "Make sure this is the right cluster"
+ local ctx server
+ ctx=$(kubectl config current-context 2>/dev/null) || die "kubectl is not logged in to any cluster."
+ server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)
+ say "kubectl is currently connected to:"
+ say "    context: ${BOLD}${ctx}${RST}"
+ say "    server : ${server}"
+ kc get nodes --no-headers 2>/dev/null | awk '{print "    node   : " $1 "  " $2}' | head -4 || true
+ kc get nodes >/dev/null 2>&1 || die "I cannot reach that cluster. Log in with kubectl and try again."
+ confirm "Install the banner onto THIS cluster?" y || die "Stopped. Switch cluster with 'kubectl config use-context <name>' and run this again."
+
+ step 4 ${total} "Look at Coder and Traefik (read-only)"
+ why "I search the cluster for Coder and Traefik so you mostly just press Enter."
+ local rows n pick
+ rows=$(deployments_like '(^|/)coder/coder(:|@|$)')
+ if [[ -z "${rows}" ]]; then
+  warn "I could not find a Coder deployment automatically."
+  ask CODER_NS "Namespace where Coder runs" "coder"
+  ask CODER_DEP "Name of Coder's Deployment" "coder"
+ else
+  n=$(wc -l <<<"${rows}")
+  if (( n > 1 )); then
+   local opts=(); while IFS=$'\t' read -r a b c; do opts+=("${a}/${b}   (${c})"); done <<<"${rows}"
+   choose pick "Found several Coder deployments - which one gets the banner?" 1 "${opts[@]}"
+   CODER_NS=$(sed -n "${pick}p" <<<"${rows}" | cut -f1); CODER_DEP=$(sed -n "${pick}p" <<<"${rows}" | cut -f2)
+  else
+   CODER_NS=$(cut -f1 <<<"${rows}"); CODER_DEP=$(cut -f2 <<<"${rows}")
+   ok "found Coder: deployment '${CODER_DEP}' in namespace '${CODER_NS}'"
+  fi
+  ask CODER_NS "Namespace where Coder runs" "${CODER_NS}"
+  ask CODER_DEP "Name of Coder's Deployment" "${CODER_DEP}"
+ fi
+ local host_guess svc_guess port_guess
+ host_guess=$(kc -n "${CODER_NS}" get deploy "${CODER_DEP}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CODER_ACCESS_URL")].value}' 2>/dev/null | sed 's|^[a-z]*://||; s|/.*$||')
+ if [[ -z "${host_guess}" ]]; then
+  host_guess=$(kc -n "${CODER_NS}" get httproute -o jsonpath='{range .items[*]}{.spec.hostnames[*]}{"\n"}{end}' 2>/dev/null | grep -v '^\*' | grep -v '^$' | head -1)
+ fi
+ ask CODER_HOST "Address people use to open Coder (host name only, no https://)" "${host_guess}" '^[A-Za-z0-9.-]+(:[0-9]+)?$' "Enter just the host name, like coder.example.com."
+ svc_guess=$(kc -n "${CODER_NS}" get svc "${CODER_DEP}" -o name >/dev/null 2>&1 && echo "${CODER_DEP}" || kc -n "${CODER_NS}" get svc -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+ ask CODER_SVC "Name of Coder's Kubernetes Service" "${svc_guess:-coder}"
+ port_guess=$(kc -n "${CODER_NS}" get svc "${CODER_SVC}" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
+ ask CODER_PORT "Port of that Service" "${port_guess:-80}" '^[0-9]+$' "A port number, like 80."
+
+ local grow; grow=$(kc -n "${CODER_NS}" get httproute -o json 2>/dev/null | jq -r --arg h "${CODER_HOST}" '.items[] | select(.metadata.name != "coder-banner") | select((.spec.hostnames // []) | index($h)) | "\(.spec.parentRefs[0].name)\t\(.spec.parentRefs[0].namespace // "")"' 2>/dev/null | head -1)
+ local gw_guess gwns_guess
+ gw_guess=$(cut -f1 <<<"${grow}"); gwns_guess=$(cut -f2 <<<"${grow}")
+ [[ -n "${gw_guess}" ]] && ok "Coder's own route is attached to Gateway '${gw_guess}' (namespace '${gwns_guess:-${CODER_NS}}')"
+ ask GW_NAME "Name of the Traefik Gateway that serves Coder" "${gw_guess:-traefik-gateway}"
+ ask GW_NS "Namespace of that Gateway" "${gwns_guess:-traefik}"
+
+ local trows; trows=$(deployments_like '(^|/)traefik(:|@|$)' | head -1)
+ TRAEFIK_NS=$(cut -f1 <<<"${trows}"); TRAEFIK_DEP=$(cut -f2 <<<"${trows}")
+ [[ -n "${TRAEFIK_NS}" ]] && ok "found Traefik: deployment '${TRAEFIK_DEP}' in namespace '${TRAEFIK_NS}'"
+ ask TRAEFIK_NS "Namespace where Traefik runs" "${TRAEFIK_NS:-traefik}"
+ ask TRAEFIK_DEP "Name of Traefik's Deployment" "${TRAEFIK_DEP:-traefik}"
+ local tfound TRAEFIK_REL="" TRAEFIK_VER=""
+ if tfound=$(chart_of "${TRAEFIK_NS}") && [[ -n "${tfound}" ]]; then
+  IFS=$'\t' read -r _ TRAEFIK_REL TRAEFIK_VER _ <<<"${tfound}"
+  ok "Traefik was installed with Helm: release '${TRAEFIK_REL}', chart ${TRAEFIK_VER}"
+ else
+  warn "I could not find a Helm release for Traefik in '${TRAEFIK_NS}'. The plugin step (step 6) will need to be done by hand."
+ fi
+ if helm status coder-banner -n "${CODER_NS}" >/dev/null 2>&1; then
+  warn "The banner is ALREADY installed in '${CODER_NS}'. Continuing will upgrade it (published banners are kept)."
+ fi
+
+ step 5 ${total} "The container image"
+ local ref reg repo tag
+ ref=$(head -1 images/images.txt 2>/dev/null); ref=${ref:-docker.io/library/python:3.13-alpine}
+ reg=${ref%%/*}; [[ "${reg}" == *.* || "${reg}" == *:* || "${reg}" == localhost ]] || reg="docker.io"
+ repo=${ref#"${reg}"/}; tag=${repo##*:}; repo=${repo%:*}
+ cat <<EOF
+The banner runs in a small container from the image  ${BOLD}${ref}${RST}.
+The bundle contains that image (images/images.tar), but the cluster's nodes can only pull images from a registry
+they can reach. Which of these describes your situation?
+EOF
+ local how; choose how "" 1 \
+  "I have an INTERNAL REGISTRY and want this script to load the image into it now" \
+  "The image is ALREADY in my registry (someone loaded it) - I will tell you where" \
+  "The cluster nodes can already get it (e.g. they can reach Docker Hub, or it is pre-loaded) - use as is"
+ IMG_REG=${reg}; IMG_REPO=${repo}; IMG_TAG=${tag}
+ case ${how} in
+  1|2)
+   ask IMG_REG "Registry address (host[:port])" "" '^[A-Za-z0-9.-]+(:[0-9]+)?$' "Like registry.internal:5000 (no https://)."
+   ask IMG_REPO "Image path inside that registry" "${repo}"
+   ask IMG_TAG "Image tag" "${tag}"
+   ;;
+ esac
+ if [[ ${how} == 1 ]]; then
+  local tool="" src
+  for t in docker podman skopeo nerdctl; do have "${t}" && { tool=${t}; break; }; done
+  if [[ -z "${tool}" ]]; then
+   warn "No docker, podman, skopeo or nerdctl found on this machine, so I cannot load the image for you."
+   say "Load it yourself with one of these, then come back:"
+   say "    docker load -i images/images.tar && docker tag python:3.13-alpine ${IMG_REG}/${IMG_REPO}:${IMG_TAG} && docker push ${IMG_REG}/${IMG_REPO}:${IMG_TAG}"
+   say "    skopeo copy docker-archive:images/images.tar:python:3.13-alpine docker://${IMG_REG}/${IMG_REPO}:${IMG_TAG}"
+   pause
+  else
+   ok "using ${tool} to load and push the image"
+   case ${tool} in
+    docker|podman|nerdctl)
+     if (( DRY_RUN )); then src="python:3.13-alpine"; mutate "${tool}" load -i images/images.tar
+     else src=$("${tool}" load -i images/images.tar 2>&1 | tee /dev/stderr | sed -n 's/^Loaded image: *//p' | head -1); fi
+     [[ -n "${src}" ]] || die "Could not tell which image was loaded."
+     mutate "${tool}" tag "${src}" "${IMG_REG}/${IMG_REPO}:${IMG_TAG}"
+     if ! mutate "${tool}" push "${IMG_REG}/${IMG_REPO}:${IMG_TAG}"; then
+      warn "The push failed. Registries usually need a login first."
+      if confirm "Log in to ${IMG_REG} and retry?" y; then mutate "${tool}" login "${IMG_REG}" && mutate "${tool}" push "${IMG_REG}/${IMG_REPO}:${IMG_TAG}"; fi
+     fi ;;
+    skopeo)
+     local tls=(); confirm "Does the registry use a self-signed certificate or plain http?" n && tls=(--dest-tls-verify=false)
+     mutate skopeo copy "${tls[@]+"${tls[@]}"}" "docker-archive:images/images.tar:python:3.13-alpine" "docker://${IMG_REG}/${IMG_REPO}:${IMG_TAG}" ;;
+   esac
+  fi
+ fi
+ ask_optional PULL_SECRET "Name of an image-pull Secret in '${CODER_NS}' if your registry needs a login"
+ BANNER_IMAGE="${IMG_REG}/${IMG_REPO}:${IMG_TAG}"
+ ok "the banner will run ${BANNER_IMAGE}"
+
+ step 6 ${total} "Switch on Traefik's plugin (the one change outside the banner)"
+ cat <<'EOF'
+Traefik must load a small plugin that adds the banner to Coder's web pages. The plugin's code is inside the bundle,
+so nothing is downloaded. Switching it on RESTARTS TRAEFIK once: with a single Traefik copy, every site behind it
+(Coder, Argo CD, ...) is unreachable for a few seconds. Pick a quiet moment. It can be switched off again later.
+EOF
+ local pstate; pstate=$(plugin_state "${TRAEFIK_NS}" "${TRAEFIK_DEP}")
+ local do_plugin=0
+ case ${pstate} in
+  local) ok "the plugin is already enabled from local source - nothing to do." ;;
+  download) warn "the plugin is enabled, but Traefik DOWNLOADS it from GitHub at start-up - that will not work without internet."; do_plugin=1 ;;
+  none) say "The plugin is not enabled yet."; do_plugin=1 ;;
+ esac
+ if (( do_plugin )); then
+  if [[ -z "${TRAEFIK_REL}" ]]; then
+   warn "Traefik was not installed with Helm here, so I cannot do this for you."
+   say "Give the file support/traefik/rewrite-body-plugin-airgap.yaml to whoever manages Traefik: it is a values"
+   say "file for Traefik's Helm chart. Do that now, then continue."
+   pause
+  else
+   if [[ -n "${BUNDLED_TRAEFIK}" && "${BUNDLED_TRAEFIK}" != "${TRAEFIK_VER}" ]]; then
+    warn "The bundle's Traefik chart is ${BUNDLED_TRAEFIK} but the cluster runs ${TRAEFIK_VER}."
+    say "Using a different version could change more than the plugin. Best: rebuild the bundle with ${TRAEFIK_VER}."
+    confirm "Continue anyway with the bundled chart?" n || die "Stopped. Rebuild the bundle on the connected machine using Traefik version ${TRAEFIK_VER}."
+   fi
+   local tchart="traefik/traefik"; [[ -n "${BUNDLED_TRAEFIK}" ]] && tchart="./traefik-${BUNDLED_TRAEFIK}.tgz"
+   say "First, a preview of exactly what would change on Traefik (nothing is applied yet):"
+   run env TRAEFIK_NAMESPACE="${TRAEFIK_NS}" TRAEFIK_RELEASE="${TRAEFIK_REL}" TRAEFIK_DEPLOYMENT="${TRAEFIK_DEP}" TRAEFIK_CHART="${tchart}" ./support/traefik/enable-plugin --airgap --diff-only || warn "the preview reported a problem - see above"
+   if confirm "Switch the plugin on now (restarts Traefik briefly)?" y; then
+    mutate env TRAEFIK_NAMESPACE="${TRAEFIK_NS}" TRAEFIK_RELEASE="${TRAEFIK_REL}" TRAEFIK_DEPLOYMENT="${TRAEFIK_DEP}" TRAEFIK_CHART="${tchart}" ./support/traefik/enable-plugin --airgap || die "Enabling the plugin failed and was rolled back - Traefik is as it was. See the messages above."
+   else
+    if [[ "${pstate}" == download ]]; then warn "Skipped. Traefik keeps downloading the plugin from GitHub at start-up: fine if it has internet, but it will fail on an air-gapped cluster."
+    else warn "Skipped. The banner will not appear until the plugin is enabled."; fi
+   fi
+  fi
+ fi
+
+ step 7 ${total} "Pre-flight check (read-only)"
+ why "Checks the cluster has everything the banner relies on, before anything is installed."
+ local pf_env=(CODER_NAMESPACE="${CODER_NS}" CODER_SERVICE="${CODER_SVC}" CODER_HOST="${CODER_HOST}" GATEWAY_NAME="${GW_NAME}" GATEWAY_NAMESPACE="${GW_NS}" TRAEFIK_NAMESPACE="${TRAEFIK_NS}" TRAEFIK_DEPLOYMENT="${TRAEFIK_DEP}" BANNER_IMAGE="${BANNER_IMAGE}")
+ while true; do
+  if run env "${pf_env[@]}" ./preflight-banner; then ok "pre-flight passed"; break; fi
+  bad "pre-flight found problems (lines marked FAIL above)."
+  local again; choose again "What now?" 1 "I fixed it - check again" "Continue anyway (not recommended)" "Stop here"
+  case ${again} in 1) continue ;; 2) warn "Continuing despite failures."; break ;; 3) die "Stopped. Fix the FAIL items and run this again - it is safe to re-run." ;; esac
+ done
+
+ step 8 ${total} "Install the banner"
+ local method; choose method "How is software installed on this cluster?" 1 \
+  "Directly with Helm (simplest - this script runs it)" \
+  "Through Argo CD (GitOps) - the chart is in an internal Helm repository"
+ local values=(--set "coder.host=${CODER_HOST}" --set "coder.service.name=${CODER_SVC}" --set "coder.service.port=${CODER_PORT}" --set "gateway.name=${GW_NAME}" --set "gateway.namespace=${GW_NS}" --set "image.registry=${IMG_REG}" --set "image.repository=${IMG_REPO}" --set "image.tag=${IMG_TAG}")
+ [[ -n "${PULL_SECRET}" ]] && values+=(--set "imagePullSecrets[0].name=${PULL_SECRET}")
+ if [[ ${method} == 1 ]]; then
+  cat <<EOF
+This creates the banner's own objects in namespace '${CODER_NS}' (a small deployment, a service, a route and some
+Traefik middlewares). Coder's own objects are not touched.
+EOF
+  confirm "Install now?" y || die "Nothing was installed."
+  mutate env CODER_NAMESPACE="${CODER_NS}" ./install-banner-chart --skip-traefik "${values[@]}" || die "The install failed - see the messages above. Nothing else was changed."
+  if (( ! DRY_RUN )); then run kubectl -n "${CODER_NS}" rollout status deploy/coder-banner --timeout=180s || warn "The banner pod is not ready yet - check: kubectl -n ${CODER_NS} get pods"; fi
+ else
+  local arepo argons appfile="coder-banner-application.yaml"
+  ask argons "Namespace where Argo CD runs" "argocd"
+  cat <<EOF
+Argo CD installs from a Helm repository, so the chart archive (coder-banner-${BUNDLE_VER}.tgz) must be uploaded to
+your internal repository first. For example (choose the one that matches your repository):
+    helm push coder-banner-${BUNDLE_VER}.tgz oci://registry.internal/charts             # OCI registry (Harbor, ...)
+    curl --data-binary @coder-banner-${BUNDLE_VER}.tgz https://charts.internal/api/charts   # ChartMuseum
+    (static repository: copy the .tgz next to its index.yaml and run: helm repo index . --url https://charts.internal)
+Argo CD must also be told about that repository (and trust its certificate if it uses your own CA).
+EOF
+  ask arepo "Address of your internal Helm repository (as Argo CD should use it)" "" '^(https?://|oci://)?[A-Za-z0-9.-]+(:[0-9]+)?(/.*)?$' "Like https://charts.internal or registry.internal/charts."
+  cp argocd/coder-banner-application.yaml "${appfile}"
+  sed -i \
+   -e "s|^  namespace: argocd|  namespace: ${argons}|" \
+   -e "s|^\(    repoURL: \).*|\1${arepo}|" \
+   -e "s|^\(    targetRevision: \).*|\1${BUNDLE_VER}|" \
+   -e "s|^\(          host: \).*|\1${CODER_HOST}|" \
+   -e "s|^\(            name: \)coder\( *#.*\)\?\$|\1${CODER_SVC}|" \
+   -e "s|^\(            port: \).*|\1${CODER_PORT}|" \
+   -e "s|^\(          name: \)traefik-gateway|\1${GW_NAME}|" \
+   -e "s|^\(          namespace: \)traefik|\1${GW_NS}|" \
+   -e "s|^\(          registry: \).*|\1${IMG_REG}|" \
+   -e "s|^\(          repository: \).*|\1${IMG_REPO}|" \
+   -e "s|^\(          tag: \).*|\1${IMG_TAG}|" \
+   -e "s|^\(    namespace: \)coder \{1,\}#.*|\1${CODER_NS}|" \
+   "${appfile}"
+  ok "wrote ${appfile} with your answers filled in"
+  grep -nE 'example\.com|CHANGE ME' "${appfile}" | grep -vE '^[0-9]+: *#' | sed 's/^/    still to review: /' || true   # comments do not count
+  run kubectl apply --dry-run=server -f "${appfile}" || warn "Argo CD's schema check complained - review ${appfile}"
+  if confirm "Register the application with Argo CD now (kubectl apply)?" n; then mutate kubectl apply -f "${appfile}"; else say "When you are ready:  kubectl apply -f ${appfile}"; fi
+ fi
+
+ step 9 ${total} "Check that it works"
+ if (( DRY_RUN )); then warn "dry run - skipping the live checks"; else
+  why "Loads Coder's pages exactly as a browser would and checks the banner and the user-menu link are present."
+  local vfy=(CODER_NAMESPACE="${CODER_NS}" CODER_DEPLOYMENT="${CODER_DEP}" CODER_SERVICE="${CODER_SVC}")
+  local tries=0
+  while (( tries < 2 )); do
+   if run env "${vfy[@]}" ./verify-menu; then ok "the banner and its menu shortcut are working"; break; fi
+   tries=$((tries+1))
+   warn "The check did not pass. If the messages mention a certificate, Coder may use your own certificate authority."
+   local cafile=""; ask_optional cafile "Path to your CA certificate file (PEM) to retry, or Enter to give up"
+   [[ -n "${cafile}" ]] && vfy+=(CODER_CA_FILE="${cafile}") || break
+  done
+ fi
+
+ title "Finished"
+ cat <<EOF
+Admin page (sign in to Coder as an OWNER first):   https://${CODER_HOST}/__banner/admin
+Or in Coder: click your avatar (top right) -> "Banner".
+
+  * Browsers that already had Coder open need ONE hard refresh (Ctrl+Shift+R) to pick up the new menu entry.
+  * A sample message is showing by default. Replace or hide it from the admin page.
+  * To check on it later:  ./banner-guide --mode check
+  * To take it away again: ./banner-guide --mode remove     (Coder goes back exactly to how it was)
+EOF
+}
+
+# ================================================================================================ CHECK
+discover_ns_for_existing() {
+ local rows; rows=$(kc get deploy -A -l app.kubernetes.io/name=coder-banner -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+ CODER_NS=${rows:-coder}
+ ask CODER_NS "Namespace where the banner is (or should be)" "${CODER_NS}"
+}
+
+mode_check() {
+ title "CHECK: is the banner installed and working?"
+ need_tools "to look at the cluster" "kubectl:https://kubernetes.io/docs/tasks/tools/" "helm:https://helm.sh/docs/intro/install/" "curl:install curl"
+ say "Cluster: $(kubectl config current-context 2>/dev/null)"
+ discover_ns_for_existing
+ blank
+ if helm status coder-banner -n "${CODER_NS}" >/dev/null 2>&1; then ok "Helm release 'coder-banner' is installed: $(helm list -n "${CODER_NS}" --filter '^coder-banner$' -o yaml | sed -n 's/^ *chart: //p' | head -1)"
+ elif kc -n argocd get application coder-banner >/dev/null 2>&1; then ok "installed through Argo CD: $(kc -n argocd get application coder-banner -o jsonpath='{.status.sync.status}/{.status.health.status}')"
+ else bad "no 'coder-banner' release found in '${CODER_NS}'"; fi
+ run kc -n "${CODER_NS}" get pods -l app.kubernetes.io/name=coder-banner
+ run kc -n "${CODER_NS}" get httproute coder-banner -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}{"\n"}'
+ local trows; trows=$(deployments_like '(^|/)traefik(:|@|$)' | head -1); local tns tdep
+ tns=$(cut -f1 <<<"${trows}"); tdep=$(cut -f2 <<<"${trows}")
+ [[ -n "${tdep}" ]] && say "Traefik plugin: $(plugin_state "${tns}" "${tdep}") (local = air-gap ready, download = fetched from the internet at start-up)"
+ blank; run env CODER_NAMESPACE="${CODER_NS}" ./verify-menu || true
+}
+
+# ================================================================================================ REMOVE
+mode_remove() {
+ title "REMOVE: take the banner away and put Coder back as it was"
+ need_tools "to change the cluster" "kubectl:https://kubernetes.io/docs/tasks/tools/" "helm:https://helm.sh/docs/intro/install/" "jq:install jq" "curl:install curl"
+ say "Cluster: $(kubectl config current-context 2>/dev/null)"
+ discover_ns_for_existing
+ if kc -n argocd get application coder-banner >/dev/null 2>&1; then
+  cat <<'EOF'
+The banner is managed by Argo CD. Deleting the Application removes exactly what it created (Coder and its
+namespace are untouched).
+EOF
+  confirm "Delete the Argo CD Application 'coder-banner' now?" n || die "Nothing was changed."
+  mutate kubectl -n argocd delete application coder-banner --wait=true --timeout=180s
+  (( DRY_RUN )) || run env CODER_NAMESPACE="${CODER_NS}" ./uninstall-banner-chart --verify-only
+ else
+  cat <<'EOF'
+This removes the banner's own objects. Coder's Deployment, Service, route and data are never touched. Afterwards
+I check that Coder's page and JavaScript are back to stock.
+EOF
+  confirm "Remove the banner from namespace '${CODER_NS}'?" n || die "Nothing was changed."
+  local extra=()
+  cat <<'EOF'
+
+Optional: also switch Traefik's plugin back off. That restarts Traefik once (a few seconds of interruption for
+everything behind it). Only do this if you will not use the banner again.
+EOF
+  confirm "Also revert Traefik's plugin setting?" n && extra+=(--remove-plugin)
+  mutate env CODER_NAMESPACE="${CODER_NS}" ./uninstall-banner-chart "${extra[@]+"${extra[@]}"}"
+ fi
+ blank; say "Browsers that had Coder open keep the 'Banner' menu entry until a hard refresh (Ctrl+Shift+R)."
+}
+
+# ================================================================================================ main
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while [[ $# -gt 0 ]]; do
+ case "$1" in
+  --dry-run) DRY_RUN=1; shift ;;
+  --mode) MODE="${2:-}"; shift 2 ;;
+  -h|--help) usage; exit 0 ;;
+  *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
+ esac
+done
+
+log "START mode=${MODE:-menu} dry_run=${DRY_RUN} pwd=$(pwd)"
+title "Coder banner - guided setup"
+say "I will ask a few questions. Suggested answers are in ${DIM}[brackets]${RST}: press Enter to accept them."
+say "Nothing is changed on any cluster until you say yes. Type Ctrl+C at any time to stop."
+(( DRY_RUN )) && warn "DRY RUN: I will show what I would do, without changing anything."
+
+if [[ -z "${MODE}" ]]; then
+ default_choice=5
+ if [[ -x ./make-airgap-bundle && -d ./coder-banner-chart ]]; then default_choice=1
+ elif ls ./coder-banner-*.tgz >/dev/null 2>&1; then default_choice=2; fi
+ blank
+ choose picked "What would you like to do?" "${default_choice}" \
+  "BUNDLE  - pack everything into one file to carry to an air-gapped cluster (run on a computer WITH internet)" \
+  "DEPLOY  - install the banner on the air-gapped cluster from a bundle (run next to that cluster)" \
+  "CHECK   - see whether the banner is installed and working on the current cluster" \
+  "REMOVE  - take the banner away and put Coder back exactly as it was" \
+  "EXPLAIN - what is this, and what will it change?" \
+  "QUIT"
+ case ${picked} in 1) MODE=bundle ;; 2) MODE=deploy ;; 3) MODE=check ;; 4) MODE=remove ;; 5) MODE=explain ;; 6) exit 0 ;; esac
+fi
+
+case "${MODE}" in
+ bundle) mode_bundle ;;
+ deploy) mode_deploy ;;
+ check) mode_check ;;
+ remove) mode_remove ;;
+ explain) mode_explain ;;
+ *) die "Unknown mode '${MODE}' (use bundle, deploy, check, remove or explain)." ;;
+esac

@@ -10,10 +10,12 @@
 # Environment:
 #   TRAEFIK_NAMESPACE      namespace of the Traefik release          (default: traefik)
 #   TRAEFIK_RELEASE        Helm release name                         (default: traefik)
+#   TRAEFIK_DEPLOYMENT     name of Traefik's Deployment              (default: the release name)
 #   TRAEFIK_CHART          chart reference or a local .tgz / directory (default: traefik/traefik)
 #   TRAEFIK_CHART_VERSION  chart version                             (default: the installed release's)
 NS="${TRAEFIK_NAMESPACE:-traefik}"
 RELEASE="${TRAEFIK_RELEASE:-traefik}"
+DEPLOY="${TRAEFIK_DEPLOYMENT:-${RELEASE}}"
 CHART="${TRAEFIK_CHART:-traefik/traefik}"
 WORK=$(mktemp -d)
 trap 'rm -rf "${WORK}"' EXIT
@@ -33,10 +35,15 @@ render() { # $1 = optional values overlay
 }
 
 show_changes() {
- local changes
- changes=$(kubectl diff --server-side --force-conflicts --field-manager=traefik-plugin -f "${WORK}/rendered.yaml" || true)  # exit 1 = differences
- changes=$(grep -E '^[-+] ' <<<"${changes}" | grep -vE 'generation:|resourceVersion:|managedFields|time:|manager:|operation:|fieldsType|fieldsV1|f:' || true)
- echo "Changes to deployment/traefik (+ plugin ConfigMap):"
+ local raw changes
+ raw=$(kubectl diff --server-side --force-conflicts --field-manager=traefik-plugin -f "${WORK}/rendered.yaml" || true)  # exit 1 = differences
+ # Show the Deployment's changes line by line; for a ConfigMap (the plugin's source code) just say what it is.
+ changes=$(awk '
+  function flush() { if (cm && cnt > 0) { sub(/^[^.]*\./, "", obj); print "+ ConfigMap " obj " (" cnt " lines: the plugin source code)" } cm = 0; cnt = 0 }
+  /^diff / { flush(); n = split($NF, p, "/"); obj = p[n]; cm = (obj ~ /ConfigMap/); sub(/^.*ConfigMap\./, "", obj); next }
+  /^[-+] / { if ($0 ~ /generation:|resourceVersion:|managedFields|time:|manager:|operation:|fieldsType|fieldsV1|f:/) next; if (cm) { cnt++; next } print; next }
+  END { flush() }' <<<"${raw}")
+ echo "Changes to deployment/${DEPLOY} (+ plugin ConfigMap):"
  if [[ -n "${changes}" ]]; then echo "${changes}"; else echo "  (none)"; fi
 }
 
@@ -44,10 +51,10 @@ show_changes() {
 # takes Traefik down - it is reverted instead.
 apply_and_wait() {
  kubectl apply --server-side --force-conflicts --field-manager=traefik-plugin -f "${WORK}/rendered.yaml"
- if ! kubectl -n "${NS}" rollout status deployment/traefik --timeout=180s; then
+ if ! kubectl -n "${NS}" rollout status deployment/${DEPLOY} --timeout=180s; then
   echo "Traefik did not become ready - rolling back." >&2
-  kubectl -n "${NS}" logs deployment/traefik --tail=20 >&2 || true
-  kubectl -n "${NS}" rollout undo deployment/traefik
+  kubectl -n "${NS}" logs deployment/${DEPLOY} --tail=20 >&2 || true
+  kubectl -n "${NS}" rollout undo deployment/${DEPLOY}
   return 1
  fi
 }

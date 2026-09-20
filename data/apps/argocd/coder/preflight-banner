@@ -3,13 +3,14 @@
 #   ./preflight-banner
 # Environment (defaults in brackets):
 #   CODER_NAMESPACE [coder]   CODER_SERVICE [coder]   CODER_HOST [coder.xxx.com]
-#   GATEWAY_NAME [traefik-gateway]   GATEWAY_NAMESPACE [traefik]   TRAEFIK_NAMESPACE [traefik]
+#   GATEWAY_NAME [traefik-gateway]   GATEWAY_NAMESPACE [traefik]   TRAEFIK_NAMESPACE [traefik]   TRAEFIK_DEPLOYMENT [traefik]
 #   BANNER_IMAGE [docker.io/library/python:3.13-alpine]   (the image the chart will run)
 set -uo pipefail
 
 NS="${CODER_NAMESPACE:-coder}"; SVC="${CODER_SERVICE:-coder}"; HOST="${CODER_HOST:-coder.xxx.com}"
 GW="${GATEWAY_NAME:-traefik-gateway}"; GWNS="${GATEWAY_NAMESPACE:-traefik}"; TNS="${TRAEFIK_NAMESPACE:-traefik}"
 IMAGE="${BANNER_IMAGE:-docker.io/library/python:3.13-alpine}"
+TDEP="${TRAEFIK_DEPLOYMENT:-traefik}"
 TESTED_CODER="v2.36.0"
 fail=0; warn=0
 ok()   { echo "  OK    $*"; }
@@ -41,13 +42,13 @@ routes=$(kubectl -n "${NS}" get httproute -o json 2>/dev/null | jq -r --arg h "$
 [[ "${routes}" == *coder-banner* ]] && note "an HTTPRoute named coder-banner already exists (a previous install?)"
 
 echo "Traefik plugin"
-args=$(kubectl -n "${TNS}" get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)
+args=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)
 if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then ok "rewrite-body plugin enabled from LOCAL source (air-gap ready)"
 elif grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then note "rewrite-body plugin enabled, but Traefik DOWNLOADS it from GitHub at start-up: in an air-gapped cluster use ./support/traefik/enable-plugin --airgap"
 else note "the rewrite-body plugin is not enabled yet: ./install-banner-chart (or ./support/traefik/enable-plugin [--airgap]) will do it"; fi
-ready=$(kubectl -n "${TNS}" get deployment traefik -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+ready=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
 [[ "${ready:-0}" -ge 1 ]] && ok "Traefik is running" || bad "Traefik has no available replicas"
-ver=$(kubectl -n "${TNS}" get deployment traefik -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null); echo "  --    Traefik image: ${ver} (tested with v3.7.12)"
+ver=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null); echo "  --    Traefik image: ${ver} (tested with v3.7.12)"
 
 echo "Image"
 # Runtimes name Docker Hub images differently (docker: python:3.13-alpine, containerd: docker.io/library/python:...),
