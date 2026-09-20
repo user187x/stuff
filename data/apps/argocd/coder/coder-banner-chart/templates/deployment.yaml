@@ -17,7 +17,7 @@ spec:
         {{- include "coder-banner.labels" . | nindent 8 }}
       annotations:
         # Restart when the service code changes; banner defaults are re-read on every request.
-        checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") | sha256sum | trunc 16 }}
+        checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/live.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") | sha256sum | trunc 16 }}
     spec:
       serviceAccountName: coder-banner
       {{- with .Values.imagePullSecrets }}
@@ -43,9 +43,17 @@ spec:
             - { name: ADMIN_ROLES, value: {{ join "," .Values.admin.roles | quote }} }
             - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
             - { name: PYTHONUNBUFFERED, value: "1" }
+            - { name: LIVE_ENABLED, value: {{ .Values.live.enabled | quote }} }
+            - { name: LIVE_PORT, value: "8081" }
+            - { name: LIVE_MAX_CLIENTS, value: {{ .Values.live.maxConnections | quote }} }
+            - { name: LIVE_HEARTBEAT, value: {{ .Values.live.heartbeatSeconds | quote }} }
           ports:
             - name: http
               containerPort: 8080
+            {{- if .Values.live.enabled }}
+            - name: live
+              containerPort: 8081
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -57,7 +65,7 @@ spec:
             httpGet: { path: /healthz, port: http }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
-            limits: { cpu: 200m, memory: 96Mi }
+            limits: { cpu: 200m, memory: 128Mi }
           volumeMounts:
             - { name: app, mountPath: /app, readOnly: true }
             - { name: defaults, mountPath: /config, readOnly: true }
@@ -87,3 +95,9 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    {{- if .Values.live.enabled }}
+    # WebSocket hub: pushes banner changes to every open Coder tab (see files/live.py).
+    - name: live
+      port: 8081
+      targetPort: live
+    {{- end }}

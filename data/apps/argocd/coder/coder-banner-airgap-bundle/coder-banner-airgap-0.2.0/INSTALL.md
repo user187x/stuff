@@ -13,7 +13,7 @@ internal container registry, and (for the Argo CD route) an internal Helm chart 
 | --------------------------------------------------------------------- | ------------------------------------------------ |
 | `HTTPRoute/coder-banner` (beside Coder's own route, same host)        | Coder's Deployment, Service, database, secrets   |
 | 6 Traefik `Middleware`s (`coder-banner*`)                             | Coder's own `HTTPRoute`                          |
-| `Deployment` + `Service` `coder-banner` (small Python web server, ports 80 and 8081 for the live channel) | The `traefik-gateway` Gateway |
+| `Deployment` + `Service` `coder-banner` (small Python web server)     | The `traefik-gateway` Gateway                    |
 | 3 ConfigMaps, 1 ServiceAccount, 1 Role + RoleBinding (one ConfigMap)  | Any other namespace                              |
 
 One thing lives **outside** the chart because Traefik reads it at start-up: the `rewrite-body` plugin has to
@@ -100,30 +100,9 @@ hard refresh (Ctrl+Shift+R) to see the menu change.
 
 ## Using it
 Admins open the admin page (or use **user menu -> Banner**): write a message, pick a style, **Publish**.
-The banner appears **instantly** in every open Coder tab, including tabs nobody is touching (see below). The status
-pill shows how many tabs are connected right now, and after publishing you are told how many it was sent to.
-**Show again to everyone** makes the banner reappear even for people who dismissed it. What an admin publishes
-survives upgrades and restarts; **use the chart defaults** resets it. `./banner-set --off` / `--message ...` change
-the chart defaults from the command line.
-
-## How the live push works
-Every open Coder tab holds a WebSocket to the banner service (`wss://<coder host>/__banner/live`, served by an
-asyncio hub in the same pod, reached through its own `HTTPRoute` rule on port 8081).
-
-* The tab is sent the current banner the moment it connects, and every change the instant it is published (measured:
-  ~25 ms from clicking Publish to the banner being on screen in an idle dashboard tab, through Traefik).
-* A heartbeat every 20 s lets a tab notice a dead connection (laptop sleep, network change) and reconnect on its own with
-  exponential back-off and jitter; on reconnect it is caught up automatically. Traefik's default timeouts do not cut it
-  (tested idle for 200 s).
-* If a tab cannot use WebSockets it falls back to polling `banner.json` (every `refreshSeconds`); while the socket is up
-  it only polls every 5 minutes as a safety net.
-* Changes made outside the admin page (`kubectl edit cm coder-banner-state`, a second replica) are pushed within
-  ~15 s.
-* Capacity: no thread per tab. 300 open tabs cost ~3 MB; the default cap is 5000 (`live.maxConnections`); further tabs
-  get a 503 and fall back to polling. (Figures measured with Coder 2.36.0, Traefik 3.7.12, one replica.)
-* Tabs that were already open before this feature was installed keep the old polling script until they are reloaded once.
-* Turn it off with `--set live.enabled=false` (tabs then poll, as before).
-* The channel carries only the public banner content; it needs no login (the admin page still does).
+**Show again to everyone** makes the banner reappear even for people who dismissed it (open tabs pick it up within
+~60 s; lower it under *Advanced* down to 15 s). What an admin publishes survives upgrades and restarts; **use the chart
+defaults** resets it. `./banner-set --off` / `--message ...` change the chart defaults from the command line.
 
 ## Removing it (returns Coder to its original state)
 
@@ -155,4 +134,3 @@ Traefik about 5 seconds to notice, so the script waits for it before checking.
 | Admin page: "Not allowed"                 | Only Coder roles in `admin.roles` (default `owner`).                                           |
 | Admin page: "Could not verify your session" | The banner pod cannot reach `http://<coder service>.<ns>.svc`; check the Service name/port.   |
 | Menu still says Codernauts                | Hard refresh; then `./verify-menu` (Coder version changed?).                                    |
-| Banner only appears after a reload / ~1 min | The tab predates the live script (reload once), or `live.enabled=false`, or the socket is blocked: the admin pill shows "0 open tabs" while a tab is open. Check `kubectl -n coder logs deploy/coder-banner` for `live-listening`, and that the `/__banner/live` rule exists on `HTTPRoute/coder-banner`. |

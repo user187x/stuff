@@ -19,7 +19,7 @@ spec:
       name: {{ .Values.gateway.name }}
       namespace: {{ .Values.gateway.namespace }}
   rules:
-    # Loader script + banner.json
+    # Loader script + banner.json + admin page
     - matches:
         - path:
             type: PathPrefix
@@ -27,6 +27,17 @@ spec:
       backendRefs:
         - name: coder-banner
           port: 80
+    {{- if .Values.live.enabled }}
+    # WebSocket: open Coder tabs subscribe here and are told about a change the instant it is published.
+    # A longer prefix than /__banner, so it wins for this path and goes to the hub's port.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /__banner/live
+      backendRefs:
+        - name: coder-banner
+          port: 8081
+    {{- end }}
     {{- if .Values.passthroughPathPrefixes }}
     # Workspace apps etc.: straight to Coder, never rewritten.
     - matches:

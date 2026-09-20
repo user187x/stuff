@@ -14,6 +14,9 @@ Authentication: there are no separate accounts. The browser already sends its Co
 this host, so every admin request is verified against Coder itself (GET /api/v2/users/me) and must
 hold an admin role. If Coder cannot be reached the request is refused (fail closed).
 
+Live push: every open Coder tab holds a WebSocket to the hub in live.py (port LIVE_PORT, routed at
+/__banner/live) and is told about a change the instant it is published - see that module.
+
 State: what an admin publishes lives in a ConfigMap (state.json), so it survives restarts and can be
 inspected with kubectl. The chart's values act as the defaults until something is published.
 
@@ -48,6 +51,12 @@ SESSION_COOKIE = "coder_session_token"
 LEVELS = ("info", "success", "warning", "critical")
 LIMITS = {"message": 400, "title": 80, "linkText": 60, "linkUrl": 500}
 CSRF_HEADER = ("X-Requested-With", "coder-banner-admin")
+LIVE_ENABLED = os.environ.get("LIVE_ENABLED", "1") not in ("0", "false", "no", "")
+LIVE_PORT = int(os.environ.get("LIVE_PORT", "8081"))
+LIVE_MAX_CLIENTS = int(os.environ.get("LIVE_MAX_CLIENTS", "5000"))
+LIVE_HEARTBEAT = int(os.environ.get("LIVE_HEARTBEAT", "20"))  # seconds between heartbeats/pings
+LIVE_STALE = int(os.environ.get("LIVE_STALE", str(LIVE_HEARTBEAT * 3 + 10)))  # drop a tab silent for this long
+LIVE_WATCH = int(os.environ.get("LIVE_WATCH", "5"))  # seconds between re-reads of the stored banner
 STATE_TTL = 10  # seconds a state read is cached (writes update the cache immediately)
 AUTH_TTL = 30  # seconds a verified Coder session is trusted before re-checking
 
@@ -308,6 +317,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "coder-banner"
     protocol_version = "HTTP/1.1"
     banner = None  # set in main()
+    hub = None  # live.Hub, set in main() unless LIVE_ENABLED=0
     auth = Auth()
 
     ADMIN_HEADERS = {
@@ -362,6 +372,10 @@ class Handler(BaseHTTPRequestHandler):
             return "unauthenticated", None
         return Handler.auth.check(token)
 
+    @staticmethod
+    def subscribers():
+        return Handler.hub.count if Handler.hub is not None else 0
+
     def csrf_ok(self):
         name, value = CSRF_HEADER
         if self.headers.get(name) != value:
@@ -380,6 +394,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/healthz":
+            if Handler.hub is not None and not Handler.hub.alive():
+                return self.send(500, "live hub is not running\n")  # Kubernetes restarts the pod
             return self.send(200, "ok\n")
         if path == BASE + "/banner.js":
             return self.send_file("banner.js", "application/javascript", {"Cache-Control": "no-cache"})
@@ -410,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, message, headers=self.ADMIN_HEADERS)
 
         if is_api:
-            return self.send_json(200, {"user": user, **Handler.banner.summary()})
+            return self.send_json(200, {"user": user, **Handler.banner.summary(), "subscribers": self.subscribers()})
         files = {
             BASE + "/admin": ("admin.html", "text/html; charset=utf-8"),
             BASE + "/admin/": ("admin.html", "text/html; charset=utf-8"),
@@ -455,12 +471,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             log(event="write-failed", error=str(e))
             return self.send_json(500, {"error": "Could not save the banner. Check the banner service logs."})
-        return self.send_json(200, {"user": user, **Handler.banner.summary()})
+        # Push it to every open tab right now. `delivered` = how many tabs were connected to receive it.
+        delivered = Handler.hub.publish(Handler.banner.public()) if Handler.hub is not None else 0
+        log(event="banner-published", user=who, delivered=delivered)
+        return self.send_json(200, {"user": user, **Handler.banner.summary(), "subscribers": self.subscribers(), "delivered": delivered})
 
 
 def main():
     store = FileStore(STATE_FILE) if STATE_FILE else KubeStore(STATE_CONFIGMAP)
     Handler.banner = Banner(store)
+    if LIVE_ENABLED:
+        import live  # noqa: imported here so LIVE_ENABLED=0 needs nothing from it
+
+        Handler.hub = live.Hub(Handler.banner, LIVE_PORT, LIVE_MAX_CLIENTS, LIVE_HEARTBEAT, LIVE_STALE, LIVE_WATCH)
+        Handler.hub.start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
     log(event="listening", port=PORT, coder=CODER_URL, admin_roles=sorted(ADMIN_ROLES))

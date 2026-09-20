@@ -84,10 +84,16 @@
     }
   }
 
+  // "3 open tabs" - how many browsers are holding the live connection right now.
+  function tabsText(prefix, suffix) {
+    if (!server || typeof server.subscribers !== 'number') return '';
+    return prefix + server.subscribers + ' open tab' + (server.subscribers === 1 ? '' : 's') + suffix;
+  }
+
   function renderStatus() {
     var pill = $('status');
     var on = server.banner.enabled && !!server.banner.message;
-    pill.textContent = on ? '● Live for all developers' : '○ Hidden';
+    pill.textContent = on ? '● Live for all developers' + tabsText(' · ', ' connected') : '○ Hidden';
     pill.className = 'pill ' + (on ? 'live' : 'off');
     $('toggle').textContent = on ? 'Hide banner' : 'Show banner';
     $('reappear').disabled = !server.banner.message;
@@ -119,7 +125,8 @@
       meta.textContent = 'Nothing has been published from this page yet, so the chart defaults are showing.';
     }
     var secs = server.banner.refreshSeconds;
-    $('reappear-note').textContent = 'Open Coder tabs pick this up within about ' + secs + ' seconds; anyone who loads Coder afterwards sees it immediately.';
+    $('reappear-note').textContent = 'Tabs with a live connection' + tabsText(' (', ' right now)') + ' update instantly; any other open tab within about ' + secs +
+      ' seconds; anyone who loads Coder afterwards sees it immediately.';
   }
 
   function apply(data, resetForm) {
@@ -154,7 +161,7 @@
     return promise.then(function (data) {
       busy = false;
       apply(data, true);
-      if (success) toast(success);
+      if (success) toast(success + (typeof data.delivered === 'number' ? ' Sent instantly to ' + data.delivered + ' open tab' + (data.delivered === 1 ? '' : 's') + '.' : ''));
     }).catch(function (e) {
       busy = false;
       renderState();
@@ -178,7 +185,7 @@
   }
 
   function reappear() {
-    var ok = window.confirm('Show the banner again to EVERYONE, including people who dismissed it?\n\nOpen Coder tabs will show it within about ' + server.banner.refreshSeconds + ' seconds.');
+    var ok = window.confirm('Show the banner again to EVERYONE, including people who dismissed it?\n\nTabs with a live connection' + tabsText(' (', ' right now)') + ' will show it instantly; any other open tab within about ' + server.banner.refreshSeconds + ' seconds.');
     if (!ok) return;
     run(api('reappear', {}), 'Done. The banner will reappear for everyone, including people who dismissed it.');
   }
@@ -215,6 +222,14 @@
     window.addEventListener('beforeunload', function (e) {
       if (server && !sameAsServer(readForm())) { e.preventDefault(); e.returnValue = ''; }
     });
+    window.setInterval(function () {
+      if (!server || document.hidden) return;
+      api('state').then(function (data) {
+        server.subscribers = data.subscribers;
+        renderStatus();
+        renderMeta();
+      }).catch(function () { /* the next tick will try again */ });
+    }, 15000);
     api('state').then(function (data) { apply(data, true); }).catch(function (e) {
       $('status').textContent = 'Error';
       showProblem(e.message);

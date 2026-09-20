@@ -33,6 +33,13 @@ image:
   pullPolicy: IfNotPresent
 imagePullSecrets: []    # e.g. [{name: internal-registry}]
 
+# Live push: open Coder tabs hold a WebSocket to the banner service, so a published banner appears at once
+# (without it tabs poll every banner.refreshSeconds). One replica holds thousands of idle tabs cheaply.
+live:
+  enabled: true
+  maxConnections: 5000       # further tabs are refused with 503 and fall back to polling
+  heartbeatSeconds: 20       # tabs treat 3 missed heartbeats as a dead connection and reconnect
+
 admin:
   # Coder roles allowed to use https://<coder.host>/__banner/admin. Admins sign in with their normal
   # Coder session; there are no separate accounts.
