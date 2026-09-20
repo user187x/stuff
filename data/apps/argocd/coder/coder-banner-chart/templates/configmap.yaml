@@ -1,0 +1,36 @@
+# Editable content: mounted as a directory (not subPath), so `kubectl edit` changes reach the pod
+# within ~1 minute without a restart, and open browser tabs pick them up on their next refresh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-banner-content
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}
+data:
+  banner.json: |
+    {{- dict
+        "enabled" .Values.banner.enabled
+        "id" (include "coder-banner.id" .)
+        "level" .Values.banner.level
+        "title" .Values.banner.title
+        "message" .Values.banner.message
+        "linkText" .Values.banner.linkText
+        "linkUrl" .Values.banner.linkUrl
+        "dismissible" .Values.banner.dismissible
+        "showOnLoginPage" .Values.banner.showOnLoginPage
+        "refreshSeconds" .Values.banner.refreshSeconds
+      | toPrettyJson | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-banner-static
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}
+data:
+  banner.js: |
+    {{- .Files.Get "files/banner.js" | nindent 4 }}
+  nginx.conf: |
+    {{- .Files.Get "files/nginx.conf" | nindent 4 }}

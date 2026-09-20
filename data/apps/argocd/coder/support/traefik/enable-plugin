@@ -1,0 +1,51 @@
+#!/bin/bash
+# Enables Traefik's rewrite-body plugin by applying ONLY the Deployment that the Traefik chart renders
+# with rewrite-body-plugin.yaml, leaving the Gateway untouched.
+#
+# Why not `helm upgrade`? The live Gateway "traefik-gateway" has listeners http:8080 / https:8443 (applied
+# by hand), whereas the chart renders web:8000 / websecure:8443. Helm merges listeners by name, so the
+# upgrade yields four listeners and the API server rejects it (https + websecure both 8443/HTTPS) - and
+# the failed rollback leaves the release marked "failed". ArgoCD's HTTPRoute is bound to sectionName
+# "https", so the live listener names must not change. Applying just the Deployment sidesteps all of it.
+# (Once the Gateway is reconciled with the chart, `helm upgrade -f rewrite-body-plugin.yaml` works again.)
+#
+#   ./enable-plugin --diff-only   show exactly what would change, apply nothing
+#   ./enable-plugin               apply; roll back automatically if the new Traefik pod is not healthy
+set -euo pipefail
+cd "$(dirname "$0")"
+
+NS="traefik"
+WORK=$(mktemp -d)
+trap 'rm -rf "${WORK}"' EXIT
+
+VERSION=$(helm list -n "${NS}" -o json | jq -r '.[] | select(.name=="traefik") | .chart | sub("^traefik-"; "")')
+helm get values traefik -n "${NS}" -o yaml > "${WORK}/values.yaml"
+
+# Render the chart, keep only the Deployment.
+helm template traefik traefik/traefik --version "${VERSION}" -n "${NS}" \
+ -f "${WORK}/values.yaml" -f rewrite-body-plugin.yaml |
+ python3 -c '
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind") == "Deployment"]
+assert len(docs) == 1, "expected exactly one Deployment"
+sys.stdout.write(yaml.safe_dump(docs[0]))' > "${WORK}/deployment.yaml"
+
+# kubectl diff exits 1 when it finds differences, so do not let that fail the pipeline.
+changes=$(kubectl diff --server-side --force-conflicts -f "${WORK}/deployment.yaml" || true)
+changes=$(grep -E '^[-+] ' <<<"${changes}" | grep -vE 'generation:|resourceVersion:|managedFields|time:|manager:|operation:|fieldsType|fieldsV1|f:' || true)
+echo "Changes to deployment/traefik:"
+if [[ -n "${changes}" ]]; then echo "${changes}"; else echo "  (none - plugin already enabled)"; fi
+
+if [[ "${1:-}" == "--diff-only" ]]; then exit 0; fi
+
+kubectl apply --server-side --force-conflicts --field-manager=traefik-plugin -f "${WORK}/deployment.yaml"
+
+# maxUnavailable=0: the old pod keeps serving until the new one is Ready. If the plugin cannot be
+# downloaded the new pod never becomes Ready, so revert the Deployment and leave Traefik as it was.
+if ! kubectl -n "${NS}" rollout status deployment/traefik --timeout=180s; then
+ echo "Traefik did not become ready with the plugin - rolling back." >&2
+ kubectl -n "${NS}" logs deployment/traefik --tail=20 >&2 || true
+ kubectl -n "${NS}" rollout undo deployment/traefik
+ exit 1
+fi
+echo "Traefik is running with the rewrite-body plugin."

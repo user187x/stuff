@@ -1,0 +1,57 @@
+# Sits beside Coder's own HTTPRoute (which this chart never touches) on the same host. Gateway API
+# precedence resolves the overlap: longer path prefixes win, and for equal paths the rule with more
+# header matches wins - so only browser page loads (Accept: text/html) take the middleware path.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: coder-banner
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}
+spec:
+  hostnames:
+    - {{ .Values.coder.host | quote }}
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.gateway.name }}
+      namespace: {{ .Values.gateway.namespace }}
+  rules:
+    # Loader script + banner.json
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /__banner
+      backendRefs:
+        - name: coder-banner
+          port: 80
+    {{- if .Values.passthroughPathPrefixes }}
+    # Workspace apps etc.: straight to Coder, never rewritten.
+    - matches:
+        {{- range .Values.passthroughPathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ .Values.coder.service.name }}
+          port: {{ .Values.coder.service.port }}
+    {{- end }}
+    # Dashboard page loads: rewrite the HTML.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - type: RegularExpression
+              name: Accept
+              value: ".*text/html.*"
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: coder-banner
+      backendRefs:
+        - name: {{ .Values.coder.service.name }}
+          port: {{ .Values.coder.service.port }}

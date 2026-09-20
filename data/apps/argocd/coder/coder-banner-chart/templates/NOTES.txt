@@ -1,0 +1,11 @@
+Coder banner installed in namespace {{ include "coder-banner.namespace" . }}.
+
+  Current message : {{ .Values.banner.message | quote }} (level: {{ .Values.banner.level }}, enabled: {{ .Values.banner.enabled }})
+  Loader script   : https://{{ .Values.coder.host }}/__banner/banner.js
+  Live config     : https://{{ .Values.coder.host }}/__banner/banner.json
+
+Edit the banner:
+  ../banner-set --message "Upgrade tonight 22:00 UTC" --level warning
+  kubectl -n {{ include "coder-banner.namespace" . }} edit cm coder-banner-content     # live, no restart (next helm upgrade overwrites it)
+
+Requires the Traefik "{{ .Values.plugin.name }}" plugin (support/traefik/rewrite-body-plugin.yaml).

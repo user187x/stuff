@@ -1,0 +1,17 @@
+#!/bin/bash
+# Installs the Coder banner: (1) enables Traefik's rewrite-body plugin, (2) installs coder-banner-chart.
+# Extra arguments are passed to `helm upgrade`, e.g.:  ./install-banner-chart --set-string banner.message="Hi"
+set -euo pipefail
+cd "$(dirname "$0")"
+
+CODER_NAMESPACE="coder"
+
+# 1. Traefik plugins are static config, so they cannot ship inside a chart. This applies only the
+#    plugin change to the Traefik Deployment (see the script for why not `helm upgrade`).
+./support/traefik/enable-plugin
+
+# 2. The banner chart (Middleware chain, loader server, HTTPRoute) next to Coder.
+helm upgrade --install coder-banner ./coder-banner-chart \
+ --namespace "${CODER_NAMESPACE}" \
+ --reset-then-reuse-values \
+ "$@"
