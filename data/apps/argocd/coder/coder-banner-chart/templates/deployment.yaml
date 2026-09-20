@@ -16,17 +16,28 @@ spec:
       labels:
         {{- include "coder-banner.labels" . | nindent 8 }}
       annotations:
-        # Restart only when the static files change; banner.json edits are picked up live.
-        checksum/static: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/nginx.conf") | sha256sum | trunc 16 }}
+        # Restart when the service code changes; banner defaults are re-read on every request.
+        checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") | sha256sum | trunc 16 }}
     spec:
+      serviceAccountName: coder-banner
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101
+        runAsUser: 65534
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: nginx
+        - name: banner
           image: {{ .Values.image }}
+          command: ["python3", "/app/server.py"]
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: APP_DIR, value: /app }
+            - { name: DEFAULTS_FILE, value: /config/banner.json }
+            - { name: STATE_CONFIGMAP, value: coder-banner-state }
+            - { name: CODER_URL, value: "http://{{ .Values.coder.service.name }}.{{ include "coder-banner.namespace" . }}.svc.cluster.local:{{ .Values.coder.service.port }}" }
+            - { name: ADMIN_ROLES, value: {{ join "," .Values.admin.roles | quote }} }
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+            - { name: PYTHONUNBUFFERED, value: "1" }
           ports:
             - name: http
               containerPort: 8080
@@ -40,28 +51,17 @@ spec:
           livenessProbe:
             httpGet: { path: /healthz, port: http }
           resources:
-            requests: { cpu: 10m, memory: 16Mi }
-            limits: { cpu: 100m, memory: 64Mi }
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 96Mi }
           volumeMounts:
-            - name: nginx-conf
-              mountPath: /etc/nginx/conf.d/default.conf
-              subPath: nginx.conf
-            - name: static
-              mountPath: /usr/share/banner/static
-            - name: content
-              mountPath: /usr/share/banner/content
-            - name: tmp
-              mountPath: /tmp
+            - { name: app, mountPath: /app, readOnly: true }
+            - { name: defaults, mountPath: /config, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
       volumes:
-        - name: nginx-conf
+        - name: app
           configMap:
-            name: coder-banner-static
-            items: [{ key: nginx.conf, path: nginx.conf }]
-        - name: static
-          configMap:
-            name: coder-banner-static
-            items: [{ key: banner.js, path: banner.js }]
-        - name: content
+            name: coder-banner-app
+        - name: defaults
           configMap:
             name: coder-banner-content
         - name: tmp

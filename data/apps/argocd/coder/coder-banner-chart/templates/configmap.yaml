@@ -1,5 +1,4 @@
-# Editable content: mounted as a directory (not subPath), so `kubectl edit` changes reach the pod
-# within ~1 minute without a restart, and open browser tabs pick them up on their next refresh.
+# Chart defaults for the banner (from values.yaml), used until an admin publishes something.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,12 +24,22 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: coder-banner-static
+  name: coder-banner-app
   namespace: {{ include "coder-banner.namespace" . }}
   labels:
     {{- include "coder-banner.labels" . | nindent 4 }}
 data:
-  banner.js: |
-    {{- .Files.Get "files/banner.js" | nindent 4 }}
-  nginx.conf: |
-    {{- .Files.Get "files/nginx.conf" | nindent 4 }}
+  {{- range $name := list "banner.js" "server.py" "admin.html" "app.js" "app.css" }}
+  {{ $name }}: |
+    {{- $.Files.Get (printf "files/%s" $name) | nindent 4 }}
+  {{- end }}
+---
+# What an admin publishes from the admin page (state.json). Helm only owns the metadata: it never
+# renders `data`, so a `helm upgrade` cannot overwrite a published banner.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-banner-state
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}

@@ -21,11 +21,18 @@ plugin:
 passthroughPathPrefixes:
   - /@
 
-# Static file server for the loader script and banner.json (must be same-origin: Coder's CSP is
-# script-src 'self').
-image: nginxinc/nginx-unprivileged:1.27-alpine
+# The banner service: serves the loader script, the live banner.json and the admin page. Standard-library
+# Python whose code is mounted from a ConfigMap, so there is no custom image to build.
+image: python:3.13-alpine
 
-# ---- The banner itself. Edit and `helm upgrade`, or `kubectl edit cm coder-banner-content`. ----
+admin:
+  # Coder roles allowed to use https://<coder.host>/__banner/admin. Admins sign in with their normal
+  # Coder session; there are no separate accounts.
+  roles:
+    - owner
+
+# ---- Chart defaults for the banner. These show until an admin publishes something from the admin page
+# (https://<coder.host>/__banner/admin); after that the admin page wins until it is reset. ----
 banner:
   enabled: true
   level: info            # info | success | warning | critical

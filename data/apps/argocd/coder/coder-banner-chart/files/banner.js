@@ -11,6 +11,7 @@
 (function () {
   'use strict';
 
+  var thisScript = document.currentScript;
   var BASE = '/__banner/';
   var BANNER_ID = 'coder-system-banner';
   var STORAGE_KEY = 'coder-banner-dismissed';
@@ -47,7 +48,7 @@
     schedule();
   }
 
-  function build() {
+  function build(cfg, onDismiss) {
     var level = LEVELS[cfg.level] || LEVELS.info;
     var el = document.createElement('div');
     el.id = BANNER_ID;
@@ -87,7 +88,7 @@
       close.textContent = '×';
       close.style.cssText =
         'background:transparent;border:0;color:inherit;cursor:pointer;font-size:20px;line-height:1;padding:0 4px;';
-      close.addEventListener('click', dismiss);
+      close.addEventListener('click', onDismiss);
       el.appendChild(close);
     }
     return el;
@@ -122,7 +123,7 @@
       if (existing) existing.remove();
       return;
     }
-    var el = existing || build();
+    var el = existing || build(cfg, dismiss);
     if (header) {
       if (header.nextElementSibling !== el) header.insertAdjacentElement('afterend', el);
     } else if (root.previousElementSibling !== el) {
@@ -153,15 +154,31 @@
       });
   }
 
+  // Re-read refreshSeconds every cycle so an admin can speed up open tabs during an emergency.
+  function poll() {
+    var seconds = Math.max(15, Number((cfg && cfg.refreshSeconds) || 60));
+    window.setTimeout(function () {
+      load().then(poll);
+    }, seconds * 1000);
+  }
+
   function start() {
-    load().then(function () {
-      var seconds = Math.max(15, Number((cfg && cfg.refreshSeconds) || 60));
-      window.setInterval(load, seconds * 1000);
-    });
+    load().then(poll);
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) load();
     });
+  }
+
+  // The admin page loads this file (with data-preview) only to reuse the exact rendering for its
+  // live preview; it must not start polling or touch the page.
+  if (thisScript && thisScript.hasAttribute('data-preview')) {
+    window.__coderBannerPreview = {
+      build: function (c) {
+        return build(c, function () {});
+      },
+    };
+    return;
   }
 
   if (document.body) start();
