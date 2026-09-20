@@ -10,6 +10,9 @@ apt-cache/
 .settings/
 **/.git/
 
+**/.claude/
+**/media3-patched/
+
 # operating system
 .DS_store
 .netrwhist
