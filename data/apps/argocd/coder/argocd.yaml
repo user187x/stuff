@@ -42,7 +42,7 @@ coder:
   httproute:
     enable: true
     host: "coder.xxx.com"
-    wildcardHost: "*.coder.xxx.com"
+    wildcardHost: "*.xxx.com"
     parentRefs:
       - name: traefik-gateway
         namespace: traefik
