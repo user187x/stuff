@@ -4,6 +4,8 @@ set nocompatible
 
 let g:java_ignore_markdown = 1
 
+set runtimepath^=~/.config/vim
+
 " Skip the plugin block gracefully if vim-plug isn't installed yet,
 " instead of erroring on every Plug line.
 if empty(globpath(&runtimepath, 'autoload/plug.vim'))
