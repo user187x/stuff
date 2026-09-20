@@ -1,6 +1,8 @@
 apiVersion: v2
 name: coder-banner
-description: Editable announcement banner for the Coder dashboard, injected by a Traefik rewrite-body middleware
+description: Editable announcement banner for the Coder dashboard, injected by Traefik rewrite-body middlewares
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 0.2.0
+appVersion: "1.1.0"
+kubeVersion: ">=1.26.0-0"
+keywords: [coder, traefik, gateway-api, banner]

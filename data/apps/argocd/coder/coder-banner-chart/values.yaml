@@ -1,5 +1,5 @@
 # Namespace of the Coder release (Middleware/HTTPRoute must live next to the Coder Service).
-namespace: ""   # defaults to "coder"
+namespace: ""   # defaults to the release namespace (helm -n <coder namespace> / Argo CD destination)
 
 coder:
   host: coder.xxx.com
@@ -22,8 +22,16 @@ passthroughPathPrefixes:
   - /@
 
 # The banner service: serves the loader script, the live banner.json and the admin page. Standard-library
-# Python whose code is mounted from a ConfigMap, so there is no custom image to build.
-image: python:3.13-alpine
+# Python (3.8 or newer) whose code is mounted from a ConfigMap, so there is no custom image to build - any
+# image with `python3` works. In an air-gapped cluster point this at your internal registry, e.g.
+#   --set image.registry=registry.internal:5000 --set image.repository=library/python
+image:
+  registry: docker.io
+  repository: library/python
+  tag: 3.13-alpine
+  digest: ""            # optional "sha256:..." - when set it is used instead of the tag
+  pullPolicy: IfNotPresent
+imagePullSecrets: []    # e.g. [{name: internal-registry}]
 
 admin:
   # Coder roles allowed to use https://<coder.host>/__banner/admin. Admins sign in with their normal

@@ -1,5 +1,13 @@
+{{/* Everything lives next to Coder's Service, so default to the namespace the release is installed into. */}}
 {{- define "coder-banner.namespace" -}}
-{{ .Values.namespace | default "coder" }}
+{{ .Values.namespace | default .Release.Namespace }}
+{{- end -}}
+
+{{/* registry/repository:tag, or registry/repository@digest when a digest is pinned. */}}
+{{- define "coder-banner.image" -}}
+{{- $image := .Values.image -}}
+{{- $ref := ternary (printf "%s/%s" $image.registry $image.repository) $image.repository (not (empty $image.registry)) -}}
+{{- if $image.digest -}}{{ printf "%s@%s" $ref $image.digest }}{{- else -}}{{ printf "%s:%s" $ref $image.tag }}{{- end -}}
 {{- end -}}
 
 {{- define "coder-banner.labels" -}}

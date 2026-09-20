@@ -20,6 +20,10 @@ spec:
         checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") | sha256sum | trunc 16 }}
     spec:
       serviceAccountName: coder-banner
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
@@ -27,7 +31,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: banner
-          image: {{ .Values.image }}
+          image: {{ include "coder-banner.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python3", "/app/server.py"]
           env:
             - { name: PORT, value: "8080" }
