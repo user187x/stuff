@@ -127,15 +127,23 @@ data:
         if ! command -v filebrowser >/dev/null; then
           curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | sudo bash
         fi
+        # Path-based apps are proxied with their full /@user/workspace.agent/apps/<slug> prefix
+        # intact, so filebrowser must serve under it or its assets 404 (endless spinner).
+        # The agent name ("main") is hardcoded: referencing coder_agent.main here would be a cycle.
         if ! pgrep -x filebrowser > /dev/null; then
-          filebrowser --noauth --root /home/coder --port 13339 >/tmp/filebrowser.log 2>&1 &
+          filebrowser --noauth --root /home/coder --port 13339 \
+            --baseurl "/@${data.coder_workspace_owner.me.name}/${data.coder_workspace.me.name}.main/apps/filebrowser" \
+            >/tmp/filebrowser.log 2>&1 &
         fi
 
         # 3. Install Desktop Environment & noVNC
         if [ ! -f /usr/bin/vncserver ]; then
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies dbus-x11 tigervnc-standalone-server novnc websockify
         fi
+
+        # Serve the noVNC client as the directory index so the bare app URL loads it.
+        sudo ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
         # Configure XFCE to start on VNC launch
         # TigerVNC >= 1.14 reads ~/.config/tigervnc (the legacy ~/.vnc fails to migrate),
@@ -154,7 +162,8 @@ data:
           vncserver :1 -geometry 1280x800 -depth 24 -localhost yes -SecurityTypes None
         fi
 
-        # Start websockify proxy for noVNC
+        # Start websockify proxy for noVNC. Coder strips the /@user/workspace.agent/apps/novnc
+        # prefix before proxying, so the stock web root works as-is.
         if ! pgrep -x websockify > /dev/null; then
           websockify --web=/usr/share/novnc/ 6901 localhost:5901 > /tmp/novnc.log 2>&1 &
         fi
@@ -216,8 +225,10 @@ data:
       slug         = "novnc"
       display_name = "Desktop (noVNC)"
       icon         = "https://upload.wikimedia.org/wikipedia/commons/0/0f/NoVNC_logo.png"
-      url          = "http://localhost:6901/vnc.html?autoconnect=true&resize=remote"
-      subdomain    = true
+      # Path-based (no wildcard DNS/route needed). noVNC opens its websocket relative to the host
+      # root, so pass the prefixed path explicitly ("main" = agent name, as in filebrowser above).
+      url          = "http://localhost:6901?autoconnect=true&resize=remote&path=@${data.coder_workspace_owner.me.name}/${data.coder_workspace.me.name}.main/apps/novnc/websockify"
+      subdomain    = false
       share        = "owner"
 
       healthcheck {
