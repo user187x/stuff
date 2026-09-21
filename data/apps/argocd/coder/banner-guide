@@ -93,6 +93,20 @@ choose() { # choose VAR "Question" DEFAULT_INDEX option1 option2 ...   (VAR gets
  done
 }
 
+# Waits for an Argo CD Application to become Synced/Healthy, showing Argo CD's own error if it is stuck.
+wait_for_argo() { # wait_for_argo <argocd-namespace> <application> [seconds]
+ local ans=$1 app=$2 max=${3:-180} st="" msg="" last="" i
+ say "  Waiting for Argo CD to pull the chart and install it (up to ${max}s)..."
+ for (( i=0; i<max; i+=5 )); do
+  st=$(kc -n "${ans}" get application "${app}" -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || true)
+  msg=$(kc -n "${ans}" get application "${app}" -o jsonpath='{range .status.conditions[*]}{.message}{"\n"}{end}' 2>/dev/null | head -1 || true)
+  [[ "${st}${msg}" != "${last}" ]] && { printf '    %s%s\n' "${st:-pending}" "${msg:+  - ${msg:0:320}}"; last="${st}${msg}"; }
+  [[ "${st}" == "Synced/Healthy" ]] && return 0
+  sleep 5
+ done
+ return 1
+}
+
 pause() { printf '%sPress Enter to continue...%s' "${DIM}" "${RST}"; if [[ "${ASSUME}" == 1 ]]; then echo; else local _x; read_line _x; fi; }
 
 # ------------------------------------------------------------------------------------------------ running commands
@@ -309,7 +323,7 @@ Run this next to the air-gapped cluster (a computer where 'kubectl' is logged in
 I will look around the cluster to suggest answers, run read-only checks first, and ask before every change.
 EOF
  (( DRY_RUN )) && warn "DRY RUN: I will show every step and command but change nothing."
- local total=9
+ local total=9 DEPLOY_OK=1
 
  step 1 ${total} "Find and check the bundle"
  find_bundle
@@ -532,11 +546,21 @@ EOF
   ok "wrote ${appfile} with your answers filled in"
   grep -nE 'example\.com|CHANGE ME' "${appfile}" | grep -vE '^[0-9]+: *#' | sed 's/^/    still to review: /' || true   # comments do not count
   run kubectl apply --dry-run=server -f "${appfile}" || warn "Argo CD's schema check complained - review ${appfile}"
-  if confirm "Register the application with Argo CD now (kubectl apply)?" n; then mutate kubectl apply -f "${appfile}"; else say "When you are ready:  kubectl apply -f ${appfile}"; fi
+  if confirm "Register the application with Argo CD now (kubectl apply)?" n; then
+   mutate kubectl apply -f "${appfile}"
+   if (( ! DRY_RUN )) && ! wait_for_argo "${argons}" coder-banner 180; then
+    DEPLOY_OK=0
+    warn "Argo CD has not finished installing the banner. Look at its message above, or:  kubectl -n ${argons} describe application coder-banner"
+    say "  Common causes in an air-gapped cluster: Argo CD cannot resolve or trust the repository host (add your CA to"
+    say "  argocd-tls-certs-cm, check DNS), the repository is not registered with Argo CD, or the chart is not uploaded."
+   fi
+  else DEPLOY_OK=0; say "When you are ready:  kubectl apply -f ${appfile}"; fi
  fi
 
  step 9 ${total} "Check that it works"
- if (( DRY_RUN )); then warn "dry run - skipping the live checks"; else
+ if (( DRY_RUN )); then warn "dry run - skipping the live checks"
+ elif (( ! DEPLOY_OK )); then warn "skipping the live checks: the banner is not installed yet. Run  ./banner-guide --mode check  once it is."
+ else
   why "Loads Coder's pages exactly as a browser would and checks the banner and the user-menu link are present."
   local vfy=(CODER_NAMESPACE="${CODER_NS}" CODER_DEPLOYMENT="${CODER_DEP}" CODER_SERVICE="${CODER_SVC}")
   local tries=0
