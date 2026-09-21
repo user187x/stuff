@@ -6,6 +6,7 @@
 #   GATEWAY_NAME [traefik-gateway]   GATEWAY_NAMESPACE [traefik]   TRAEFIK_NAMESPACE [traefik]   TRAEFIK_DEPLOYMENT [traefik]
 #   BANNER_IMAGE [docker.io/library/python:3.13-alpine]   (the image the chart will run)
 set -uo pipefail
+cd "$(dirname "$0")" || exit 1   # so ./support/traefik/plugin-health.sh is found wherever this is called from
 
 NS="${CODER_NAMESPACE:-coder}"; SVC="${CODER_SERVICE:-coder}"; HOST="${CODER_HOST:-coder.xxx.com}"
 GW="${GATEWAY_NAME:-traefik-gateway}"; GWNS="${GATEWAY_NAMESPACE:-traefik}"; TNS="${TRAEFIK_NAMESPACE:-traefik}"
@@ -43,9 +44,23 @@ routes=$(kubectl -n "${NS}" get httproute -o json 2>/dev/null | jq -r --arg h "$
 
 echo "Traefik plugin"
 args=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)
-if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then ok "rewrite-body plugin enabled from LOCAL source (air-gap ready)"
-elif grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then note "rewrite-body plugin enabled, but Traefik DOWNLOADS it from GitHub at start-up: in an air-gapped cluster use ./support/traefik/enable-plugin --airgap"
+pstate=none
+if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then
+ if grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then
+  pstate=conflict; bad "rewrite-body is defined TWICE (download AND local): Traefik refuses a plugin name used twice and switches ALL plugins off. Fix: ./support/traefik/enable-plugin --airgap (it removes the duplicate)"
+ else pstate=local; ok "rewrite-body plugin enabled from LOCAL source (air-gap ready)"; fi
+elif grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then pstate=download; note "rewrite-body plugin enabled, but Traefik DOWNLOADS it from GitHub at start-up: in an air-gapped cluster use ./support/traefik/enable-plugin --airgap"
 else note "the rewrite-body plugin is not enabled yet: ./install-banner-chart (or ./support/traefik/enable-plugin [--airgap]) will do it"; fi
+# Configured is not the same as working: Traefik stays Ready after it has switched its plugins off.
+if [[ "${pstate}" != none && -f ./support/traefik/plugin-health.sh ]]; then
+ . ./support/traefik/plugin-health.sh
+ hout=$(plugin_health "${TNS}" "${TDEP}")
+ case "${hout%%$'\n'*}" in
+  loaded) ok "Traefik reports that its plugins are loaded" ;;
+  disabled) [[ "${pstate}" == conflict ]] || bad "Traefik has switched its plugins OFF: $(sed -n 2p <<<"${hout}")" ;;
+  *) note "could not confirm from Traefik's log that the plugin loaded (check: kubectl -n ${TNS} logs deploy/${TDEP} | grep -i plugin)" ;;
+ esac
+fi
 ready=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
 [[ "${ready:-0}" -ge 1 ]] && ok "Traefik is running" || bad "Traefik has no available replicas"
 ver=$(kubectl -n "${TNS}" get deployment "${TDEP}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null); echo "  --    Traefik image: ${ver} (tested with v3.7.12)"

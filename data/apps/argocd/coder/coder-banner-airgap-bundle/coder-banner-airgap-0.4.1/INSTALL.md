@@ -35,6 +35,13 @@ If a prerequisite is missing (plugin not loaded, image not pullable) Coder keeps
 banner's routers and requests fall through to Coder's own route (tested with a missing plugin and a missing
 Middleware).
 
+**A Ready Traefik is not proof that the plugin works.** Traefik refuses a plugin name that is defined twice (e.g. the
+download entry `experimental.plugins.rewrite-body` in its Helm values **and** the local one this bundle adds) and then
+switches **all** its plugins off while still reporting Ready: Coder keeps answering, but no banner appears. So the
+scripts read Traefik's own start-up log (`Plugins loaded` / `Plugins are disabled`): `enable-plugin --airgap` drops a
+leftover download entry from its render (it says so, and the preview shows it), rolls back if Traefik still disabled
+its plugins, and `preflight-banner` and `banner-guide --mode check` report it.
+
 **Enabling or disabling the plugin restarts Traefik.** The new pod becomes Ready before the old one stops, but with a
 single Traefik replica expect every site behind it (Coder, Argo CD, ...) to be unreachable for a few seconds while
 traffic moves over. Do it in a quiet window. Installing or removing the chart itself never restarts Traefik.
@@ -222,12 +229,26 @@ Traefik about 5 seconds to notice, so the script waits for it before checking.
 * **Coder:** the menu shortcut edits Coder's minified JavaScript, so run `./verify-menu` after every Coder upgrade.
   If Coder's code changed, the shortcut simply stops applying (stock menu) and everything else keeps working; adjust
   `templates/_menu.tpl`.
+* **Traefik itself** (its own Helm release; not something the banner does): the plugin is applied straight to
+  Traefik's Deployment, not through Helm, so keep two things in mind.
+  * Helm 4 applies server-side, so `helm upgrade traefik ...` conflicts with the field manager used here and the
+    release is marked `failed`. Run it with `--force-conflicts`, then run `./support/traefik/enable-plugin --airgap`
+    again (an upgrade takes the plugin arg out). Keep `experimental.plugins.rewrite-body` out of the release's own
+    values: the plugin is added by `enable-plugin`, never by the values.
+  * If the Traefik release is ever deleted and reinstalled (`helm uninstall` removes the Deployment, Service,
+    GatewayClass and Gateway; the CRDs, TLS Secrets and the plugin ConfigMap stay): reinstall from the bundled
+    `traefik-<version>.tgz` with the release's values, make sure the Gateway's listener names are the ones your routes
+    bind to (Argo CD and Harbor routes use `sectionName: https`), then run `enable-plugin --airgap` and finish with
+    `./banner-guide --mode check`.
 
 ## Troubleshooting
 | Symptom                                   | Check                                                                                          |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | No banner, HTML has no `/__banner`        | `./preflight-banner`; Traefik logs `Plugins loaded. plugins=["rewrite-body"]`?                 |
+| Traefik log: `Plugins are disabled ... must be unique` | The plugin is defined twice (download + local). `./support/traefik/enable-plugin --airgap` removes the download entry; `./banner-guide --mode check` confirms. |
 | Traefik log: `middleware ... does not exist` | Normal for a few seconds while resources appear; persistent = Middleware missing/namespace.  |
+| A route stopped working after Traefik was reinstalled | `kubectl get httproute -A` and the Gateway's listener names: a route with `sectionName: https` needs a listener called `https`. |
+| `helm history traefik` shows `failed` after an upgrade | Helm 4 conflicts with the plugin's field manager: `helm upgrade ... --force-conflicts`, then `./support/traefik/enable-plugin --airgap`. |
 | Pod `ImagePullBackOff`                    | `image.registry` / `imagePullSecrets`; image pushed?                                            |
 | Admin page: "Not allowed"                 | Only Coder roles in `admin.roles` (default `owner`).                                           |
 | Admin page: "Could not verify your session" | The banner pod cannot reach `http://<coder service>.<ns>.svc`; check the Service name/port.   |

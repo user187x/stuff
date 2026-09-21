@@ -18,6 +18,8 @@ DRY_RUN=0
 MODE=""
 LOG="${PWD}/banner-guide.log"   # absolute, so it stays one file even after we move into an unpacked bundle
 ASSUME="${BANNER_GUIDE_ASSUME_DEFAULTS:-0}"
+# plugin_health (what Traefik itself says about its plugins) is shared with preflight-banner and the Traefik scripts.
+if [[ -f ./support/traefik/plugin-health.sh ]]; then . ./support/traefik/plugin-health.sh; else plugin_health() { echo unknown; }; fi
 
 # ------------------------------------------------------------------------------------------------ appearance
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -147,9 +149,11 @@ deployments_like() { # deployments_like '<regex on image>' -> "namespace<TAB>nam
   awk -F'\t' -v re="$1" '$3 ~ re {print $1 "\t" $2 "\t" $3}'
 }
 
-plugin_state() { # plugin_state <ns> <deployment> -> local | download | none
+plugin_state() { # plugin_state <ns> <deployment> -> local | download | conflict | none
+ # conflict = defined BOTH ways: Traefik refuses a plugin name used twice and then disables ALL plugins.
  local args; args=$(kc -n "$1" get deploy "$2" -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)
- if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then echo local
+ if grep -q 'experimental.localPlugins.rewrite-body' <<<"${args}"; then
+  if grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then echo conflict; else echo local; fi
  elif grep -q 'experimental.plugins.rewrite-body' <<<"${args}"; then echo download
  else echo none; fi
 }
@@ -464,8 +468,22 @@ EOF
  local pstate; pstate=$(plugin_state "${TRAEFIK_NS}" "${TRAEFIK_DEP}")
  local do_plugin=0
  case ${pstate} in
-  local) ok "the plugin is already enabled from local source - nothing to do." ;;
+  local)
+   ok "the plugin is already enabled from local source - nothing to do."
+   # Being configured is not the same as working: Traefik is Ready even after it has switched its plugins off.
+   local hout; hout=$(plugin_health "${TRAEFIK_NS}" "${TRAEFIK_DEP}")
+   case "${hout%%$'\n'*}" in
+    loaded) ok "Traefik reports that its plugins are loaded." ;;
+    disabled) bad "Traefik has switched its plugins OFF: $(sed -n 2p <<<"${hout}")"
+     say "  Until that is fixed no banner can appear (Coder itself is not affected). See: kubectl -n ${TRAEFIK_NS} logs deploy/${TRAEFIK_DEP}" ;;
+    *) warn "I could not confirm from Traefik's log that the plugin loaded." ;;
+   esac ;;
   download) warn "the plugin is enabled, but Traefik DOWNLOADS it from GitHub at start-up - that will not work without internet."; do_plugin=1 ;;
+  conflict)
+   bad "the plugin is defined TWICE (a download entry and a local one). Traefik refuses a plugin name used twice and then"
+   say "  switches ALL its plugins off, so no banner can appear (Coder itself keeps working). Enabling it from local source"
+   say "  below removes the duplicate: the preview shows the download lines being taken out."
+   do_plugin=1 ;;
   none) say "The plugin is not enabled yet."; do_plugin=1 ;;
  esac
  if (( do_plugin )); then
@@ -488,6 +506,8 @@ EOF
    else
     if [[ "${pstate}" == download ]]; then warn "Skipped. Traefik keeps downloading the plugin from GitHub at start-up: fine if it has internet, but it will fail on an air-gapped cluster."
     else warn "Skipped. The banner will not appear until the plugin is enabled."; fi
+    confirm "Carry on with the install anyway? (Coder keeps working, but there will be no banner until the plugin is on)" n \
+     || die "Stopped before installing anything. Run this again when you are ready to switch the plugin on."
    fi
   fi
  fi
@@ -605,7 +625,18 @@ mode_check() {
  run kc -n "${CODER_NS}" get httproute coder-banner -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}{"\n"}'
  local trows; trows=$(deployments_like '(^|/)traefik(:|@|$)' | head -1); local tns tdep
  tns=$(cut -f1 <<<"${trows}"); tdep=$(cut -f2 <<<"${trows}")
- [[ -n "${tdep}" ]] && say "Traefik plugin: $(plugin_state "${tns}" "${tdep}") (local = air-gap ready, download = fetched from the internet at start-up)"
+ if [[ -n "${tdep}" ]]; then
+  local pst hout; pst=$(plugin_state "${tns}" "${tdep}")
+  say "Traefik plugin: ${pst} (local = air-gap ready, download = fetched from the internet at start-up, conflict = defined twice, none = not enabled)"
+  if [[ "${pst}" != none ]]; then
+   hout=$(plugin_health "${tns}" "${tdep}")
+   case "${hout%%$'\n'*}" in
+    loaded) ok "Traefik reports that its plugins are loaded" ;;
+    disabled) bad "Traefik has switched its plugins OFF: $(sed -n 2p <<<"${hout}")"; say "  Fix: ./support/traefik/enable-plugin --airgap   (it removes a duplicate download entry and checks the result)" ;;
+    *) warn "could not confirm from Traefik's log that the plugin loaded" ;;
+   esac
+  fi
+ fi
  blank; run env CODER_NAMESPACE="${CODER_NS}" ./verify-menu || true
 }
 
