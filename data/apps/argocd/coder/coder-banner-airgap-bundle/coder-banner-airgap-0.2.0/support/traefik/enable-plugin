@@ -1,0 +1,35 @@
+#!/bin/bash
+# Enables Traefik's rewrite-body plugin (see plugin-lib.sh for how and why).
+#
+#   ./enable-plugin                 download the plugin from GitHub at Traefik start-up
+#   ./enable-plugin --airgap        use the vendored plugin source (plugin-src/): no internet needed
+#   add --diff-only to show exactly what would change and apply nothing
+#
+# Air-gapped: point TRAEFIK_CHART at a local chart archive, e.g.
+#   TRAEFIK_CHART=./traefik-41.4.0.tgz ./enable-plugin --airgap
+set -euo pipefail
+# A relative TRAEFIK_CHART (e.g. ./traefik-41.4.0.tgz) is relative to where the caller is, not to this script.
+[[ -n "${TRAEFIK_CHART:-}" && -e "${TRAEFIK_CHART}" ]] && TRAEFIK_CHART=$(realpath "${TRAEFIK_CHART}")
+cd "$(dirname "$0")"
+. ./plugin-lib.sh
+
+overlay="rewrite-body-plugin.yaml"; diff_only=0
+for arg in "$@"; do
+ case "${arg}" in
+  --airgap) overlay="rewrite-body-plugin-airgap.yaml" ;;
+  --diff-only) diff_only=1 ;;
+  *) echo "usage: $0 [--airgap] [--diff-only]" >&2; exit 2 ;;
+ esac
+done
+
+render "${overlay}"
+show_changes
+[[ ${diff_only} -eq 1 ]] && exit 0
+apply_and_wait
+# Switching from the air-gapped (local) plugin back to the downloaded one leaves its ConfigMap orphaned.
+if [[ "${overlay}" != *airgap* ]]; then
+ for cm in $(kubectl -n "${NS}" get configmap -o name | grep -- '-local-plugin-' || true); do
+  kubectl -n "${NS}" delete "${cm}"
+ done
+fi
+echo "Traefik is running with the rewrite-body plugin (${overlay})."

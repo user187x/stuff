@@ -1,0 +1,125 @@
+#!/bin/bash
+# Installs Harbor (registry + OCI chart repository) through Argo CD and wires it up:
+#   - namespace, and EVERY secret Harbor needs (random, stored only in the cluster)
+#   - Argo CD trusts your local CA for harbor.xxx.com and knows the chart repository (OCI, library project)
+#   - the Application (Harbor's chart also creates the HTTPRoute on traefik-gateway)
+#   - on minikube: the node's Docker trusts the CA and can resolve harbor.xxx.com, so pods can pull images from it
+# Safe to re-run: existing secrets (and so the admin password) are kept.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+HOST="harbor.xxx.com"
+NS="harbor"
+ARGO_NS="argocd"
+WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
+rand() { head -c 512 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "$1"; }   # rand <length>
+exists() { kubectl -n "${NS}" get secret "$1" >/dev/null 2>&1; }
+
+echo "1/7 namespace and secrets"
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+create_generic() { # create_generic <name> key=value ...   (only if it does not exist yet)
+ local name=$1; shift
+ if exists "${name}"; then echo "    ${name}: kept"; return; fi
+ local args=(); for kv in "$@"; do args+=(--from-literal="${kv}"); done
+ kubectl -n "${NS}" create secret generic "${name}" "${args[@]}" >/dev/null && echo "    ${name}: created"
+}
+create_generic harbor-admin HARBOR_ADMIN_PASSWORD="$(rand 20)"
+create_generic harbor-secretkey secretKey="$(rand 16)"
+create_generic harbor-core-secret secret="$(rand 16)"
+create_generic harbor-core-xsrf CSRF_KEY="$(rand 32)"
+create_generic harbor-jobservice-secret JOBSERVICE_SECRET="$(rand 16)"
+create_generic harbor-registry-secret REGISTRY_HTTP_SECRET="$(rand 16)"
+create_generic harbor-database password="$(rand 20)"
+if exists harbor-registry-credentials; then echo "    harbor-registry-credentials: kept"; else
+ rp=$(rand 24)
+ if command -v htpasswd >/dev/null; then line=$(htpasswd -nbB harbor_registry_user "${rp}")
+ else line=$(docker run --rm --entrypoint htpasswd httpd:2.4 -nbB harbor_registry_user "${rp}"); fi
+ kubectl -n "${NS}" create secret generic harbor-registry-credentials --from-literal=REGISTRY_PASSWD="${rp}" --from-literal=REGISTRY_HTPASSWD="${line}" >/dev/null
+ echo "    harbor-registry-credentials: created"
+fi
+# Harbor signs registry tokens with this key and only reads the traditional RSA format ("BEGIN RSA PRIVATE KEY").
+# OpenSSL 3 writes PKCS#8 ("BEGIN PRIVATE KEY") by default, which makes every login/push fail with a 500.
+REGEN_TOKEN=0
+keyhdr=""; exists harbor-token-tls && keyhdr=$(kubectl -n "${NS}" get secret harbor-token-tls -o jsonpath='{.data.tls\.key}' | base64 -d | head -n1 || true)   # (capture first: head closes the pipe early)
+if [[ "${keyhdr}" == *"BEGIN PRIVATE KEY"* ]]; then
+ echo "    harbor-token-tls: wrong key format (PKCS#8) - replacing"; kubectl -n "${NS}" delete secret harbor-token-tls >/dev/null; REGEN_TOKEN=1
+fi
+if exists harbor-token-tls; then echo "    harbor-token-tls: kept"; else
+ openssl genrsa -traditional -out "${WORK}/tok.key" 4096 2>/dev/null
+ openssl req -x509 -new -key "${WORK}/tok.key" -days 3650 -subj "/CN=harbor-token-service" -out "${WORK}/tok.crt"
+ kubectl -n "${NS}" create secret tls harbor-token-tls --cert="${WORK}/tok.crt" --key="${WORK}/tok.key" >/dev/null && echo "    harbor-token-tls: created"
+fi
+
+echo "2/7 Argo CD trusts your local CA for ${HOST}"
+kubectl -n traefik get secret tls-ca -o jsonpath='{.data.tls\.ca}' | base64 -d > "${WORK}/ca.crt"
+[[ -s "${WORK}/ca.crt" ]] || { echo "could not read the CA from secret traefik/tls-ca" >&2; exit 1; }
+kubectl -n "${ARGO_NS}" patch configmap argocd-tls-certs-cm --type merge \
+ -p "$(jq -n --arg h "${HOST}" --rawfile ca "${WORK}/ca.crt" '{data: {($h): $ca}}')" >/dev/null
+echo "    argocd-tls-certs-cm now has a certificate for ${HOST}"
+
+echo "3/7 register the chart repository with Argo CD (OCI: ${HOST}/library)"
+kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-harbor
+  namespace: ${ARGO_NS}
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: helm
+  name: harbor-library
+  url: ${HOST}/library
+  enableOCI: "true"
+YAML
+
+echo "4/7 the Harbor Application (first start takes a few minutes: database initialisation)"
+kubectl apply -f argocd.yaml >/dev/null
+st=""
+for i in $(seq 1 100); do
+ st=$(kubectl -n "${ARGO_NS}" get application harbor -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || true)
+ (( i % 4 == 1 )) && echo "    ${st:-pending}  ($(kubectl -n "${NS}" get pods --no-headers 2>/dev/null | awk '$2 ~ /^([0-9]+)\/\1$/ && $3=="Running"' | wc -l)/$(kubectl -n "${NS}" get pods --no-headers 2>/dev/null | wc -l) pods ready)"
+ [[ "${st}" == "Synced/Healthy" ]] && break; sleep 6
+done
+[[ "${st}" == "Synced/Healthy" ]] || { echo "Harbor did not become healthy - kubectl -n ${ARGO_NS} describe application harbor ; kubectl -n ${NS} get pods" >&2; exit 1; }
+
+if (( REGEN_TOKEN )); then
+ echo "    restarting core and registry so they pick up the new signing key"
+ kubectl -n "${NS}" rollout restart deploy/harbor-core deploy/harbor-registry >/dev/null
+ kubectl -n "${NS}" rollout status deploy/harbor-core --timeout=300s >/dev/null; kubectl -n "${NS}" rollout status deploy/harbor-registry --timeout=300s >/dev/null
+fi
+
+gw=$(kubectl -n traefik get gateway traefik-gateway -o jsonpath='{.status.addresses[0].value}')
+
+echo "5/7 minikube node: trust the CA and resolve ${HOST} (so pods can pull images from Harbor)"
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx minikube && docker exec minikube docker info >/dev/null 2>&1; then
+ docker exec minikube mkdir -p "/etc/docker/certs.d/${HOST}"
+ docker cp "${WORK}/ca.crt" "minikube:/etc/docker/certs.d/${HOST}/ca.crt"
+ docker exec minikube sh -c "grep -q ' ${HOST}\$' /etc/hosts || echo '${gw} ${HOST}' >> /etc/hosts"
+ echo "    done (node-level; lasts until the minikube node is recreated)"
+else
+ echo "    not a docker-runtime minikube node - skipped (configure your nodes to trust the CA for ${HOST})"
+fi
+
+echo "6/7 health"
+health=$(curl -sS -m 15 --cacert "${WORK}/ca.crt" --resolve "${HOST}:443:${gw}" "https://${HOST}/api/v2.0/health" || true)
+echo "${health}" | jq -r '.components[]? | "    \(.name): \(.status)"' 2>/dev/null || echo "    ${health:-no answer}"
+apass=$(kubectl -n "${NS}" get secret harbor-admin -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' | base64 -d)
+login=$(curl -sS -m 15 --cacert "${WORK}/ca.crt" --resolve "${HOST}:443:${gw}" -u "admin:${apass}" -o /dev/null -w '%{http_code}' "https://${HOST}/api/v2.0/users/current" || true)
+echo "    admin login -> ${login} (want 200)"
+
+echo "7/7 name resolution on this machine"
+have=$(getent hosts "${HOST}" | awk '{print $1}' | head -1 || true)
+if [[ "${have}" != "${gw}" ]]; then
+ cat <<MSG
+
+  ACTION NEEDED (once): this machine resolves ${HOST} to '${have:-nothing}', not to your Gateway (${gw}).
+  Pods (including Argo CD) resolve names through this machine's /etc/hosts, so add the same kind of line
+  you have for coder.xxx.com and argocd.xxx.com:
+
+      echo '${gw} ${HOST}' | sudo tee -a /etc/hosts
+
+MSG
+else echo "    ${HOST} already resolves to the Gateway"; fi
+echo "Admin password:  kubectl -n ${NS} get secret harbor-admin -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' | base64 -d"
+echo "Next:            ./push-chart <chart.tgz>     ./push-image <images.tar> <source-image> <library/name:tag>"

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Pushes an image from a docker-archive (e.g. the images/images.tar in the air-gap bundle) into Harbor.
+#   ./push-image images.tar python:3.13-alpine library/python:3.13-alpine
+set -euo pipefail
+HOST="harbor.xxx.com"
+[[ $# -eq 3 && -f "$1" ]] || { echo "usage: $0 <images.tar> <name:tag inside the archive> <project/repo:tag in Harbor>" >&2; exit 2; }
+WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT; mkdir "${WORK}/certs"
+kubectl -n traefik get secret tls-ca -o jsonpath='{.data.tls\.ca}' | base64 -d > "${WORK}/certs/ca.crt"
+gw=$(kubectl -n traefik get gateway traefik-gateway -o jsonpath='{.status.addresses[0].value}')
+export HARBOR_PASS; HARBOR_PASS=$(kubectl -n harbor get secret harbor-admin -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' | base64 -d)
+docker run --rm --add-host "${HOST}:${gw}" -e HARBOR_PASS -v "${WORK}/certs:/certs:ro" -v "$(realpath "$1"):/in.tar:ro" \
+ --entrypoint sh quay.io/skopeo/stable:latest -c \
+ 'skopeo copy --dest-cert-dir /certs --dest-creds "admin:$HARBOR_PASS" docker-archive:/in.tar:'"$2"' docker://'"${HOST}/$3"
+echo "pushed ${HOST}/$3   (use image.registry=${HOST} image.repository=${3%%:*} image.tag=${3##*:} in the banner)"

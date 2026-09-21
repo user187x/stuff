@@ -1,3 +1,9 @@
+# Harbor: a local container registry AND Helm chart repository (charts are stored as OCI artifacts) for testing
+# the air-gapped pipeline end to end. Installed by Argo CD; TLS is terminated at the Traefik Gateway with the
+# wildcard certificate, and the chart itself creates the HTTPRoute (expose.type: route).
+#
+# Every generated secret is supplied by an existing Secret created by ./install, so no password is in git and
+# Argo CD has nothing random to fight over on re-render.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,48 +13,58 @@ spec:
   project: default
   source:
     repoURL: https://helm.goharbor.io
-    targetRevision: 1.15.0
+    targetRevision: 1.19.2
     chart: harbor
     helm:
       values: |
         expose:
-          type: httproute
+          type: route                       # Gateway API HTTPRoute (/v2, /api, /service, /c -> core; / -> portal)
           tls:
-            enabled: false # TLS is terminated at the Traefik Gateway
+            enabled: false                  # TLS is terminated at the Traefik Gateway
           route:
             hosts:
               - harbor.xxx.com
             parentRefs:
-              - name: traefik-gateway
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: traefik-gateway
                 namespace: traefik
-                sectionName: websecure
+                sectionName: https
 
         externalURL: https://harbor.xxx.com
 
+        # Secrets created by ./install (keys documented in the chart's values.yaml)
+        existingSecretAdminPassword: harbor-admin
+        existingSecretSecretKey: harbor-secretkey
+        core:
+          existingSecret: harbor-core-secret
+          existingXsrfSecret: harbor-core-xsrf
+          secretName: harbor-token-tls
+        jobservice:
+          existingSecret: harbor-jobservice-secret
+        registry:
+          existingSecret: harbor-registry-secret
+          credentials:
+            username: harbor_registry_user
+            existingSecret: harbor-registry-credentials
+        database:
+          internal:
+            existingSecret: harbor-database
+
         trivy:
-          enabled: true
-        notary:
-          enabled: true
-        chartmuseum:
-          enabled: true
+          enabled: false                    # vulnerability scanning: not needed here, saves memory and a large download
 
         persistence:
           persistentVolumeClaim:
             registry:
-              size: 50Gi
-            chartmuseum:
               size: 10Gi
             jobservice:
-              size: 5Gi
+              jobLog:
+                size: 1Gi
             database:
-              size: 10Gi
+              size: 2Gi
             redis:
-              size: 5Gi
-            trivy:
-              size: 10Gi
-
-        harborAdminPassword: "ChangeIt123!"
-
+              size: 1Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: harbor

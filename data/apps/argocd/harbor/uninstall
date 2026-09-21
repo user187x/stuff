@@ -1,0 +1,12 @@
+#!/bin/bash
+# Removes Harbor, everything ./install added, and its stored images and charts (the volumes are deleted).
+set -euo pipefail
+HOST="harbor.xxx.com"
+read -r -p "Delete Harbor, ALL its stored images/charts, its secrets and the Argo CD repository entry? [y/N] " a; [[ "${a}" =~ ^[Yy]$ ]] || { echo "nothing changed"; exit 0; }
+kubectl -n argocd delete application harbor --ignore-not-found --wait=true --timeout=180s
+kubectl -n argocd delete secret repo-harbor --ignore-not-found
+kubectl -n argocd patch configmap argocd-tls-certs-cm --type json -p "[{\"op\":\"remove\",\"path\":\"/data/${HOST}\"}]" 2>/dev/null || true
+kubectl -n harbor delete pvc --all --ignore-not-found --wait=false || true   # Harbor's chart keeps its volumes on purpose
+kubectl delete namespace harbor --ignore-not-found --wait=true --timeout=180s
+docker exec minikube sh -c "rm -rf /etc/docker/certs.d/${HOST}; sed -i '/ ${HOST}\$/d' /etc/hosts" 2>/dev/null || true
+echo "removed"

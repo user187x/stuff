@@ -1,0 +1,18 @@
+#!/bin/bash
+# Pushes a packaged chart (.tgz) to Harbor's "library" project as an OCI artifact.
+#   ./push-chart coder-banner-0.2.0.tgz
+# Runs Helm in a container (with the Gateway address and your CA supplied), so it works before /etc/hosts is set up.
+set -euo pipefail
+HOST="harbor.xxx.com"
+[[ $# -eq 1 && -f "$1" ]] || { echo "usage: $0 <chart.tgz>" >&2; exit 2; }
+WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
+kubectl -n traefik get secret tls-ca -o jsonpath='{.data.tls\.ca}' | base64 -d > "${WORK}/ca.crt"
+gw=$(kubectl -n traefik get gateway traefik-gateway -o jsonpath='{.status.addresses[0].value}')
+export HARBOR_PASS; HARBOR_PASS=$(kubectl -n harbor get secret harbor-admin -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' | base64 -d)
+docker run --rm --add-host "${HOST}:${gw}" -e HARBOR_PASS -v "${WORK}/ca.crt:/ca.crt:ro" -v "$(realpath "$1"):/chart.tgz:ro" \
+ --entrypoint sh alpine/helm:latest -c '
+  echo "$HARBOR_PASS" | helm registry login '"${HOST}"' --username admin --password-stdin --ca-file /ca.crt >/dev/null &&
+  helm push /chart.tgz oci://'"${HOST}"'/library --ca-file /ca.crt'
+echo "artifacts in library:"
+curl -sS --cacert "${WORK}/ca.crt" --resolve "${HOST}:443:${gw}" "https://${HOST}/api/v2.0/projects/library/repositories" | jq -r '.[]? | "  \(.name)  (\(.artifact_count) artifact(s))"'
+echo "use it as   repoURL: ${HOST}/library   chart: <name>   (Argo CD, OCI)"
