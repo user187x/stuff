@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+echo "Updating APT repositories..."
+sudo apt update
+
+echo "Installing APT packages (Renamed or standard tools)..."
+sudo apt install -y \
+ freerdp3-x11 \
+ qemu-system-x86 qemu-kvm libvirt-daemon-system \
+ pylint \
+ black \
+ kubectx \
+ rizin \
+ rizin-cutter \
+ bulk-extractor \
+ pev \
+ dex2jar \
+ bless \
+ tldr \
+ rats \
+ honggfuzz \
+ radamsa
+
+echo "Installing Snap packages..."
+sudo snap install gtk-common-themes
+sudo snap install zaproxy --classic
+sudo snap install asciiquarium
+sudo snap install zellij --classic
+
+echo "Installing Flatpak packages..."
+if ! command -v flatpak &>/dev/null; then
+ sudo apt-get install -y flatpak
+ sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+fi
+sudo flatpak install -y flathub io.github.realmazharhussain.GdmSettings
+
+echo "Installing Rust-based CLI tools (yazi, ya, xplr)..."
+if ! command -v cargo &>/dev/null; then
+ echo "Cargo not found. Installing Rust toolchain..."
+ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ source "$HOME/.cargo/env"
+fi
+
+cargo install --locked yazi-fm yazi-cli
+cargo install xplr
+
+echo "Installation complete!"
