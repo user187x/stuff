@@ -31,7 +31,7 @@ metadata:
   labels:
     {{- include "coder-banner.labels" . | nindent 4 }}
 data:
-  {{- range $name := list "banner.js" "server.py" "live.py" "admin.html" "app.js" "app.css" }}
+  {{- range $name := list "banner.js" "server.py" "live.py" "admin.html" "app.js" "app.css" "emoji-picker.js" }}
   {{ $name }}: |
     {{- $.Files.Get (printf "files/%s" $name) | nindent 4 }}
   {{- end }}
@@ -48,6 +48,21 @@ data:
   {{- range $name := list "anime.umd.min.js" "LICENSE-animejs.md" }}
   {{ $name }}: |
     {{- $.Files.Get (printf "files/vendor/%s" $name) | nindent 4 }}
+  {{- end }}
+---
+# The emoji list for the admin page's emoji picker: one generated script (support/build-emoji-data), in its own
+# ConfigMap because of its size.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-banner-emoji
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}
+data:
+  {{- range $name := list "emoji-data.js" "LICENSE-emojibase.md" }}
+  {{ $name }}: |
+    {{- $.Files.Get (printf "files/emoji/%s" $name) | nindent 4 }}
   {{- end }}
 ---
 # What an admin publishes from the admin page (state.json). Helm only owns the metadata: it never

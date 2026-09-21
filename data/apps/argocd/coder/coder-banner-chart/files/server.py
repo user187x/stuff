@@ -6,6 +6,7 @@ Served on the Coder host under /__banner/ (the HTTPRoute sends that prefix here)
   public  GET  banner.js, banner.json     the loader script injected into Coder, and the live banner
           GET  vendor/anime.umd.min.js    the text-effects library (Anime.js, MIT), loaded only when an effect is set
   admin   GET  admin (+ app.js/app.css)   single-page editor, Coder admins only
+          GET  admin/emoji-picker.js, admin/emoji-data.js   the emoji picker and its (self-contained) emoji list
           GET  api/state                  current banner + who last changed it
           POST api/banner                 publish changes
           POST api/reappear               make everyone who dismissed the banner see it again
@@ -47,6 +48,7 @@ ADMIN_ROLES = {r.strip() for r in os.environ.get("ADMIN_ROLES", "owner").split("
 STATE_FILE = os.environ.get("STATE_FILE", "")  # local testing; in-cluster the ConfigMap is used
 STATE_CONFIGMAP = os.environ.get("STATE_CONFIGMAP", "coder-banner-state")
 VENDOR_DIR = os.environ.get("VENDOR_DIR", "/vendor")  # third-party files, kept apart from our own code
+EMOJI_DIR = os.environ.get("EMOJI_DIR", "/emoji")  # emoji-data.js (generated data, own ConfigMap: it is large)
 
 BASE = "/__banner"
 SESSION_COOKIE = "coder_session_token"
@@ -76,6 +78,13 @@ FIELDS = {
     "refreshSeconds": 60,
     "effect": "none",
     "repeat": False,
+}
+# Files the admin page loads, served only to admins: path -> (file, content type, directory; None = APP_DIR)
+ADMIN_FILES = {
+    BASE + "/admin/app.js": ("app.js", "application/javascript", None),
+    BASE + "/admin/app.css": ("app.css", "text/css", None),
+    BASE + "/admin/emoji-picker.js": ("emoji-picker.js", "application/javascript", None),
+    BASE + "/admin/emoji-data.js": ("emoji-data.js", "application/javascript", EMOJI_DIR),
 }
 SAFE_URL = re.compile(r"^(https?://[^\s]+|/(?!/)[^\s]*)$", re.I)
 
@@ -418,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == BASE + "/banner.json":
             return self.send(200, json.dumps(Handler.banner.public()), "application/json", {"Cache-Control": "no-store"})
-        if path in (BASE + "/admin", BASE + "/admin/", BASE + "/admin/app.js", BASE + "/admin/app.css") or path == BASE + "/api/state":
+        if path in ADMIN_FILES or path in (BASE + "/admin", BASE + "/admin/") or path == BASE + "/api/state":
             return self.admin_get(path)
         self.send(404, "not found")
 
@@ -444,14 +453,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if is_api:
             return self.send_json(200, {"user": user, **Handler.banner.summary(), "subscribers": self.subscribers()})
-        files = {
-            BASE + "/admin": ("admin.html", "text/html; charset=utf-8"),
-            BASE + "/admin/": ("admin.html", "text/html; charset=utf-8"),
-            BASE + "/admin/app.js": ("app.js", "application/javascript"),
-            BASE + "/admin/app.css": ("app.css", "text/css"),
-        }
-        name, content_type = files[path]
-        return self.send_file(name, content_type, self.ADMIN_HEADERS)
+        name, content_type, directory = ADMIN_FILES.get(path) or ("admin.html", "text/html; charset=utf-8", None)
+        return self.send_file(name, content_type, self.ADMIN_HEADERS, directory=directory)
 
     def do_POST(self):
         self.close_connection = True  # early rejections leave the body unread; do not reuse the socket

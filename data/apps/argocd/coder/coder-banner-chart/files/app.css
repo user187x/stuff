@@ -48,6 +48,31 @@ textarea { resize: vertical; }
 .effect-row { display: flex; gap: 12px 18px; align-items: center; flex-wrap: wrap; }
 .effect-row .btn { padding: 6px 14px; }
 select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--text); font: inherit; }
+.lead-field { position: relative; }
+.lead-row { display: flex; gap: 8px; align-items: stretch; }
+.lead-row input { flex: 1; min-width: 0; }
+.emoji-btn { padding: 4px 11px; font-size: 20px; line-height: 1.2; }
+.emoji-pop { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; width: min(392px, calc(100vw - 32px)); display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,.35); padding: 10px; gap: 8px; max-height: 440px; }
+.emoji-pop[hidden], .emoji-pop [hidden] { display: none !important; }  /* the flex/grid rules below must not defeat `hidden` */
+.emoji-top { display: grid; gap: 6px; }
+.emoji-search { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--text); font: inherit; }
+.emoji-into { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.emoji-radio { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; color: var(--text); }
+.emoji-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.emoji-tab { flex: 1; font: inherit; font-size: 17px; padding: 3px 0; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.emoji-tab:hover, .emoji-tab:focus-visible { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+.emoji-scroll { overflow-y: auto; min-height: 120px; flex: 1; position: relative; scroll-behavior: auto; }
+.emoji-sec { margin: 0 0 6px; }
+.emoji-h { position: sticky; top: 0; z-index: 1; margin: 0; padding: 4px 2px; background: var(--card); color: var(--muted); font-size: 12px; font-weight: 600; text-transform: none; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 2px; }
+.emoji, .emoji-tab, .emoji-btn { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Segoe UI Symbol", sans-serif; }
+.emoji { font-size: 22px; line-height: 1; padding: 6px 0; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.emoji:hover, .emoji:focus-visible { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+.emoji-none { margin: 14px 4px; color: var(--muted); font-size: 13px; }
+.emoji-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 6px; min-height: 26px; }
+.emoji-name { color: var(--text); }
+.emoji-keys { text-align: right; }
 .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .chips-label { color: var(--muted); font-size: 13px; }
 .chip { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }

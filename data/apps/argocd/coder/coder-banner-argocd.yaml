@@ -23,7 +23,7 @@ spec:
   source:
     repoURL: https://charts.internal.example.com   # <-- CHANGE ME: your internal Helm repository
     chart: coder-banner
-    targetRevision: 0.3.0
+    targetRevision: 0.4.1
     # OCI registry instead (e.g. Harbor)?  repoURL: registry.internal.example.com/charts   (register it in Argo CD
     # as an OCI repository); keep chart: coder-banner.
     helm:

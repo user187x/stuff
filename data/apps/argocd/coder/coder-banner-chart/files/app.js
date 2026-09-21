@@ -243,6 +243,10 @@
         renderState();
       });
     });
+    // The picker is a separate script; if it did not load, everything else still works (the button just does nothing).
+    if (window.CoderBannerEmojiPicker) {
+      window.CoderBannerEmojiPicker.init({ button: $('emoji-btn'), panel: $('emoji-pop'), fields: { message: $('message'), title: $('title') } });
+    }
     $('replay').addEventListener('click', function () { renderPreview(); playPreview(); });
     $('publish').addEventListener('click', publish);
     $('revert').addEventListener('click', function () { writeForm(server.banner); showProblem(''); renderState(); });

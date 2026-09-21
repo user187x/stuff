@@ -72,8 +72,14 @@
       </fieldset>
 
       <div class="grid">
-        <label class="field"><span class="label">Bold lead-in <em>(optional)</em></span>
-          <input id="title" type="text" maxlength="80" placeholder="e.g. Security patch:"></label>
+        <div class="field lead-field">
+          <label class="label" for="title">Bold lead-in <em>(optional)</em></label>
+          <div class="lead-row">
+            <button type="button" id="emoji-btn" class="btn emoji-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="emoji-pop" aria-label="Insert an emoji" title="Insert an emoji">😀</button>
+            <input id="title" type="text" maxlength="80" placeholder="e.g. Security patch:">
+          </div>
+          <div id="emoji-pop" class="emoji-pop" role="dialog" aria-label="Insert an emoji" hidden></div>
+        </div>
         <label class="field"><span class="label">Link text <em>(optional)</em></span>
           <input id="linkText" type="text" maxlength="60" placeholder="e.g. Status page"></label>
         <label class="field grid-wide"><span class="label">Link address <em>(optional)</em></span>
@@ -121,6 +127,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="/__banner/banner.js" data-preview></script>
+  <script src="/__banner/admin/emoji-picker.js"></script>
   <script src="/__banner/admin/app.js"></script>
 </body>
 </html>

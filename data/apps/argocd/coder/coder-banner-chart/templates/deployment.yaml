@@ -17,7 +17,7 @@ spec:
         {{- include "coder-banner.labels" . | nindent 8 }}
       annotations:
         # Restart when the service code changes; banner defaults are re-read on every request.
-        checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/live.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") (.Files.Get "files/vendor/anime.umd.min.js") | sha256sum | trunc 16 }}
+        checksum/app: {{ print (.Files.Get "files/banner.js") (.Files.Get "files/server.py") (.Files.Get "files/live.py") (.Files.Get "files/admin.html") (.Files.Get "files/app.js") (.Files.Get "files/app.css") (.Files.Get "files/emoji-picker.js") (.Files.Get "files/vendor/anime.umd.min.js") (.Files.Get "files/emoji/emoji-data.js") | sha256sum | trunc 16 }}
     spec:
       serviceAccountName: coder-banner
       {{- with .Values.imagePullSecrets }}
@@ -39,6 +39,7 @@ spec:
             - { name: APP_DIR, value: /app }
             - { name: DEFAULTS_FILE, value: /config/banner.json }
             - { name: VENDOR_DIR, value: /vendor }
+            - { name: EMOJI_DIR, value: /emoji }
             - { name: STATE_CONFIGMAP, value: coder-banner-state }
             - { name: CODER_URL, value: "http://{{ .Values.coder.service.name }}.{{ include "coder-banner.namespace" . }}.svc.cluster.local:{{ .Values.coder.service.port }}" }
             - { name: ADMIN_ROLES, value: {{ join "," .Values.admin.roles | quote }} }
@@ -71,6 +72,7 @@ spec:
             - { name: app, mountPath: /app, readOnly: true }
             - { name: defaults, mountPath: /config, readOnly: true }
             - { name: vendor, mountPath: /vendor, readOnly: true }
+            - { name: emoji, mountPath: /emoji, readOnly: true }
             - { name: tmp, mountPath: /tmp }
       volumes:
         - name: app
@@ -82,6 +84,9 @@ spec:
         - name: vendor
           configMap:
             name: coder-banner-vendor
+        - name: emoji
+          configMap:
+            name: coder-banner-emoji
         - name: tmp
           emptyDir: {}
 ---

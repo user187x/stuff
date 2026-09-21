@@ -25,7 +25,7 @@ internal container registry, and (for the Argo CD route) an internal Helm chart 
 | `HTTPRoute/coder-banner` (beside Coder's own route, same host)        | Coder's Deployment, Service, database, secrets   |
 | 6 Traefik `Middleware`s (`coder-banner*`)                             | Coder's own `HTTPRoute`                          |
 | `Deployment` + `Service` `coder-banner` (small Python web server, ports 80 and 8081 for the live channel) | The `traefik-gateway` Gateway |
-| 4 ConfigMaps (code, defaults, the text-effects library, published state), 1 ServiceAccount, 1 Role + RoleBinding (one ConfigMap) | Any other namespace |
+| 5 ConfigMaps (code, defaults, the text-effects library, the emoji list, published state), 1 ServiceAccount, 1 Role + RoleBinding (one ConfigMap) | Any other namespace |
 
 One thing lives **outside** the chart because Traefik reads it at start-up: the `rewrite-body` plugin has to
 be enabled in Traefik's static configuration (`support/traefik/enable-plugin`). It is reversible
@@ -120,6 +120,32 @@ pill shows how many tabs are connected right now, and after publishing you are t
 **Show again to everyone** makes the banner reappear even for people who dismissed it. What an admin publishes
 survives upgrades and restarts; **use the chart defaults** resets it. `./banner-set --off` / `--message ...` change
 the chart defaults from the command line.
+
+## Emoji picker
+
+On the admin page, the **😀 button to the left of "Bold lead-in"** opens an emoji picker, so a message like
+`⚠️ Impending restart! ⚠️` needs no copy-and-paste.
+
+* **Quick picks** for announcements (⚠️ 🚨 ✅ ❌ ℹ️ 🔧 ⏰ 🔒 🔥 🎉 🚀 ...), **recently used** emoji, all categories, and a search
+  box that understands names and keywords ("siren", "alert", "rocket").
+* It inserts **at the cursor** (replacing any selected text) with a space on each side where one is needed, into the
+  **Message** or the **Bold lead-in**: the one you used last, changeable with the *Insert into* choice. Shift-click adds
+  several without closing; Esc closes; arrow keys and Enter work. It refuses, and says why, if the text would go over
+  the field's limit.
+* Emoji are ordinary text, so they work in the banner, in the lead-in, and with every text effect.
+* Air-gapped: **nothing is downloaded from outside.** The whole emoji list is one script, `files/emoji/emoji-data.js`
+  (1,580 emoji, 86 KB), served by the banner service to admins only and loaded the first time the picker is opened. There is no
+  picker library and no images: the picker is `files/emoji-picker.js`, and the emoji are drawn by the operating system's
+  emoji font (Windows, macOS, iOS and Android have one; on Linux install `fonts-noto-color-emoji` or equivalent, or they
+  show as empty boxes).
+* Only emoji up to Unicode Emoji 14.0 are offered (newer ones draw as empty boxes on older systems), and no skin-tone
+  variants or country flags.
+
+The list is generated from the MIT-licensed `emojibase-data` package (names and keywords from Unicode CLDR, Unicode
+License); see `files/emoji/LICENSE-emojibase.md`. To regenerate it (needs internet, once, on a build machine):
+`./support/build-emoji-data` (`--max-version 15` to include newer emoji, `--from DIR` for an unpacked package).
+No picker library was used because the available ones inject inline `<style>` elements that the admin page's strict
+Content-Security-Policy blocks, or need their data as a separate download, or are too large for one ConfigMap under Argo CD.
 
 ## Text effects
 
