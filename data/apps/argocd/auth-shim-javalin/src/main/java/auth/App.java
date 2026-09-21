@@ -10,10 +10,17 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.staticfiles.Location;
 
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.KeyStore;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,12 +44,12 @@ public class App {
 
     private static final List<ServiceConfig> configStack = new CopyOnWriteArrayList<>();
     private static final Gson gson = new Gson();
-    private static final HttpClient httpClient = HttpClient.newBuilder().build();
+
+    // Configured for mTLS/x509 Passthrough
+    private static final HttpClient httpClient = buildMtlsHttpClient();
 
     private static final AtomicInteger successCount = new AtomicInteger(0);
     private static final AtomicInteger failCount = new AtomicInteger(0);
-
-    // Tracks frequency of each x509 Certificate DN
     private static final Map<String, AtomicInteger> dnCounts = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
@@ -54,17 +61,23 @@ public class App {
             });
         }).start(8080);
 
-        app.get("/", App::renderHtml);
+        // Serve extracted HTML from resources
+        app.get("/", ctx -> {
+            try (InputStream is = App.class.getResourceAsStream("/public/index.html")) {
+                if (is != null) {
+                    ctx.html(new String(is.readAllBytes()));
+                } else {
+                    ctx.status(404).result("index.html not found in classpath");
+                }
+            }
+        });
 
         app.get("/api/config", ctx ->
             ctx.contentType("application/json").result(gson.toJson(configStack))
         );
 
         app.post("/api/config", ctx -> {
-            List<ServiceConfig> newStack = gson.fromJson(
-                ctx.body(),
-                new TypeToken<List<ServiceConfig>>(){}.getType()
-            );
+            List<ServiceConfig> newStack = gson.fromJson(ctx.body(), new TypeToken<List<ServiceConfig>>(){}.getType());
             configStack.clear();
             configStack.addAll(newStack);
             ctx.status(200).result("Saved");
@@ -75,177 +88,171 @@ public class App {
             metrics.put("successCount", successCount.get());
             metrics.put("failCount", failCount.get());
 
-            // Map the DN counts into a sortable list for the frontend
             List<Map<String, Object>> topDns = new ArrayList<>();
             dnCounts.forEach((dn, c) -> topDns.add(Map.of("dn", dn, "count", c.get())));
             topDns.sort((a, b) -> Integer.compare((Integer) b.get("count"), (Integer) a.get("count")));
 
-            // Return top 25
             metrics.put("requesters", topDns.stream().limit(25).toList());
             ctx.contentType("application/json").result(gson.toJson(metrics));
         });
 
-        app.get("/auth", App::handleAuth);
-        app.post("/auth", App::handleAuth);
+        // Delegate to isolated handler
+        AuthPipelineHandler pipelineHandler = new AuthPipelineHandler();
+        app.get("/auth", pipelineHandler::handle);
+        app.post("/auth", pipelineHandler::handle);
     }
 
-    private static void renderHtml(Context ctx) {
-        String html = """
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <title>Traefik Auth-Shim Pipeline</title>
-                <style>
-                    body { font-family: system-ui, sans-serif; background: #f4f4f5; padding: 20px; color: #333; }
-                    .container { max-width: 1000px; margin: 0 auto; }
-                    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-                    .controls { display: flex; gap: 10px; margin-bottom: 15px; }
-                    .stack-item { border-left: 4px solid #3b82f6; padding-left: 15px; margin-bottom: 30px; background: white; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 15px; }
-                    .stack-item.dragging { opacity: 0.4; }
-                    .drag-handle { cursor: grab; font-size: 1.4em; color: #9ca3af; margin-right: 10px; user-select: none; }
-                    .drag-handle:active { cursor: grabbing; }
-                    button { cursor: pointer; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; }
-                    button.danger { background: #ef4444; }
-                    button.secondary { background: #e5e7eb; color: #374151; }
-                    input, select { padding: 6px; margin: 4px 0; width: 250px; border: 1px solid #ccc; border-radius: 4px;}
-                    .row { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; }
-
-                    .table-container { max-height: 400px; overflow-y: auto; }
-                    table { width: 100%; border-collapse: collapse; }
-                    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-                    th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; box-shadow: 0 1px 0 #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>Auth-Shim Pipeline Configuration</h1>
-                    <div class="controls">
-                        <button onclick="addService()">+ Add External Service</button>
-                        <button onclick="saveStack()" style="background: #10b981;">Save Pipeline</button>
-                    </div>
-
-                    <div id="pipeline-container"></div>
-
-                    <div style="display: flex; gap: 20px; margin-top: 30px;">
-                        <div class="card table-container" style="flex: 2;">
-                            <h3 style="margin-top:0;">Live Requests</h3>
-                            <table id="metricsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Success Total</th>
-                                        <th>Failed Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
-                        </div>
-                        <div class="card table-container" style="flex: 2;">
-                            <h3 style="margin-top:0;">Top 25 Certificate DNs</h3>
-                            <table id="requesterTable" style="table-layout: fixed;">
-                                <thead>
-                                    <tr>
-                                        <th>Certificate DN</th>
-                                        <th style="width: 70px; text-align: center;">Count</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <script src="/static/app.js"></script>
-                <script src="/static/util.js"></script>
-            </body>
-            </html>
-            """;
-        ctx.html(html);
-    }
-
-    private static void handleAuth(Context ctx) throws Exception {
-        Map<String, String> requestContext = new HashMap<>();
-        ctx.headerMap().forEach((k, v) -> requestContext.put("header." + k.toLowerCase(), v));
-
+    /**
+     * Initializes the HttpClient with an SSLContext capable of mTLS.
+     * Can be driven by environment variables mapped via Kubernetes Secrets/ConfigMaps.
+     */
+    private static HttpClient buildMtlsHttpClient() {
         try {
-            String body = ctx.body().trim();
-            if (body.startsWith("{")) {
-                JsonObject bodyNode = JsonParser.parseString(body).getAsJsonObject();
-                for (Map.Entry<String, JsonElement> entry : bodyNode.entrySet()) {
-                    String val = entry.getValue().isJsonPrimitive()
-                        ? entry.getValue().getAsString()
-                        : entry.getValue().toString();
-                    requestContext.put("payload." + entry.getKey(), val);
-                }
-            }
-        } catch (Exception ignored) {}
+            String keystorePath = System.getenv("MTLS_KEYSTORE_PATH");
+            String keystorePass = System.getenv("MTLS_KEYSTORE_PASS");
+            String truststorePath = System.getenv("MTLS_TRUSTSTORE_PATH");
+            String truststorePass = System.getenv("MTLS_TRUSTSTORE_PASS");
 
-        for (ServiceConfig service : configStack) {
+            // If no mTLS env vars are provided, fall back to the system default SSLContext
+            if (keystorePath == null && truststorePath == null) {
+                return HttpClient.newBuilder().build();
+            }
+
+            KeyManagerFactory kmf = null;
+            if (keystorePath != null && keystorePass != null) {
+                KeyStore identityStore = KeyStore.getInstance("PKCS12");
+                try (InputStream ksIn = new FileInputStream(keystorePath)) {
+                    identityStore.load(ksIn, keystorePass.toCharArray());
+                }
+                kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+                kmf.init(identityStore, keystorePass.toCharArray());
+            }
+
+            TrustManagerFactory tmf = null;
+            if (truststorePath != null && truststorePass != null) {
+                KeyStore trustStore = KeyStore.getInstance("PKCS12"); // or JKS
+                try (InputStream tsIn = new FileInputStream(truststorePath)) {
+                    trustStore.load(tsIn, truststorePass.toCharArray());
+                }
+                tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init(trustStore);
+            }
+
+            SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
+            sslContext.init(
+                kmf != null ? kmf.getKeyManagers() : null,
+                tmf != null ? tmf.getTrustManagers() : null,
+                new SecureRandom()
+            );
+
+            return HttpClient.newBuilder().sslContext(sslContext).build();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize mTLS SSLContext", e);
+        }
+    }
+
+    /**
+     * Dedicated inner class to isolate the authentication pipeline execution logic.
+     */
+    public static class AuthPipelineHandler {
+
+        public void handle(Context ctx) throws Exception {
+            Map<String, String> requestContext = extractInitialContext(ctx);
+
+            for (ServiceConfig service : configStack) {
+                mapIncomingPayload(service, requestContext);
+
+                HttpRequest request = buildExternalRequest(service, requestContext);
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() >= 400) {
+                    recordRequestMetrics(ctx, false);
+                    ctx.status(401).result("Unauthorized: Failed at " + service.name());
+                    return;
+                }
+
+                extractResponsePayload(service, requestContext, response.body());
+            }
+
+            forwardHeadersToTraefik(ctx, requestContext);
+            recordRequestMetrics(ctx, true);
+            ctx.status(200).result("OK");
+        }
+
+        private Map<String, String> extractInitialContext(Context ctx) {
+            Map<String, String> context = new HashMap<>();
+            ctx.headerMap().forEach((k, v) -> context.put("header." + k.toLowerCase(), v));
+
+            try {
+                String body = ctx.body().trim();
+                if (body.startsWith("{")) {
+                    JsonObject bodyNode = JsonParser.parseString(body).getAsJsonObject();
+                    for (Map.Entry<String, JsonElement> entry : bodyNode.entrySet()) {
+                        String val = entry.getValue().isJsonPrimitive()
+                            ? entry.getValue().getAsString()
+                            : entry.getValue().toString();
+                        context.put("payload." + entry.getKey(), val);
+                    }
+                }
+            } catch (Exception ignored) {}
+            return context;
+        }
+
+        private void mapIncomingPayload(ServiceConfig service, Map<String, String> context) {
             if (service.payloadExtractions() != null) {
                 for (PayloadExtraction pe : service.payloadExtractions()) {
-                    if (requestContext.containsKey(pe.sourceKey())) {
-                        requestContext.put(pe.saveToKey(), requestContext.get(pe.sourceKey()));
+                    if (context.containsKey(pe.sourceKey())) {
+                        context.put(pe.saveToKey(), context.get(pe.sourceKey()));
                     }
                 }
             }
+        }
 
-            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(service.url()))
-                    .GET();
-
+        private HttpRequest buildExternalRequest(ServiceConfig service, Map<String, String> context) {
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder().uri(URI.create(service.url())).GET();
             if (service.headers() != null) {
                 for (HeaderMapping hm : service.headers()) {
-                    String value = requestContext.getOrDefault(hm.valueSourceKey(), "");
+                    String value = context.getOrDefault(hm.valueSourceKey(), "");
                     reqBuilder.header(hm.targetHeader(), value);
                 }
             }
+            return reqBuilder.build();
+        }
 
-            HttpResponse<String> response = httpClient.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() >= 400) {
-                recordRequestMetrics(ctx, false);
-                ctx.status(401).result("Unauthorized: Failed at " + service.name());
-                return;
-            }
-
+        private void extractResponsePayload(ServiceConfig service, Map<String, String> context, String responseBody) {
             if (service.responseExtractions() != null && !service.responseExtractions().isEmpty()) {
-                Object document = JsonPath.parse(response.body());
+                Object document = JsonPath.parse(responseBody);
                 for (ExtractionRule rule : service.responseExtractions()) {
                     try {
                         String extracted = JsonPath.read(document, rule.jsonPath()).toString();
-                        requestContext.put(rule.saveToKey(), extracted);
+                        context.put(rule.saveToKey(), extracted);
                     } catch (Exception ignored) {}
                 }
             }
         }
 
-        requestContext.forEach((k, v) -> {
-            if (!k.startsWith("header.") && !k.startsWith("payload.")) {
-                ctx.header("X-Auth-Shim-" + k, v);
+        private void forwardHeadersToTraefik(Context ctx, Map<String, String> context) {
+            context.forEach((k, v) -> {
+                if (!k.startsWith("header.") && !k.startsWith("payload.")) {
+                    ctx.header("X-Auth-Shim-" + k, v);
+                }
+            });
+        }
+
+        private void recordRequestMetrics(Context ctx, boolean success) {
+            if (success) successCount.incrementAndGet();
+            else failCount.incrementAndGet();
+
+            String dn = ctx.header("X-Forwarded-Tls-Client-Cert-Subject");
+            if (dn == null || dn.isBlank()) {
+                dn = ctx.header("X-Forwarded-Client-Cert-Dn");
             }
-        });
+            if (dn == null || dn.isBlank()) {
+                dn = "No Client Certificate";
+            }
 
-        recordRequestMetrics(ctx, true);
-        ctx.status(200).result("OK");
-    }
-
-    private static void recordRequestMetrics(Context ctx, boolean success) {
-        if (success) successCount.incrementAndGet();
-        else failCount.incrementAndGet();
-
-        // Extract the Traefik mTLS DN header
-        String dn = ctx.header("X-Forwarded-Tls-Client-Cert-Subject");
-
-        // Fallback for standard reverse proxies if Traefik header is missing
-        if (dn == null || dn.isBlank()) {
-            dn = ctx.header("X-Forwarded-Client-Cert-Dn");
+            dnCounts.computeIfAbsent(dn, k -> new AtomicInteger(0)).incrementAndGet();
         }
-
-        if (dn == null || dn.isBlank()) {
-            dn = "No Client Certificate";
-        }
-
-        dnCounts.computeIfAbsent(dn, k -> new AtomicInteger(0)).incrementAndGet();
     }
 }
