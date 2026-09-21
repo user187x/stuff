@@ -15,7 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -41,7 +41,9 @@ public class App {
 
     private static final AtomicInteger successCount = new AtomicInteger(0);
     private static final AtomicInteger failCount = new AtomicInteger(0);
-    private static final Deque<String> recentRequesters = new ConcurrentLinkedDeque<>();
+
+    // Tracks frequency of each x509 Certificate DN
+    private static final Map<String, AtomicInteger> dnCounts = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
         Javalin app = Javalin.create(config -> {
@@ -72,7 +74,14 @@ public class App {
             Map<String, Object> metrics = new HashMap<>();
             metrics.put("successCount", successCount.get());
             metrics.put("failCount", failCount.get());
-            metrics.put("requesters", new ArrayList<>(recentRequesters));
+
+            // Map the DN counts into a sortable list for the frontend
+            List<Map<String, Object>> topDns = new ArrayList<>();
+            dnCounts.forEach((dn, c) -> topDns.add(Map.of("dn", dn, "count", c.get())));
+            topDns.sort((a, b) -> Integer.compare((Integer) b.get("count"), (Integer) a.get("count")));
+
+            // Return top 25
+            metrics.put("requesters", topDns.stream().limit(25).toList());
             ctx.contentType("application/json").result(gson.toJson(metrics));
         });
 
@@ -102,17 +111,10 @@ public class App {
                     input, select { padding: 6px; margin: 4px 0; width: 250px; border: 1px solid #ccc; border-radius: 4px;}
                     .row { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; }
 
-                    /* Table styling to support sticky headers and approx 10-item scrolling */
                     .table-container { max-height: 400px; overflow-y: auto; }
                     table { width: 100%; border-collapse: collapse; }
                     th, td { padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-                    th {
-                        background: #f9fafb;
-                        font-weight: 600;
-                        position: sticky;
-                        top: 0;
-                        box-shadow: 0 1px 0 #e5e7eb;
-                    }
+                    th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; box-shadow: 0 1px 0 #e5e7eb; }
                 </style>
             </head>
             <body>
@@ -139,11 +141,14 @@ public class App {
                                 <tbody></tbody>
                             </table>
                         </div>
-                        <div class="card table-container" style="flex: 1;">
-                            <h3 style="margin-top:0;">Last 25 Requesters</h3>
-                            <table id="requesterTable">
+                        <div class="card table-container" style="flex: 2;">
+                            <h3 style="margin-top:0;">Top 25 Certificate DNs</h3>
+                            <table id="requesterTable" style="table-layout: fixed;">
                                 <thead>
-                                    <tr><th>DNS / IP</th></tr>
+                                    <tr>
+                                        <th>Certificate DN</th>
+                                        <th style="width: 70px; text-align: center;">Count</th>
+                                    </tr>
                                 </thead>
                                 <tbody></tbody>
                             </table>
@@ -229,14 +234,18 @@ public class App {
         if (success) successCount.incrementAndGet();
         else failCount.incrementAndGet();
 
-        String requesterDns = ctx.header("X-Forwarded-For");
-        if (requesterDns == null || requesterDns.isBlank()) {
-            requesterDns = ctx.req().getRemoteHost();
+        // Extract the Traefik mTLS DN header
+        String dn = ctx.header("X-Forwarded-Tls-Client-Cert-Subject");
+
+        // Fallback for standard reverse proxies if Traefik header is missing
+        if (dn == null || dn.isBlank()) {
+            dn = ctx.header("X-Forwarded-Client-Cert-Dn");
         }
 
-        recentRequesters.addFirst(requesterDns);
-        while (recentRequesters.size() > 25) {
-            recentRequesters.removeLast();
+        if (dn == null || dn.isBlank()) {
+            dn = "No Client Certificate";
         }
+
+        dnCounts.computeIfAbsent(dn, k -> new AtomicInteger(0)).incrementAndGet();
     }
 }

@@ -1,7 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
 
-    // Maintain a local history of table rows
     let metricHistory = [];
+    let lastSuccess = -1;
+    let lastFail = -1;
 
     async function updateMetrics() {
         try {
@@ -9,37 +10,46 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) return;
 
             const data = await res.json();
-            const timeString = new Date().toLocaleTimeString();
 
-            // 1. Update Metrics History (Prepend newest to top)
-            metricHistory.unshift({
-                time: timeString,
-                success: data.successCount,
-                fail: data.failCount
-            });
+            // 1. Only prepend a new row if the global totals have changed
+            if (data.successCount !== lastSuccess || data.failCount !== lastFail) {
+                const timeString = new Date().toLocaleTimeString();
 
-            // Keep array capped to prevent infinite browser memory usage
-            if (metricHistory.length > 100) {
-                metricHistory.pop();
+                metricHistory.unshift({
+                    time: timeString,
+                    success: data.successCount,
+                    fail: data.failCount
+                });
+
+                if (metricHistory.length > 100) {
+                    metricHistory.pop();
+                }
+
+                const metricsTbody = document.querySelector('#metricsTable tbody');
+                metricsTbody.innerHTML = metricHistory.map(m =>
+                    `<tr>
+                        <td style="color: #6b7280; font-family: monospace;">${m.time}</td>
+                        <td style="color: #10b981; font-weight: bold;">${m.success}</td>
+                        <td style="color: #ef4444; font-weight: bold;">${m.fail}</td>
+                    </tr>`
+                ).join('');
+
+                lastSuccess = data.successCount;
+                lastFail = data.failCount;
             }
 
-            // Render Metrics Table
-            const metricsTbody = document.querySelector('#metricsTable tbody');
-            metricsTbody.innerHTML = metricHistory.map(m =>
-                `<tr>
-                    <td style="color: #6b7280; font-family: monospace;">${m.time}</td>
-                    <td style="color: #10b981; font-weight: bold;">${m.success}</td>
-                    <td style="color: #ef4444; font-weight: bold;">${m.fail}</td>
-                </tr>`
-            ).join('');
-
-            // 2. Update Requester Table
+            // 2. Render Certificate DN counts
             const reqTbody = document.querySelector('#requesterTable tbody');
             if (data.requesters.length === 0) {
-                reqTbody.innerHTML = '<tr><td style="color: #9ca3af; font-style: italic;">No recent requests</td></tr>';
+                reqTbody.innerHTML = '<tr><td colspan="2" style="color: #9ca3af; font-style: italic;">No recent requests</td></tr>';
             } else {
                 reqTbody.innerHTML = data.requesters.map(req =>
-                    `<tr><td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${req}</code></td></tr>`
+                    `<tr>
+                        <td style="word-break: break-all; font-size: 0.9em;">
+                            <code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${req.dn}</code>
+                        </td>
+                        <td style="font-weight: bold; text-align: center;">${req.count}</td>
+                    </tr>`
                 ).join('');
             }
 
@@ -48,7 +58,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Begin polling loop every 2 seconds
     setInterval(updateMetrics, 2000);
     updateMetrics();
 });
