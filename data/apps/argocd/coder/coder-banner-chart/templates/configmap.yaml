@@ -19,6 +19,8 @@ data:
         "dismissible" .Values.banner.dismissible
         "showOnLoginPage" .Values.banner.showOnLoginPage
         "refreshSeconds" .Values.banner.refreshSeconds
+        "effect" (include "coder-banner.effect" .)
+        "repeat" (.Values.banner.repeat | default false)
       | toPrettyJson | nindent 4 }}
 ---
 apiVersion: v1
@@ -32,6 +34,20 @@ data:
   {{- range $name := list "banner.js" "server.py" "live.py" "admin.html" "app.js" "app.css" }}
   {{ $name }}: |
     {{- $.Files.Get (printf "files/%s" $name) | nindent 4 }}
+  {{- end }}
+---
+# Third-party code, kept apart from ours: the text-effects library (Anime.js, MIT). Served as-is, unmodified.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-banner-vendor
+  namespace: {{ include "coder-banner.namespace" . }}
+  labels:
+    {{- include "coder-banner.labels" . | nindent 4 }}
+data:
+  {{- range $name := list "anime.umd.min.js" "LICENSE-animejs.md" }}
+  {{ $name }}: |
+    {{- $.Files.Get (printf "files/vendor/%s" $name) | nindent 4 }}
   {{- end }}
 ---
 # What an admin publishes from the admin page (state.json). Helm only owns the metadata: it never

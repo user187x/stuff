@@ -87,9 +87,6 @@ public class App {
             <head>
                 <meta charset="UTF-8">
                 <title>Traefik Auth-Shim Pipeline</title>
-                <!-- Chart.js and Date Adapter for intelligent time scaling -->
-                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
                 <style>
                     body { font-family: system-ui, sans-serif; background: #f4f4f5; padding: 20px; color: #333; }
                     .container { max-width: 1000px; margin: 0 auto; }
@@ -104,9 +101,18 @@ public class App {
                     button.secondary { background: #e5e7eb; color: #374151; }
                     input, select { padding: 6px; margin: 4px 0; width: 250px; border: 1px solid #ccc; border-radius: 4px;}
                     .row { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; }
+
+                    /* Table styling to support sticky headers and approx 10-item scrolling */
+                    .table-container { max-height: 400px; overflow-y: auto; }
                     table { width: 100%; border-collapse: collapse; }
                     th, td { padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-                    th { background: #f9fafb; font-weight: 600; }
+                    th {
+                        background: #f9fafb;
+                        font-weight: 600;
+                        position: sticky;
+                        top: 0;
+                        box-shadow: 0 1px 0 #e5e7eb;
+                    }
                 </style>
             </head>
             <body>
@@ -120,11 +126,20 @@ public class App {
                     <div id="pipeline-container"></div>
 
                     <div style="display: flex; gap: 20px; margin-top: 30px;">
-                        <div class="card" style="flex: 2;">
+                        <div class="card table-container" style="flex: 2;">
                             <h3 style="margin-top:0;">Live Requests</h3>
-                            <canvas id="liveChart" height="120"></canvas>
+                            <table id="metricsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Success Total</th>
+                                        <th>Failed Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
                         </div>
-                        <div class="card" style="flex: 1; max-height: 350px; overflow-y: auto;">
+                        <div class="card table-container" style="flex: 1;">
                             <h3 style="margin-top:0;">Last 25 Requesters</h3>
                             <table id="requesterTable">
                                 <thead>

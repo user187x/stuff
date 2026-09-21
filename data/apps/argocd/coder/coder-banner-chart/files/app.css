@@ -45,6 +45,9 @@ textarea { resize: vertical; }
 .level input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
 .level-info span { background: #1e40af; } .level-success span { background: #166534; }
 .level-warning span { background: #b45309; } .level-critical span { background: #b91c1c; }
+.effect-row { display: flex; gap: 12px 18px; align-items: center; flex-wrap: wrap; }
+.effect-row .btn { padding: 6px 14px; }
+select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--text); font: inherit; }
 .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .chips-label { color: var(--muted); font-size: 13px; }
 .chip { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }

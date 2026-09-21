@@ -18,12 +18,15 @@
     },
   };
   var TEXT_FIELDS = ['message', 'title', 'linkText', 'linkUrl'];
-  var BOOL_FIELDS = ['dismissible', 'showOnLoginPage'];
+  var BOOL_FIELDS = ['dismissible', 'showOnLoginPage', 'repeat'];
+  var PLAY_DELAY_MS = 600; // let typing settle before (re)playing the effect in the preview
 
   var $ = function (id) { return document.getElementById(id); };
   var server = null; // last state from the service
   var busy = false;
   var toastTimer = null;
+  var previewEl = null;
+  var playTimer = null;
 
   function api(path, body) {
     var options = { credentials: 'same-origin', headers: {} };
@@ -51,6 +54,7 @@
     BOOL_FIELDS.forEach(function (k) { out[k] = $(k).checked; });
     var level = document.querySelector('input[name=level]:checked');
     out.level = level ? level.value : 'info';
+    out.effect = $('effect').value;
     out.refreshSeconds = parseInt($('refreshSeconds').value, 10) || 60;
     return out;
   }
@@ -60,18 +64,43 @@
     BOOL_FIELDS.forEach(function (k) { $(k).checked = !!b[k]; });
     var radio = document.querySelector('input[name=level][value=' + (b.level || 'info') + ']');
     if (radio) radio.checked = true;
+    $('effect').value = b.effect || 'none';
+    if (!$('effect').value) $('effect').value = 'none'; // an effect this page does not know about
     $('refreshSeconds').value = b.refreshSeconds || 60;
   }
 
+  // A banner saved before effects existed has no effect fields: that means "none", not "changed".
+  var EFFECT_DEFAULTS = { effect: 'none', repeat: false };
+
   function sameAsServer(form) {
     var s = server.banner;
-    return TEXT_FIELDS.concat(BOOL_FIELDS, ['level', 'refreshSeconds']).every(function (k) { return form[k] === s[k]; });
+    return TEXT_FIELDS.concat(BOOL_FIELDS, ['level', 'effect', 'refreshSeconds']).every(function (k) {
+      return form[k] === (s[k] === undefined && k in EFFECT_DEFAULTS ? EFFECT_DEFAULTS[k] : s[k]);
+    });
   }
 
   // ---- rendering
+  // The preview text is redrawn on every keystroke; the effect is (re)played once typing settles.
+  function playPreview() {
+    window.clearTimeout(playTimer);
+    if (previewEl && previewEl.isConnected) window.__coderBannerPreview.play(previewEl, readForm());
+  }
+
+  function renderEffectHint() {
+    var option = $('effect').selectedOptions[0];
+    var hint = option ? option.getAttribute('data-hint') : '';
+    if (window.__coderBannerPreview.reducedMotion()) hint += ' This device asks for reduced motion, so effects are not played here, or for anyone with that setting.';
+    $('effect-hint').textContent = hint;
+    $('repeat').disabled = $('effect').value === 'none';
+    $('replay').disabled = $('effect').value === 'none' || !previewEl;
+  }
+
   function renderPreview() {
     var form = readForm();
     var box = $('preview');
+    window.clearTimeout(playTimer);
+    window.__coderBannerPreview.stop();
+    previewEl = null;
     box.textContent = '';
     if (!form.message) {
       var empty = document.createElement('div');
@@ -80,8 +109,11 @@
       box.appendChild(empty);
     } else {
       form.enabled = true;
-      box.appendChild(window.__coderBannerPreview.build(form));
+      previewEl = window.__coderBannerPreview.build(form);
+      box.appendChild(previewEl);
+      if (form.effect !== 'none') playTimer = window.setTimeout(playPreview, PLAY_DELAY_MS);
     }
+    renderEffectHint();
   }
 
   // "3 open tabs" - how many browsers are holding the live connection right now.
@@ -211,6 +243,7 @@
         renderState();
       });
     });
+    $('replay').addEventListener('click', function () { renderPreview(); playPreview(); });
     $('publish').addEventListener('click', publish);
     $('revert').addEventListener('click', function () { writeForm(server.banner); showProblem(''); renderState(); });
     $('toggle').addEventListener('click', toggle);

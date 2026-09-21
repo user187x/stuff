@@ -70,3 +70,8 @@ banner:
   # Coder's login page has no header to anchor under, so show the banner above the page instead.
   showOnLoginPage: true
   refreshSeconds: 60     # how often open browser tabs re-check banner.json (min 15)
+  # Text effect (Anime.js, bundled in the chart - nothing is downloaded). Browsers whose user asked for
+  # reduced motion always see plain text.
+  #   none | typewriter | fade | rise | wave | bounce | flip | shake | pulse | rainbow
+  effect: none
+  repeat: false          # true = keep repeating; false = play once each time the banner appears

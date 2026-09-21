@@ -4,6 +4,7 @@
 Served on the Coder host under /__banner/ (the HTTPRoute sends that prefix here):
 
   public  GET  banner.js, banner.json     the loader script injected into Coder, and the live banner
+          GET  vendor/anime.umd.min.js    the text-effects library (Anime.js, MIT), loaded only when an effect is set
   admin   GET  admin (+ app.js/app.css)   single-page editor, Coder admins only
           GET  api/state                  current banner + who last changed it
           POST api/banner                 publish changes
@@ -45,10 +46,13 @@ CODER_URL = os.environ.get("CODER_URL", "http://coder").rstrip("/")
 ADMIN_ROLES = {r.strip() for r in os.environ.get("ADMIN_ROLES", "owner").split(",") if r.strip()}
 STATE_FILE = os.environ.get("STATE_FILE", "")  # local testing; in-cluster the ConfigMap is used
 STATE_CONFIGMAP = os.environ.get("STATE_CONFIGMAP", "coder-banner-state")
+VENDOR_DIR = os.environ.get("VENDOR_DIR", "/vendor")  # third-party files, kept apart from our own code
 
 BASE = "/__banner"
 SESSION_COOKIE = "coder_session_token"
 LEVELS = ("info", "success", "warning", "critical")
+# Text effects. The names are the contract with banner.js (which implements them) and admin.html (the drop-down).
+EFFECTS = ("none", "typewriter", "fade", "rise", "wave", "bounce", "flip", "shake", "pulse", "rainbow")
 LIMITS = {"message": 400, "title": 80, "linkText": 60, "linkUrl": 500}
 CSRF_HEADER = ("X-Requested-With", "coder-banner-admin")
 LIVE_ENABLED = os.environ.get("LIVE_ENABLED", "1") not in ("0", "false", "no", "")
@@ -70,6 +74,8 @@ FIELDS = {
     "dismissible": True,
     "showOnLoginPage": True,
     "refreshSeconds": 60,
+    "effect": "none",
+    "repeat": False,
 }
 SAFE_URL = re.compile(r"^(https?://[^\s]+|/(?!/)[^\s]*)$", re.I)
 
@@ -217,7 +223,7 @@ class Banner:
             if len(value) > LIMITS[key]:
                 raise BannerError("%s is too long (max %d characters)." % (key, LIMITS[key]))
             out[key] = value
-        for key in ("enabled", "dismissible", "showOnLoginPage"):
+        for key in ("enabled", "dismissible", "showOnLoginPage", "repeat"):
             value = payload.get(key, FIELDS[key])
             if not isinstance(value, bool):
                 raise BannerError("%s must be true or false." % key)
@@ -225,6 +231,9 @@ class Banner:
         out["level"] = payload.get("level", "info")
         if out["level"] not in LEVELS:
             raise BannerError("Style must be one of: %s." % ", ".join(LEVELS))
+        out["effect"] = payload.get("effect", "none")
+        if out["effect"] not in EFFECTS:
+            raise BannerError("Text effect must be one of: %s." % ", ".join(EFFECTS))
         seconds = payload.get("refreshSeconds", FIELDS["refreshSeconds"])
         if isinstance(seconds, bool) or not isinstance(seconds, int) or not 15 <= seconds <= 3600:
             raise BannerError("Check interval must be between 15 and 3600 seconds.")
@@ -244,7 +253,7 @@ class Banner:
         with self.lock:
             state = self.state(fresh=True)
             self._write({"override": fields, "revision": state.get("revision", 0), "updatedBy": user, "updatedAt": now()})
-        log(event="banner-saved", user=user, level=fields["level"], enabled=fields["enabled"], message=fields["message"][:120])
+        log(event="banner-saved", user=user, level=fields["level"], effect=fields["effect"], enabled=fields["enabled"], message=fields["message"][:120])
 
     def reappear(self, user):
         with self.lock:
@@ -347,9 +356,9 @@ class Handler(BaseHTTPRequestHandler):
     def send_json(self, status, payload):
         self.send(status, json.dumps(payload), "application/json", self.ADMIN_HEADERS)
 
-    def send_file(self, name, content_type, headers):
+    def send_file(self, name, content_type, headers, directory=None):
         try:
-            with open(os.path.join(APP_DIR, name), "rb") as f:
+            with open(os.path.join(directory or APP_DIR, name), "rb") as f:
                 self.send(200, f.read(), content_type, headers)
         except FileNotFoundError:
             self.send(404, "not found")
@@ -399,6 +408,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, "ok\n")
         if path == BASE + "/banner.js":
             return self.send_file("banner.js", "application/javascript", {"Cache-Control": "no-cache"})
+        if path == BASE + "/vendor/anime.umd.min.js":
+            # Versioned by the ?v= the loader adds, so it can be cached for good.
+            return self.send_file(
+                "anime.umd.min.js",
+                "application/javascript",
+                {"Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff"},
+                directory=VENDOR_DIR,
+            )
         if path == BASE + "/banner.json":
             return self.send(200, json.dumps(Handler.banner.public()), "application/json", {"Cache-Control": "no-store"})
         if path in (BASE + "/admin", BASE + "/admin/", BASE + "/admin/app.js", BASE + "/admin/app.css") or path == BASE + "/api/state":

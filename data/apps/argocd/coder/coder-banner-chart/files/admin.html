@@ -50,6 +50,27 @@
         </div>
       </fieldset>
 
+      <fieldset class="field">
+        <legend class="label">Text effect</legend>
+        <div class="effect-row">
+          <select id="effect" aria-describedby="effect-hint">
+            <option value="none" data-hint="Plain text, no animation.">None</option>
+            <option value="typewriter" data-hint="Letters appear one by one, as if typed.">Typewriter</option>
+            <option value="fade" data-hint="Words fade in one after another.">Fade in</option>
+            <option value="rise" data-hint="Letters slide up into place.">Rise</option>
+            <option value="wave" data-hint="A wave of movement runs through the letters.">Wave</option>
+            <option value="bounce" data-hint="Letters drop in and bounce.">Bounce</option>
+            <option value="flip" data-hint="Letters flip into view.">Flip</option>
+            <option value="shake" data-hint="The whole message shakes: best kept for urgent notices.">Shake</option>
+            <option value="pulse" data-hint="The message gently pulses.">Pulse</option>
+            <option value="rainbow" data-hint="Colours sweep through the letters.">Rainbow</option>
+          </select>
+          <label class="check"><input id="repeat" type="checkbox"><span>Repeat continuously <small>(otherwise it plays once when the banner appears)</small></span></label>
+          <button type="button" id="replay" class="btn">▶ Replay</button>
+        </div>
+        <p class="hint" id="effect-hint"></p>
+      </fieldset>
+
       <div class="grid">
         <label class="field"><span class="label">Bold lead-in <em>(optional)</em></span>
           <input id="title" type="text" maxlength="80" placeholder="e.g. Security patch:"></label>
