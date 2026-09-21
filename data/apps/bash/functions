@@ -14,6 +14,17 @@ function create-dir {
  mkdir -p "$1" && cd "$1"
 }
 
+function tar-tree {
+
+ if [[ "$#" != 1 ]]; then
+  echo "usage: tar-tree <archive.tar>"
+  exit 1
+ fi
+
+ tar -tf "$1" | tree --fromfile .
+
+}
+
 function tar-extract {
 
  if [[ "$#" != 1 ]]; then

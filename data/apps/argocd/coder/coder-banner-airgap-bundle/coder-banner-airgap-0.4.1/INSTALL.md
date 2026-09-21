@@ -25,7 +25,7 @@ internal container registry, and (for the Argo CD route) an internal Helm chart 
 | `HTTPRoute/coder-banner` (beside Coder's own route, same host)        | Coder's Deployment, Service, database, secrets   |
 | 6 Traefik `Middleware`s (`coder-banner*`)                             | Coder's own `HTTPRoute`                          |
 | `Deployment` + `Service` `coder-banner` (small Python web server, ports 80 and 8081 for the live channel) | The `traefik-gateway` Gateway |
-| 3 ConfigMaps, 1 ServiceAccount, 1 Role + RoleBinding (one ConfigMap)  | Any other namespace                              |
+| 5 ConfigMaps (code, defaults, the text-effects library, the emoji list, published state), 1 ServiceAccount, 1 Role + RoleBinding (one ConfigMap) | Any other namespace |
 
 One thing lives **outside** the chart because Traefik reads it at start-up: the `rewrite-body` plugin has to
 be enabled in Traefik's static configuration (`support/traefik/enable-plugin`). It is reversible
@@ -121,6 +121,67 @@ pill shows how many tabs are connected right now, and after publishing you are t
 survives upgrades and restarts; **use the chart defaults** resets it. `./banner-set --off` / `--message ...` change
 the chart defaults from the command line.
 
+## Emoji picker
+
+On the admin page, the **😀 button to the left of "Bold lead-in"** opens an emoji picker, so a message like
+`⚠️ Impending restart! ⚠️` needs no copy-and-paste.
+
+* **Quick picks** for announcements (⚠️ 🚨 ✅ ❌ ℹ️ 🔧 ⏰ 🔒 🔥 🎉 🚀 ...), **recently used** emoji, all categories, and a search
+  box that understands names and keywords ("siren", "alert", "rocket").
+* It inserts **at the cursor** (replacing any selected text) with a space on each side where one is needed, into the
+  **Message** or the **Bold lead-in**: the one you used last, changeable with the *Insert into* choice. Shift-click adds
+  several without closing; Esc closes; arrow keys and Enter work. It refuses, and says why, if the text would go over
+  the field's limit.
+* Emoji are ordinary text, so they work in the banner, in the lead-in, and with every text effect.
+* Air-gapped: **nothing is downloaded from outside.** The whole emoji list is one script, `files/emoji/emoji-data.js`
+  (1,580 emoji, 86 KB), served by the banner service to admins only and loaded the first time the picker is opened. There is no
+  picker library and no images: the picker is `files/emoji-picker.js`, and the emoji are drawn by the operating system's
+  emoji font (Windows, macOS, iOS and Android have one; on Linux install `fonts-noto-color-emoji` or equivalent, or they
+  show as empty boxes).
+* Only emoji up to Unicode Emoji 14.0 are offered (newer ones draw as empty boxes on older systems), and no skin-tone
+  variants or country flags.
+
+The list is generated from the MIT-licensed `emojibase-data` package (names and keywords from Unicode CLDR, Unicode
+License); see `files/emoji/LICENSE-emojibase.md`. To regenerate it (needs internet, once, on a build machine):
+`./support/build-emoji-data` (`--max-version 15` to include newer emoji, `--from DIR` for an unpacked package).
+No picker library was used because the available ones inject inline `<style>` elements that the admin page's strict
+Content-Security-Policy blocks, or need their data as a separate download, or are too large for one ConfigMap under Argo CD.
+
+## Text effects
+
+The message can be animated: pick an effect from the **Text effect** drop-down on the admin page and tick **Repeat
+continuously** if it should keep going (otherwise it plays once each time the banner appears). The preview on the
+admin page plays it as you choose; **Replay** plays it again. It goes live with **Publish**, like everything else.
+
+| Effect | What it does |
+| --- | --- |
+| None | Plain text (the default) |
+| Typewriter | Letters appear one by one |
+| Fade in | Words fade in one after another |
+| Rise | Letters slide up into place |
+| Wave | A wave of movement runs through the letters |
+| Bounce | Letters drop in and bounce |
+| Flip | Letters flip into view |
+| Shake | The whole message shakes (keep it for urgent notices) |
+| Pulse | The message gently pulses |
+| Rainbow | Colours sweep through the letters |
+
+* Chart default instead of the admin page: `banner.effect` / `banner.repeat` in values, or
+  `./banner-set --effect wave --repeat`. An unknown name fails the install with the list of valid ones.
+* Changing only the effect does **not** bring the banner back for people who dismissed it (only new text does).
+* People whose device asks for **reduced motion** always see plain text (their browser setting is respected), and screen
+  readers read the sentence once, normally.
+* If the effects library cannot load, the banner is simply shown as plain text. The library is only downloaded by
+  browsers when a banner actually has an effect, and is cached for a year.
+* Air-gapped: the library is **inside the chart** (`files/vendor/`), served by the banner service itself: no CDN, no
+  download, and it is part of the bundle like everything else.
+
+**Third-party code:** [Anime.js](https://animejs.com) 4.5.0 by Julian Garnier, MIT licence (`files/vendor/LICENSE-animejs.md`,
+also served in the `coder-banner-vendor` ConfigMap). It is the unmodified `dist/bundles/anime.umd.min.js` from the
+`animejs@4.5.0` npm package (sha256 `8d5b3a58a1f64023a04a4cedeef135a2263b18da04b35177ac13438a0bad033b`). To update it,
+replace that file and its licence, and change the `?v=` in `LIB_URL` at the top of `files/banner.js` so browsers fetch the
+new copy.
+
 ## How the live push works
 Every open Coder tab holds a WebSocket to the banner service (`wss://<coder host>/__banner/live`, served by an
 asyncio hub in the same pod, reached through its own `HTTPRoute` rule on port 8081).
@@ -156,7 +217,8 @@ Traefik about 5 seconds to notice, so the script waits for it before checking.
 
 ## Upgrading
 * **The chart:** upload the new archive, then `./install-banner-chart --skip-traefik` (Helm) or raise
-  `targetRevision` (Argo CD). Published banners are kept.
+  `targetRevision` (Argo CD). Published banners are kept. Coming from 0.2.x (before text effects): banners published
+  earlier simply have no effect, and tabs that are already open need one reload to learn about effects.
 * **Coder:** the menu shortcut edits Coder's minified JavaScript, so run `./verify-menu` after every Coder upgrade.
   If Coder's code changed, the shortcut simply stops applying (stock menu) and everything else keeps working; adjust
   `templates/_menu.tpl`.

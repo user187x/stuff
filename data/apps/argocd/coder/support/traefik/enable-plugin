@@ -26,6 +26,7 @@ render "${overlay}"
 show_changes
 [[ ${diff_only} -eq 1 ]] && exit 0
 apply_and_wait
+verify_plugins_loaded || { echo "The plugin was NOT enabled: Traefik is back on its previous configuration." >&2; exit 1; }
 # Switching from the air-gapped (local) plugin back to the downloaded one leaves its ConfigMap orphaned.
 if [[ "${overlay}" != *airgap* ]]; then
  for cm in $(kubectl -n "${NS}" get configmap -o name | grep -- '-local-plugin-' || true); do

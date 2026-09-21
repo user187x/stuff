@@ -52,7 +52,7 @@ else
 fi
 
 echo "3/6 Traefik plugin (vendored source: nothing is downloaded on the air-gapped side)"
-cp support/traefik/{enable-plugin,disable-plugin,plugin-lib.sh,rewrite-body-plugin.yaml,rewrite-body-plugin-airgap.yaml,gen-airgap-plugin-values} "${stage}/support/traefik/"
+cp support/traefik/{enable-plugin,disable-plugin,plugin-lib.sh,plugin-health.sh,rewrite-body-plugin.yaml,rewrite-body-plugin-airgap.yaml,gen-airgap-plugin-values} "${stage}/support/traefik/"
 cp -r support/traefik/plugin-src "${stage}/support/traefik/"
 if [[ -n "${traefik_chart}" ]]; then
  if [[ "${traefik_chart}" == "installed" ]]; then

@@ -2,11 +2,10 @@ api:
   dashboard: true
   insecure: false
 
-experimental:
-  plugins:
-    rewrite-body:
-      moduleName: "github.com/traefik/plugin-rewritebody"
-      version: "v0.3.1"
+# NO `experimental.plugins.rewrite-body` here. The rewrite-body plugin is switched on afterwards by the banner's
+# support/traefik/enable-plugin [--airgap], which adds it as a download OR a local plugin. Listing it here as well
+# defines the name twice: Traefik then logs "the plugin's name must be unique", disables ALL plugins and the banner
+# silently stops (Coder itself keeps working).
 
 ports:
   traefik:
@@ -29,13 +28,16 @@ gateway:
   enabled: true
   name: traefik-gateway
 
+  # The live Gateway's listeners (same as support/gateway/gateway.yaml). The names matter: the Argo CD and Harbor
+  # HTTPRoutes bind to sectionName "https", so a listener called "websecure" would leave them detached.
   listeners:
-    web:
-      port: 8000
+    web: null   # the chart's own default listener; without this it merges in next to http/https
+    http:
+      port: 8080
       protocol: HTTP
       namespacePolicy:
         from: All
-    websecure:
+    https:
       port: 8443
       protocol: HTTPS
       namespacePolicy:
