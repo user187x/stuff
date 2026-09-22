@@ -1,0 +1,21 @@
+apiVersion: v1
+entries:
+  coder-banner:
+  - apiVersion: v2
+    appVersion: 1.3.1
+    created: "2026-09-21T08:26:04.047085507-04:00"
+    description: Editable announcement banner for the Coder dashboard, injected by
+      Traefik rewrite-body middlewares
+    digest: 4f96087c2a329608dfb72f820c7fe42170ecd63a90056ebea84d8425295fb67e
+    keywords:
+    - coder
+    - traefik
+    - gateway-api
+    - banner
+    kubeVersion: '>=1.26.0-0'
+    name: coder-banner
+    type: application
+    urls:
+    - coder-banner-0.4.1.tgz
+    version: 0.4.1
+generated: "2026-09-21T08:26:04.04535303-04:00"

@@ -1,0 +1,15 @@
+09:14:28 START mode=deploy dry_run=1 pwd=/home/xxx/Desktop/stuff/coder-updates
+09:14:28 TITLE Coder banner - guided setup
+09:14:28 TITLE DEPLOY: install the banner on the air-gapped cluster
+09:14:28 STEP 1/9 Find and check the bundle
+09:14:28 STEP 2/9 Check the tools on this machine
+09:14:28 DIE Please install the missing tool(s) above (to talk to the cluster) and run this again.
+09:14:32 START mode=menu dry_run=0 pwd=/home/xxx/Desktop/stuff/coder-updates
+09:14:32 TITLE Coder banner - guided setup
+09:14:32 CHOICE What would you like to do? = 5
+09:14:32 TITLE What is this?
+09:14:32 START mode=bundle dry_run=1 pwd=/home/xxx/Desktop/stuff/coder-updates
+09:14:32 TITLE Coder banner - guided setup
+09:14:32 TITLE BUNDLE: pack everything into one file for the air-gapped cluster
+09:14:32 STEP 1/6 Check that we are in the right place
+09:14:32 DIE Cannot bundle from here.
