@@ -1,0 +1,50 @@
+# invocation artifacts
+package-backup/
+apt-cache/
+
+.classpath
+.idea/
+.idea/*
+.project
+.prefs
+.settings/
+**/.git/
+
+**/.claude/
+**/media3-patched/
+
+# operating system
+.DS_store
+.netrwhist
+
+# nested projects
+data/work/kv4p-ht/.git
+
+# file extensions
+*.sass-cache
+*.scss
+*.vscode
+*.css
+*.git
+*.iso
+*.class
+*.hprof
+
+# certificate related
+**/certs/
+*.crt
+*.key
+*.pem
+*.p12
+*.csr
+
+# Ignore all large file part directories by default
+*-parts/
+*-parts/*
+.minikube-tunnel.pid
+resources/os/components/icons/payload.tar
+target/
+certs/
+data/apps/vim/package*
+data/apps/vim/package/*
+data/apps/vim/node_modules/*
